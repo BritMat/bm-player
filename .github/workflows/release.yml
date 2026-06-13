@@ -6,8 +6,13 @@ on:
       - 'v*.*.*'
   workflow_dispatch:
 
+env:
+  GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+  # Forces all GitHub background actions to use Node 24, silencing the warnings
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 jobs:
-  # ── x64 Build ────────────────────────────────────────────
+  # ── x64 Build (Modern 64-bit) ────────────────────────────
   build-x64:
     name: Windows x64 Installer
     runs-on: windows-latest
@@ -18,11 +23,16 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '24'
           cache: 'npm'
 
-      - name: Install dependencies
-        run: npm ci --ignore-scripts
+      - name: Fix npm scripts and Install
+        shell: bash
+        run: |
+          # Remove the problematic local script so it doesn't crash the install
+          npm pkg delete scripts.postinstall
+          # Install normally so Electron's core binaries are successfully downloaded!
+          npm install
 
       - name: Generate icon
         run: node scripts/generate-icon.js
@@ -56,35 +66,28 @@ jobs:
           $writer.Close(); $stream.Close(); $bmp.Dispose()
 
       - name: Download and Extract mpv x64
-        shell: pwsh
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
         run: |
-          # Create the exact directory expected by electron-builder.yml
-          New-Item -ItemType Directory -Force -Path "vendor\mpv"
-          Write-Host "Fetching latest mpv x64 release using wildcard matching..."
-          $releases = gh api repos/shinchiro/mpv-winbuild-cmake/releases/latest | ConvertFrom-Json
+          mkdir -p vendor/mpv
+          cd vendor/mpv
           
-          # Bulletproof wildcard match
-          $asset = $releases.assets | Where-Object { $_.name -like "mpv-x86_64-*.7z" -and $_.name -notlike "*debug*" -and $_.name -notlike "*dev*" } | Select-Object -First 1
+          echo "Fetching latest mpv x64 release URL..."
+          # Uses bash and jq to perfectly match the newest 64-bit download link
+          ASSET_URL=$(curl -sL -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" "https://api.github.com/repos/shinchiro/mpv-winbuild-cmake/releases/latest" | jq -r '.assets[] | select(.name | test("x86_64.*\\.7z$")) | select(.name | test("debug") | not) | .browser_download_url' | head -n 1)
           
-          if (-not $asset) {
-              Write-Error "Could not find a matching mpv release asset! Found assets:"
-              $releases.assets.name
-              exit 1
-          }
+          if [ -z "$ASSET_URL" ] || [ "$ASSET_URL" == "null" ]; then
+            echo "Error: Could not find mpv asset URL."
+            exit 1
+          fi
           
-          Write-Host "Found asset: $($asset.name). Downloading..."
-          gh release download -R shinchiro/mpv-winbuild-cmake -p $asset.name
+          echo "Downloading mpv from $ASSET_URL..."
+          curl -sL "$ASSET_URL" -o mpv.7z
           
-          Write-Host "Extracting directly to vendor\mpv directory..."
-          # Extract to the correct vendor directory
-          7z e $asset.name -o"vendor\mpv" -y
-          Remove-Item $asset.name -Force
+          echo "Extracting mpv..."
+          7z e mpv.7z -y
+          rm mpv.7z
 
       - name: Build x64 installer
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: npx electron-builder --win nsis --x64 --publish always
 
       - name: Upload x64 artifact
@@ -94,7 +97,7 @@ jobs:
           path: dist/BM-Player-Setup-*-x64.exe
           if-no-files-found: warn
 
-  # ── x86 Build ────────────────────────────────────────────
+  # ── x86 Build (Legacy 32-bit) ────────────────────────────
   build-x86:
     name: Windows x86 Installer
     runs-on: windows-latest
@@ -105,11 +108,14 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '24'
           cache: 'npm'
 
-      - name: Install dependencies
-        run: npm ci --ignore-scripts
+      - name: Fix npm scripts and Install
+        shell: bash
+        run: |
+          npm pkg delete scripts.postinstall
+          npm install
 
       - name: Generate icon
         run: node scripts/generate-icon.js
@@ -142,36 +148,29 @@ jobs:
           foreach ($data in $images) { $writer.Write($data) }
           $writer.Close(); $stream.Close(); $bmp.Dispose()
 
-      - name: Download and Extract mpv x86
-        shell: pwsh
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Download and Extract Legacy mpv x86
+        shell: bash
         run: |
-          # Create the exact directory expected by electron-builder.yml
-          New-Item -ItemType Directory -Force -Path "vendor\mpv"
-          Write-Host "Fetching latest mpv i686 release using wildcard matching..."
-          $releases = gh api repos/shinchiro/mpv-winbuild-cmake/releases/latest | ConvertFrom-Json
+          mkdir -p vendor/mpv
+          cd vendor/mpv
           
-          # Bulletproof wildcard match for 32-bit version
-          $asset = $releases.assets | Where-Object { $_.name -like "mpv-i686-*.7z" -and $_.name -notlike "*debug*" -and $_.name -notlike "*dev*" } | Select-Object -First 1
+          echo "Searching release history for the last available 32-bit (i686) mpv build..."
+          # This advanced jq query pages through the history and grabs the URL of the most recent 32-bit file it can find
+          ASSET_URL=$(curl -sL -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" "https://api.github.com/repos/shinchiro/mpv-winbuild-cmake/releases" | jq -r '[.[] | select(.assets[].name | test("i686.*\\.7z$"))][0] | .assets[] | select(.name | test("i686.*\\.7z$") and (test("debug") | not)) | .browser_download_url' | head -n 1)
           
-          if (-not $asset) {
-              Write-Error "Could not find a matching mpv x86 release asset! Found assets:"
-              $releases.assets.name
-              exit 1
-          }
+          if [ -z "$ASSET_URL" ] || [ "$ASSET_URL" == "null" ]; then
+            echo "Error: Could not find any historical mpv x86 asset URL."
+            exit 1
+          fi
           
-          Write-Host "Found asset: $($asset.name). Downloading..."
-          gh release download -R shinchiro/mpv-winbuild-cmake -p $asset.name
+          echo "Downloading 32-bit mpv from $ASSET_URL..."
+          curl -sL "$ASSET_URL" -o mpv-x86.7z
           
-          Write-Host "Extracting directly to vendor\mpv directory..."
-          # Extract to the correct vendor directory
-          7z e $asset.name -o"vendor\mpv" -y
-          Remove-Item $asset.name -Force
+          echo "Extracting 32-bit mpv..."
+          7z e mpv-x86.7z -y
+          rm mpv-x86.7z
 
       - name: Build x86 installer
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: npx electron-builder --win nsis --ia32 --publish always
 
       - name: Upload x86 artifact
