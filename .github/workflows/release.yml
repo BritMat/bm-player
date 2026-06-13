@@ -33,9 +33,7 @@ jobs:
       - name: Fix npm scripts and Install
         shell: bash
         run: |
-          # Remove the problematic local script so it doesn't crash the install
           npm pkg delete scripts.postinstall
-          # Install normally so Electron's core binaries are successfully downloaded!
           npm install
 
       - name: Generate icon
@@ -72,13 +70,12 @@ jobs:
       - name: Download and Extract mpv x64
         shell: bash
         run: |
-          # Create the exact directory expected by electron-builder
           mkdir -p vendor/mpv
           cd vendor/mpv
           
           echo "Fetching latest mpv x64 release URL..."
-          # Enforces that the file name MUST start with "mpv-" to avoid grabbing ffmpeg
-          ASSET_URL=$(curl -sL -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" "https://api.github.com/repos/shinchiro/mpv-winbuild-cmake/releases/latest" | jq -r '.assets[] | select(.name | test("^mpv-.*x86_64.*\\.7z$")) | select(.name | test("debug") | not) | .browser_download_url' | head -n 1)
+          # STRICT MATCH: Must start with mpv-x86_64, and explicitly block "dev" and "debug" files
+          ASSET_URL=$(curl -sL -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" "https://api.github.com/repos/shinchiro/mpv-winbuild-cmake/releases/latest" | jq -r '.assets[] | select(.name | test("^mpv-x86_64.*\\.7z$")) | select(.name | test("dev|debug") | not) | .browser_download_url' | head -n 1)
           
           if [ -z "$ASSET_URL" ] || [ "$ASSET_URL" == "null" ]; then
             echo "Error: Could not find mpv asset URL."
@@ -156,13 +153,12 @@ jobs:
       - name: Download and Extract Legacy mpv x86
         shell: bash
         run: |
-          # Create the exact directory expected by electron-builder
           mkdir -p vendor/mpv
           cd vendor/mpv
           
           echo "Searching release history for the last available 32-bit (i686) mpv build..."
-          # Enforces that the file name MUST start with "mpv-" to avoid grabbing ffmpeg
-          ASSET_URL=$(curl -sL -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" "https://api.github.com/repos/shinchiro/mpv-winbuild-cmake/releases" | jq -r '[.[] | select(.assets[].name | test("^mpv-.*i686.*\\.7z$"))][0] | .assets[] | select(.name | test("^mpv-.*i686.*\\.7z$") and (test("debug") | not)) | .browser_download_url' | head -n 1)
+          # STRICT MATCH: Blocks "dev" files from the legacy pull
+          ASSET_URL=$(curl -sL -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" "https://api.github.com/repos/shinchiro/mpv-winbuild-cmake/releases" | jq -r '[.[] | select(.assets[].name | test("^mpv-i686.*\\.7z$"))][0] | .assets[] | select(.name | test("^mpv-i686.*\\.7z$")) | select(.name | test("dev|debug") | not) | .browser_download_url' | head -n 1)
           
           if [ -z "$ASSET_URL" ] || [ "$ASSET_URL" == "null" ]; then
             echo "Error: Could not find any historical mpv x86 asset URL."
