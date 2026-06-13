@@ -6,10 +6,6 @@ on:
       - 'v*.*.*'
   workflow_dispatch:
 
-env:
-  GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
-
 jobs:
   # ── x64 Build ────────────────────────────────────────────
   build-x64:
@@ -22,7 +18,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '24'
+          node-version: '20'
           cache: 'npm'
 
       - name: Install dependencies
@@ -61,28 +57,34 @@ jobs:
 
       - name: Download and Extract mpv x64
         shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          New-Item -ItemType Directory -Force -Path bin
-          Write-Host "Fetching latest mpv x64 release using authenticated GitHub CLI..."
+          # Create the exact directory expected by electron-builder.yml
+          New-Item -ItemType Directory -Force -Path "vendor\mpv"
+          Write-Host "Fetching latest mpv x64 release using wildcard matching..."
           $releases = gh api repos/shinchiro/mpv-winbuild-cmake/releases/latest | ConvertFrom-Json
-          $asset = $releases.assets | Where-Object { $_.name -match "^mpv-x86_64-\d{8}-git-[a-f0-9]+\.7z$" } | Select-Object -First 1
+          
+          # Bulletproof wildcard match
+          $asset = $releases.assets | Where-Object { $_.name -like "mpv-x86_64-*.7z" -and $_.name -notlike "*debug*" -and $_.name -notlike "*dev*" } | Select-Object -First 1
           
           if (-not $asset) {
-              Write-Error "Could not find a matching mpv release asset!"
+              Write-Error "Could not find a matching mpv release asset! Found assets:"
+              $releases.assets.name
               exit 1
           }
           
           Write-Host "Found asset: $($asset.name). Downloading..."
           gh release download -R shinchiro/mpv-winbuild-cmake -p $asset.name
           
-          Write-Host "Extracting directly to bin directory..."
-          7z e $asset.name -obin -y
+          Write-Host "Extracting directly to vendor\mpv directory..."
+          # Extract to the correct vendor directory
+          7z e $asset.name -o"vendor\mpv" -y
           Remove-Item $asset.name -Force
-          
-          Write-Host "Verifying bin directory:"
-          Get-ChildItem bin
 
       - name: Build x64 installer
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: npx electron-builder --win nsis --x64 --publish always
 
       - name: Upload x64 artifact
@@ -103,7 +105,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '24'
+          node-version: '20'
           cache: 'npm'
 
       - name: Install dependencies
@@ -142,25 +144,34 @@ jobs:
 
       - name: Download and Extract mpv x86
         shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          New-Item -ItemType Directory -Force -Path bin
-          Write-Host "Fetching latest mpv x86 release using authenticated GitHub CLI..."
+          # Create the exact directory expected by electron-builder.yml
+          New-Item -ItemType Directory -Force -Path "vendor\mpv"
+          Write-Host "Fetching latest mpv i686 release using wildcard matching..."
           $releases = gh api repos/shinchiro/mpv-winbuild-cmake/releases/latest | ConvertFrom-Json
-          $asset = $releases.assets | Where-Object { $_.name -match "^mpv-i686-\d{8}-git-[a-f0-9]+\.7z$" } | Select-Object -First 1
+          
+          # Bulletproof wildcard match for 32-bit version
+          $asset = $releases.assets | Where-Object { $_.name -like "mpv-i686-*.7z" -and $_.name -notlike "*debug*" -and $_.name -notlike "*dev*" } | Select-Object -First 1
           
           if (-not $asset) {
-              Write-Error "Could not find a matching mpv x86 release asset!"
+              Write-Error "Could not find a matching mpv x86 release asset! Found assets:"
+              $releases.assets.name
               exit 1
           }
           
           Write-Host "Found asset: $($asset.name). Downloading..."
           gh release download -R shinchiro/mpv-winbuild-cmake -p $asset.name
           
-          Write-Host "Extracting directly to bin directory..."
-          7z e $asset.name -obin -y
+          Write-Host "Extracting directly to vendor\mpv directory..."
+          # Extract to the correct vendor directory
+          7z e $asset.name -o"vendor\mpv" -y
           Remove-Item $asset.name -Force
 
       - name: Build x86 installer
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: npx electron-builder --win nsis --ia32 --publish always
 
       - name: Upload x86 artifact
