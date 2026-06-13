@@ -77,8 +77,8 @@ jobs:
           cd vendor/mpv
           
           echo "Fetching latest mpv x64 release URL..."
-          # Uses bash and jq to perfectly match the newest 64-bit download link
-          ASSET_URL=$(curl -sL -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" "https://api.github.com/repos/shinchiro/mpv-winbuild-cmake/releases/latest" | jq -r '.assets[] | select(.name | test("x86_64.*\\.7z$")) | select(.name | test("debug") | not) | .browser_download_url' | head -n 1)
+          # Enforces that the file name MUST start with "mpv-" to avoid grabbing ffmpeg
+          ASSET_URL=$(curl -sL -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" "https://api.github.com/repos/shinchiro/mpv-winbuild-cmake/releases/latest" | jq -r '.assets[] | select(.name | test("^mpv-.*x86_64.*\\.7z$")) | select(.name | test("debug") | not) | .browser_download_url' | head -n 1)
           
           if [ -z "$ASSET_URL" ] || [ "$ASSET_URL" == "null" ]; then
             echo "Error: Could not find mpv asset URL."
@@ -161,8 +161,8 @@ jobs:
           cd vendor/mpv
           
           echo "Searching release history for the last available 32-bit (i686) mpv build..."
-          # This advanced jq query pages through the history and grabs the URL of the most recent 32-bit file it can find
-          ASSET_URL=$(curl -sL -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" "https://api.github.com/repos/shinchiro/mpv-winbuild-cmake/releases" | jq -r '[.[] | select(.assets[].name | test("i686.*\\.7z$"))][0] | .assets[] | select(.name | test("i686.*\\.7z$") and (test("debug") | not)) | .browser_download_url' | head -n 1)
+          # Enforces that the file name MUST start with "mpv-" to avoid grabbing ffmpeg
+          ASSET_URL=$(curl -sL -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" "https://api.github.com/repos/shinchiro/mpv-winbuild-cmake/releases" | jq -r '[.[] | select(.assets[].name | test("^mpv-.*i686.*\\.7z$"))][0] | .assets[] | select(.name | test("^mpv-.*i686.*\\.7z$") and (test("debug") | not)) | .browser_download_url' | head -n 1)
           
           if [ -z "$ASSET_URL" ] || [ "$ASSET_URL" == "null" ]; then
             echo "Error: Could not find any historical mpv x86 asset URL."
