@@ -11,6 +11,10 @@ env:
   # Forces all GitHub background actions to use Node 24, silencing the warnings
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
+# Grants the automated runner permission to publish to your Releases page
+permissions:
+  contents: write
+
 jobs:
   # ── x64 Build (Modern 64-bit) ────────────────────────────
   build-x64:
@@ -68,6 +72,7 @@ jobs:
       - name: Download and Extract mpv x64
         shell: bash
         run: |
+          # Create the exact directory expected by electron-builder
           mkdir -p vendor/mpv
           cd vendor/mpv
           
@@ -151,6 +156,7 @@ jobs:
       - name: Download and Extract Legacy mpv x86
         shell: bash
         run: |
+          # Create the exact directory expected by electron-builder
           mkdir -p vendor/mpv
           cd vendor/mpv
           
