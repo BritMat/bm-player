@@ -31,20 +31,18 @@ jobs:
       - name: Generate icon
         run: node scripts/generate-icon.js
 
-      # Convert PNG → ICO (requires ImageMagick on Windows runner)
       - name: Convert icon PNG to ICO
+        shell: pwsh
         run: |
           $pngPath = "buildResources\icon.png"
           $icoPath = "buildResources\icon.ico"
-          # Use PowerShell + .NET to create a simple ICO
           Add-Type -AssemblyName System.Drawing
           $bmp = [System.Drawing.Bitmap]::FromFile((Resolve-Path $pngPath).Path)
           $sizes = @(16, 32, 48, 64, 128, 256)
           $stream = [System.IO.File]::Create($icoPath)
-          # ICO header
           $writer = New-Object System.IO.BinaryWriter($stream)
-          $writer.Write([uint16]0)   # reserved
-          $writer.Write([uint16]1)   # type: ICO
+          $writer.Write([uint16]0)
+          $writer.Write([uint16]1)
           $writer.Write([uint16]$sizes.Count)
           $offset = 6 + $sizes.Count * 16
           $images = @()
@@ -60,10 +58,10 @@ jobs:
             $data = $images[$i]
             $writer.Write([byte]($sz -band 0xFF))
             $writer.Write([byte]($sz -band 0xFF))
-            $writer.Write([byte]0)   # color count
-            $writer.Write([byte]0)   # reserved
-            $writer.Write([uint16]1) # planes
-            $writer.Write([uint16]32)# bits
+            $writer.Write([byte]0)
+            $writer.Write([byte]0)
+            $writer.Write([uint16]1)
+            $writer.Write([uint16]32)
             $writer.Write([uint32]$data.Length)
             $writer.Write([uint32]$offset)
             $offset += $data.Length
@@ -71,30 +69,20 @@ jobs:
           foreach ($data in $images) { $writer.Write($data) }
           $writer.Close(); $stream.Close(); $bmp.Dispose()
           Write-Host "ICO created: $icoPath"
-        shell: powershell
 
       - name: Download mpv x64
+        shell: pwsh
         run: |
+          New-Item -ItemType Directory -Force -Path "vendor\mpv"
+          Write-Host "Fetching latest mpv x64 release..."
           $apiUrl = "https://api.github.com/repos/shinchiro/mpv-winbuild-cmake/releases/latest"
-          $headers = @{ "User-Agent" = "BM-Player-Build" }
-          try {
-            $rel = Invoke-RestMethod -Uri $apiUrl -Headers $headers
-            $asset = $rel.assets | Where-Object { $_.name -match "x86_64.*\.7z$" -and $_.name -notmatch "debug" } | Select-Object -First 1
-            if ($asset) {
-              Write-Host "Downloading mpv: $($asset.name)"
-              Invoke-WebRequest -Uri $asset.browser_download_url -OutFile "mpv-x64.7z" -Headers $headers
-              New-Item -ItemType Directory -Force -Path "vendor\mpv" | Out-Null
-              7z x mpv-x64.7z -o"vendor\mpv" -y
-              Remove-Item "mpv-x64.7z" -Force
-              Write-Host "mpv x64 extracted to vendor\mpv"
-              Get-ChildItem "vendor\mpv" | Select-Object Name | Head -10
-            } else {
-              Write-Warning "No mpv x64 asset found — building without bundled mpv"
-            }
-          } catch {
-            Write-Warning "mpv download failed: $_"
-          }
-        shell: powershell
+          $rel = Invoke-RestMethod -Uri $apiUrl
+          $asset = $rel.assets | Where-Object { $_.name -match "x86_64.*\.7z$" -and $_.name -notmatch "debug" } | Select-Object -First 1
+          Write-Host "Downloading $($asset.name)..."
+          Invoke-WebRequest -Uri $asset.browser_download_url -OutFile "mpv-x64.7z"
+          Write-Host "Extracting to vendor\mpv..."
+          7z x mpv-x64.7z -o"vendor\mpv" -y
+          Remove-Item "mpv-x64.7z" -Force
 
       - name: Build x64 installer
         env:
@@ -129,6 +117,7 @@ jobs:
         run: node scripts/generate-icon.js
 
       - name: Convert icon PNG to ICO
+        shell: pwsh
         run: |
           $pngPath = "buildResources\icon.png"
           $icoPath = "buildResources\icon.ico"
@@ -154,28 +143,20 @@ jobs:
           }
           foreach ($data in $images) { $writer.Write($data) }
           $writer.Close(); $stream.Close(); $bmp.Dispose()
-        shell: powershell
 
       - name: Download mpv x86
+        shell: pwsh
         run: |
+          New-Item -ItemType Directory -Force -Path "vendor\mpv"
+          Write-Host "Fetching latest mpv x86 release..."
           $apiUrl = "https://api.github.com/repos/shinchiro/mpv-winbuild-cmake/releases/latest"
-          $headers = @{ "User-Agent" = "BM-Player-Build" }
-          try {
-            $rel = Invoke-RestMethod -Uri $apiUrl -Headers $headers
-            $asset = $rel.assets | Where-Object { $_.name -match "i686.*\.7z$" -and $_.name -notmatch "debug" } | Select-Object -First 1
-            if ($asset) {
-              Write-Host "Downloading mpv x86: $($asset.name)"
-              Invoke-WebRequest -Uri $asset.browser_download_url -OutFile "mpv-x86.7z" -Headers $headers
-              New-Item -ItemType Directory -Force -Path "vendor\mpv" | Out-Null
-              7z x mpv-x86.7z -o"vendor\mpv" -y
-              Remove-Item "mpv-x86.7z" -Force
-            } else {
-              Write-Warning "No mpv x86 asset found"
-            }
-          } catch {
-            Write-Warning "mpv x86 download failed: $_"
-          }
-        shell: powershell
+          $rel = Invoke-RestMethod -Uri $apiUrl
+          $asset = $rel.assets | Where-Object { $_.name -match "i686.*\.7z$" -and $_.name -notmatch "debug" } | Select-Object -First 1
+          Write-Host "Downloading $($asset.name)..."
+          Invoke-WebRequest -Uri $asset.browser_download_url -OutFile "mpv-x86.7z"
+          Write-Host "Extracting to vendor\mpv..."
+          7z x mpv-x86.7z -o"vendor\mpv" -y
+          Remove-Item "mpv-x86.7z" -Force
 
       - name: Build x86 installer
         env:
