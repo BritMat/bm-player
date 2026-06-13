@@ -1,0 +1,8 @@
+node_modules/
+dist/
+vendor/mpv/**
+!vendor/mpv/.keep
+.DS_Store
+*.log
+buildResources/icon.png
+buildResources/icon.ico
