@@ -10,6 +10,9 @@ on:
         description: 'Version (e.g. 1.0.1)'
         required: false
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 jobs:
   # ── x64 Build ────────────────────────────────────────────
   build-x64:
@@ -22,7 +25,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '24'
           cache: 'npm'
 
       - name: Install dependencies
@@ -74,15 +77,11 @@ jobs:
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force -Path "vendor\mpv"
-          Write-Host "Fetching latest mpv x64 release..."
-          $apiUrl = "https://api.github.com/repos/shinchiro/mpv-winbuild-cmake/releases/latest"
-          $rel = Invoke-RestMethod -Uri $apiUrl
-          $asset = $rel.assets | Where-Object { $_.name -match "x86_64.*\.7z$" -and $_.name -notmatch "debug" } | Select-Object -First 1
-          Write-Host "Downloading $($asset.name)..."
-          Invoke-WebRequest -Uri $asset.browser_download_url -OutFile "mpv-x64.7z"
+          Write-Host "Downloading mpv x64 directly from SourceForge..."
+          Invoke-WebRequest -Uri "https://sourceforge.net/projects/mpv-player-windows/files/release/mpv-0.37.0-x86_64.zip/download" -OutFile "mpv-x64.zip"
           Write-Host "Extracting to vendor\mpv..."
-          7z x mpv-x64.7z -o"vendor\mpv" -y
-          Remove-Item "mpv-x64.7z" -Force
+          7z x mpv-x64.zip -o"vendor\mpv" -y
+          Remove-Item "mpv-x64.zip" -Force
 
       - name: Build x64 installer
         env:
@@ -107,7 +106,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '24'
           cache: 'npm'
 
       - name: Install dependencies
@@ -148,15 +147,11 @@ jobs:
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force -Path "vendor\mpv"
-          Write-Host "Fetching latest mpv x86 release..."
-          $apiUrl = "https://api.github.com/repos/shinchiro/mpv-winbuild-cmake/releases/latest"
-          $rel = Invoke-RestMethod -Uri $apiUrl
-          $asset = $rel.assets | Where-Object { $_.name -match "i686.*\.7z$" -and $_.name -notmatch "debug" } | Select-Object -First 1
-          Write-Host "Downloading $($asset.name)..."
-          Invoke-WebRequest -Uri $asset.browser_download_url -OutFile "mpv-x86.7z"
+          Write-Host "Downloading mpv x86 directly from SourceForge..."
+          Invoke-WebRequest -Uri "https://sourceforge.net/projects/mpv-player-windows/files/release/mpv-0.37.0-i686.zip/download" -OutFile "mpv-x86.zip"
           Write-Host "Extracting to vendor\mpv..."
-          7z x mpv-x86.7z -o"vendor\mpv" -y
-          Remove-Item "mpv-x86.7z" -Force
+          7z x mpv-x86.zip -o"vendor\mpv" -y
+          Remove-Item "mpv-x86.zip" -Force
 
       - name: Build x86 installer
         env:
