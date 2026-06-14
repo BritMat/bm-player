@@ -46,9 +46,9 @@ npm install
 
 # 4. Start the app in development mode
 npm start  
-
+```
 ---
-
+## Project Structure
 bm-player/
 ├── .github/workflows/
 │   └── release.yml      ← CI/CD Pipeline for auto-compiling/publishing installers
@@ -65,7 +65,6 @@ bm-player/
 ├── electron-builder.yml ← NSIS Installer configuration
 └── scripts/
     └── generate-icon.js ← Programmatic icon generation
-```
 
 ---
 
