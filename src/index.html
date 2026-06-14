@@ -2,422 +2,60 @@
 <html lang="en" data-theme="dark">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta http-equiv="Content-Security-Policy"
-        content="default-src 'self' 'unsafe-inline' 'unsafe-eval' data: blob:; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline';">
-  <title>BM Player</title>
   <link rel="stylesheet" href="css/app.css">
 </head>
 <body>
 
-<!-- ═══════════════════════════════════════
-     CUSTOM TITLE BAR
-═══════════════════════════════════════ -->
+<div class="titlebar-hit-zone"></div>
 <div id="titlebar" class="titlebar">
-  <div class="titlebar-drag">
-    <div class="titlebar-logo">
-      <svg width="20" height="20" viewBox="0 0 32 32" fill="none">
-        <circle cx="16" cy="16" r="16" fill="url(#logoGrad)"/>
-        <text x="16" y="21" text-anchor="middle" font-family="system-ui" font-weight="900"
-              font-size="13" fill="white">BM</text>
-        <defs>
-          <linearGradient id="logoGrad" x1="0" y1="0" x2="32" y2="32">
-            <stop offset="0%" stop-color="#5B6FF8"/>
-            <stop offset="100%" stop-color="#00D4FF"/>
-          </linearGradient>
-        </defs>
-      </svg>
-    </div>
-    <span class="titlebar-title" id="titlebar-title">BM Player</span>
-  </div>
+  <div class="titlebar-drag"><span class="titlebar-title">BM Player</span></div>
   <div class="titlebar-controls">
-    <button class="tb-btn" id="btn-minimize"  title="Minimise">
-      <svg width="10" height="1" viewBox="0 0 10 1"><rect width="10" height="1.5" fill="currentColor" rx="1"/></svg>
-    </button>
-    <button class="tb-btn" id="btn-maximize"  title="Maximise">
-      <svg width="10" height="10" viewBox="0 0 10 10"><rect x=".5" y=".5" width="9" height="9" stroke="currentColor" stroke-width="1.2" fill="none" rx="1.5"/></svg>
-    </button>
-    <button class="tb-btn danger" id="btn-close" title="Close">
-      <svg width="10" height="10" viewBox="0 0 10 10">
-        <line x1="1" y1="1" x2="9" y2="9" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
-        <line x1="9" y1="1" x2="1" y2="9" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
-      </svg>
-    </button>
+    <button class="tb-btn" id="btn-minimize">_</button>
+    <button class="tb-btn" id="btn-maximize">□</button>
+    <button class="tb-btn danger" id="btn-close">✕</button>
   </div>
 </div>
 
-<!-- ═══════════════════════════════════════
-     WELCOME SCREEN
-═══════════════════════════════════════ -->
 <div id="welcome-screen" class="welcome-screen active">
-  <div class="welcome-bg">
-    <div class="orb orb-1"></div>
-    <div class="orb orb-2"></div>
-    <div class="orb orb-3"></div>
-  </div>
-
-  <!-- 3-D Fox Mascot -->
-  <div class="fox-stage" id="fox-stage">
-    <canvas id="fox-canvas"></canvas>
-  </div>
-
-  <!-- Welcome text -->
+  <div class="fox-stage"><canvas id="fox-canvas"></canvas></div>
   <div class="welcome-text">
     <h1 class="welcome-title">BM Player</h1>
     <p class="welcome-sub">Drop files here or click to open</p>
   </div>
-
-  <!-- Drop zone & open button -->
-  <div class="welcome-actions">
-    <button class="btn-primary" id="btn-open-welcome">
-      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-        <path d="M5 12h14M12 5l7 7-7 7"/>
-      </svg>
-      Open Media
-    </button>
-    <button class="btn-ghost" id="btn-open-url">Open URL</button>
-  </div>
-
-  <div class="recent-files" id="recent-files"></div>
-
-  <!-- Theme switcher row -->
+  <button class="btn-primary" id="btn-open-welcome">Open Media</button>
+  
   <div class="theme-row" id="theme-row">
-    <button class="theme-pill active" data-theme="dark"  title="Dark">🌙 Dark</button>
-    <button class="theme-pill"        data-theme="light" title="Light">☀️ Light</button>
-    <button class="theme-pill"        data-theme="glass" title="Liquid Glass">🔮 Glass</button>
+    <button class="theme-pill active" data-theme="dark">🌙 Dark</button>
+    <button class="theme-pill" data-theme="light">☀️ Light</button>
+    <button class="theme-pill" data-theme="glass">🔮 Glass</button>
   </div>
 </div>
 
-<!-- ═══════════════════════════════════════
-     PLAYER VIEW
-═══════════════════════════════════════ -->
 <div id="player-view" class="player-view">
-
-  <!-- Video area (transparent so mpv shows through) -->
   <div id="video-area" class="video-area">
-
-    <!-- Visualizer canvas (for music / audio files) -->
-    <canvas id="visualizer-canvas" class="visualizer-canvas"></canvas>
-
-    <!-- Mini fox mascot (corner) -->
-    <div id="mini-fox" class="mini-fox hidden">
-      <canvas id="mini-fox-canvas"></canvas>
-    </div>
-
-    <!-- Center OSD overlay (shows seek / volume notifications) -->
-    <div id="osd" class="osd hidden"></div>
-
+    <canvas id="visualizer-canvas" class="visualizer-canvas active"></canvas>
   </div>
-
-  <!-- Bottom controls bar -->
-  <div id="controls-bar" class="controls-bar">
-
-    <!-- Seek bar -->
+  
+  <div class="controls-bar">
     <div class="seek-row">
-      <div class="seek-container" id="seek-container">
-        <div class="seek-track" id="seek-track">
-          <div class="seek-buffered" id="seek-buffered"></div>
+      <span class="time-display" id="time-current">00:00</span>
+      <div class="seek-container" id="seek-bar">
+        <div class="seek-track">
           <div class="seek-progress" id="seek-progress"></div>
-          <div class="seek-thumb"    id="seek-thumb"></div>
         </div>
-        <div class="seek-preview" id="seek-preview"></div>
       </div>
-      <div class="time-display">
-        <span id="time-current">0:00</span>
-        <span class="time-sep">/</span>
-        <span id="time-duration">0:00</span>
-      </div>
+      <span class="time-display" id="time-total">00:00</span>
     </div>
-
-    <!-- Main controls row -->
     <div class="controls-main">
-      <!-- Left cluster -->
-      <div class="ctrl-cluster left">
-        <button class="ctrl-btn" id="btn-prev"  title="Previous (P)">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
-            <path d="M6 6h2v12H6zm3.5 6 8.5 6V6z"/>
-          </svg>
-        </button>
-        <button class="ctrl-btn play-btn" id="btn-play" title="Play/Pause (Space)">
-          <svg class="ico-play" width="22" height="22" viewBox="0 0 24 24" fill="currentColor">
-            <path d="M8 5v14l11-7z"/>
-          </svg>
-          <svg class="ico-pause hidden" width="22" height="22" viewBox="0 0 24 24" fill="currentColor">
-            <path d="M6 19h4V5H6zm8-14v14h4V5z"/>
-          </svg>
-        </button>
-        <button class="ctrl-btn" id="btn-next"  title="Next (N)">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
-            <path d="M6 18l8.5-6L6 6v12zm8.5-6v6H17V6h-2.5z"/>
-          </svg>
-        </button>
-        <button class="ctrl-btn" id="btn-stop"  title="Stop (S)">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
-            <path d="M6 6h12v12H6z"/>
-          </svg>
-        </button>
-
-        <!-- Volume -->
-        <div class="volume-group">
-          <button class="ctrl-btn" id="btn-mute" title="Mute (M)">
-            <svg class="ico-vol" width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
-              <path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02z"/>
-            </svg>
-          </button>
-          <div class="volume-slider-wrap" id="volume-slider-wrap">
-            <input type="range" id="volume-slider" min="0" max="130" value="100"
-                   title="Volume (↑↓)">
-          </div>
-          <span class="vol-label" id="vol-label">100</span>
-        </div>
-      </div>
-
-      <!-- Center: title -->
-      <div class="ctrl-title" id="ctrl-title">Select a file to play</div>
-
-      <!-- Right cluster -->
-      <div class="ctrl-cluster right">
-        <!-- Speed -->
-        <select class="ctrl-select" id="speed-select" title="Playback speed">
-          <option value="0.25">0.25×</option>
-          <option value="0.5">0.5×</option>
-          <option value="0.75">0.75×</option>
-          <option value="1" selected>1×</option>
-          <option value="1.25">1.25×</option>
-          <option value="1.5">1.5×</option>
-          <option value="2">2×</option>
-          <option value="2.5">2.5×</option>
-          <option value="3">3×</option>
-        </select>
-
-        <!-- Visualizer mode -->
-        <button class="ctrl-btn" id="btn-viz" title="Visualizer mode">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
-            <path d="M7 18V8h2v10H7zm4-6V6h2v6h-2zm4 10V4h2v18h-2z"/>
-          </svg>
-        </button>
-
-        <!-- Subtitle -->
-        <button class="ctrl-btn" id="btn-sub"  title="Subtitle (G)">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
-            <path d="M20 4H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm-9 8H4v-2h7v2zm9 4H4v-2h16v2zm0-4h-5v-2h5v2z"/>
-          </svg>
-        </button>
-
-        <!-- Always-on-top -->
-        <button class="ctrl-btn" id="btn-ontop" title="Always on top">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
-            <path d="M12 8l-6 6 1.41 1.41L12 10.83l4.59 4.58L18 14l-6-6z"/>
-          </svg>
-        </button>
-
-        <!-- Settings -->
-        <button class="ctrl-btn" id="btn-settings" title="Settings">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
-            <path d="M19.14,12.94c0.04-0.3,0.06-0.61,0.06-0.94c0-0.32-0.02-0.64-0.07-0.94l2.03-1.58c0.18-0.14,0.23-0.41,0.12-0.61
-              l-1.92-3.32c-0.12-0.22-0.37-0.29-0.59-0.22l-2.39,0.96c-0.5-0.38-1.03-0.7-1.62-0.94L14.4,2.81c-0.04-0.24-0.24-0.41-0.48-0.41
-              h-3.84c-0.24,0-0.43,0.17-0.47,0.41L9.25,5.35C8.66,5.59,8.12,5.92,7.63,6.29L5.24,5.33c-0.22-0.08-0.47,0-0.59,0.22
-              L2.74,8.87C2.62,9.08,2.66,9.34,2.86,9.48l2.03,1.58C4.84,11.36,4.8,11.69,4.8,12s0.02,0.64,0.07,0.94l-2.03,1.58
-              c-0.18,0.14-0.23,0.41-0.12,0.61l1.92,3.32c0.12,0.22,0.37,0.29,0.59,0.22l2.39-0.96c0.5,0.38,1.03,0.7,1.62,0.94l0.36,2.54
-              c0.05,0.24,0.24,0.41,0.48,0.41h3.84c0.24,0,0.44-0.17,0.47-0.41l0.36-2.54c0.59-0.24,1.13-0.56,1.62-0.94l2.39,0.96
-              c0.22,0.08,0.47,0,0.59-0.22l1.92-3.32c0.12-0.22,0.07-0.47-0.12-0.61L19.14,12.94z M12,15.6c-1.98,0-3.6-1.62-3.6-3.6
-              s1.62-3.6,3.6-3.6s3.6,1.62,3.6,3.6S13.98,15.6,12,15.6z"/>
-          </svg>
-        </button>
-
-        <!-- Fullscreen -->
-        <button class="ctrl-btn" id="btn-fullscreen" title="Fullscreen (F)">
-          <svg class="ico-expand" width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
-            <path d="M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z"/>
-          </svg>
-          <svg class="ico-compress hidden" width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
-            <path d="M5 16h3v3h2v-5H5v2zm3-8H5v2h5V5H8v3zm6 11h2v-3h3v-2h-5v5zm2-11V5h-2v5h5V8h-3z"/>
-          </svg>
-        </button>
-      </div>
+      <button class="ctrl-btn play-btn" id="btn-play">▶</button>
     </div>
   </div>
 </div>
 
-<!-- ═══════════════════════════════════════
-     DROP OVERLAY
-═══════════════════════════════════════ -->
-<div id="drop-overlay" class="drop-overlay">
-  <div class="drop-box">
-    <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-      <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/>
-      <polyline points="17 8 12 3 7 8"/>
-      <line x1="12" y1="3" x2="12" y2="15"/>
-    </svg>
-    <p>Drop media files here</p>
-  </div>
-</div>
-
-<!-- ═══════════════════════════════════════
-     SETTINGS PANEL
-═══════════════════════════════════════ -->
-<div id="settings-panel" class="settings-panel">
-  <div class="settings-header">
-    <h2>Settings</h2>
-    <button class="settings-close" id="settings-close">✕</button>
-  </div>
-
-  <div class="settings-body">
-
-    <!-- Theme -->
-    <section class="settings-section">
-      <h3>Appearance</h3>
-      <div class="setting-row">
-        <span>Theme</span>
-        <div class="seg-control" id="theme-control">
-          <button data-theme="dark"  class="seg-btn active">🌙 Dark</button>
-          <button data-theme="light" class="seg-btn">☀️ Light</button>
-          <button data-theme="glass" class="seg-btn">🔮 Glass</button>
-        </div>
-      </div>
-      <div class="setting-row">
-        <span>Visualizer</span>
-        <select id="viz-mode-select" class="setting-select">
-          <option value="bars">Spectrum Bars</option>
-          <option value="radial">Radial Ring</option>
-          <option value="wave">Waveform</option>
-          <option value="particles">Particles</option>
-          <option value="off">Off</option>
-        </select>
-      </div>
-    </section>
-
-    <!-- Playback -->
-    <section class="settings-section">
-      <h3>Playback</h3>
-      <div class="setting-row">
-        <span>Hardware Decoding</span>
-        <select id="hwdec-select" class="setting-select">
-          <option value="auto-safe">Auto (safe)</option>
-          <option value="auto">Auto</option>
-          <option value="no">Software only</option>
-          <option value="d3d11va">D3D11VA</option>
-          <option value="dxva2">DXVA2</option>
-          <option value="cuda">CUDA (NVIDIA)</option>
-        </select>
-      </div>
-      <div class="setting-row">
-        <span>Loop</span>
-        <select id="loop-select" class="setting-select">
-          <option value="no">Off</option>
-          <option value="file">Loop File</option>
-          <option value="inf">Loop Playlist</option>
-        </select>
-      </div>
-      <div class="setting-row">
-        <span>Volume Max</span>
-        <select id="vol-max-select" class="setting-select">
-          <option value="100">100%</option>
-          <option value="130" selected>130%</option>
-          <option value="150">150%</option>
-          <option value="200">200%</option>
-        </select>
-      </div>
-    </section>
-
-    <!-- Subtitles -->
-    <section class="settings-section">
-      <h3>Subtitles</h3>
-      <div class="setting-row">
-        <span>Font Size</span>
-        <input type="range" id="sub-size" min="20" max="80" value="38" class="setting-range">
-        <span id="sub-size-val">38</span>
-      </div>
-      <div class="setting-row">
-        <span>Delay (s)</span>
-        <input type="number" id="sub-delay-input" value="0" step="0.1" min="-30" max="30"
-               class="setting-input">
-      </div>
-    </section>
-
-    <!-- Fox reactions guide -->
-    <section class="settings-section">
-      <h3>🦊 Fox Mascot Reactions</h3>
-      <div class="fox-reactions-list">
-        <div class="fox-react-item"><span class="react-icon">👋</span><span>Waves hello on startup</span></div>
-        <div class="fox-react-item"><span class="react-icon">🎉</span><span>Gets excited when you open media</span></div>
-        <div class="fox-react-item"><span class="react-icon">👀</span><span>Watches the screen during playback</span></div>
-        <div class="fox-react-item"><span class="react-icon">💃</span><span>Dances along to music files</span></div>
-        <div class="fox-react-item"><span class="react-icon">😴</span><span>Falls asleep after 35s paused</span></div>
-        <div class="fox-react-item"><span class="react-icon">🙉</span><span>Covers ears when volume &gt; 115%!</span></div>
-        <div class="fox-react-item"><span class="react-icon">😵</span><span>Gets confused on playback errors</span></div>
-        <div class="fox-react-item"><span class="react-icon">🥳</span><span>Spins happily at end of playback</span></div>
-      </div>
-    </section>
-
-    <!-- About / Update -->
-    <section class="settings-section">
-      <h3>About</h3>
-      <div class="setting-row">
-        <span>Version</span>
-        <span id="app-version">—</span>
-      </div>
-      <div class="setting-row">
-        <span>mpv Path</span>
-        <span id="mpv-path-display" class="mono">detecting…</span>
-      </div>
-      <div class="setting-row update-row">
-        <span id="update-status">Checking for updates…</span>
-        <button class="btn-small" id="btn-check-update">Check</button>
-        <button class="btn-small hidden" id="btn-install-update">Restart &amp; Update</button>
-      </div>
-      <div class="setting-row">
-        <button class="btn-small" id="btn-download-mpv">Download / Update mpv</button>
-      </div>
-    </section>
-
-  </div>
-</div>
-
-<!-- ═══════════════════════════════════════
-     TOAST NOTIFICATION
-═══════════════════════════════════════ -->
-<div id="toast" class="toast"></div>
-
-<!-- ═══════════════════════════════════════
-     URL DIALOG
-═══════════════════════════════════════ -->
-<div id="url-dialog" class="url-dialog hidden">
-  <div class="url-box glass">
-    <h3>Open URL</h3>
-    <input type="text" id="url-input" placeholder="https://… or rtmp://…" class="setting-input">
-    <div class="url-btns">
-      <button class="btn-ghost" id="url-cancel">Cancel</button>
-      <button class="btn-primary" id="url-open">Open</button>
-    </div>
-  </div>
-</div>
-
-<!-- ═══════════════════════════════════════
-     MPV SETUP DIALOG
-═══════════════════════════════════════ -->
-<div id="mpv-setup" class="url-dialog hidden">
-  <div class="url-box glass">
-    <div class="setup-fox" id="setup-fox-stage">
-      <canvas id="setup-fox-canvas"></canvas>
-    </div>
-    <h3>mpv not found</h3>
-    <p class="settings-hint">BM Player needs mpv to play media. Click below to download it automatically.</p>
-    <div class="progress-bar hidden" id="setup-progress-wrap">
-      <div class="progress-fill" id="setup-progress-fill"></div>
-      <span id="setup-progress-label">0%</span>
-    </div>
-    <div class="url-btns">
-      <button class="btn-ghost"    id="setup-skip">Skip</button>
-      <button class="btn-primary"  id="setup-download">Download mpv</button>
-    </div>
-  </div>
-</div>
-
-<!-- ═══════════════════════════════════════
-     SCRIPTS  (load order matters)
-═══════════════════════════════════════ -->
-<script src="../node_modules/three/build/three.min.js"></script>
+<script type="module">
+    import * as THREE from '../node_modules/three/build/three.module.js';
+    window.THREE = THREE;
+</script>
 <script type="module" src="js/app.js"></script>
 
 </body>

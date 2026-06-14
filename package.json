@@ -11,8 +11,7 @@
     "build:win": "npm run gen-icon && electron-builder --win",
     "build:win64": "npm run gen-icon && electron-builder --win --x64",
     "build:win32": "npm run gen-icon && electron-builder --win --ia32",
-    "gen-icon": "node scripts/generate-icon.js",
-    "postinstall": "electron-builder install-app-deps"
+    "gen-icon": "node scripts/generate-icon.js"
   },
   "keywords": [
     "media",

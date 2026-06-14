@@ -1,58 +1,39 @@
 'use strict';
-
 const { contextBridge, ipcRenderer } = require('electron');
 
-// ── Safe invoke helper ─────────────────────────────────────────────────────
-const invoke = (ch, ...a) => ipcRenderer.invoke(ch, ...a);
+const inv = (ch,...a) => ipcRenderer.invoke(ch,...a);
+const on  = (ch,cb)   => ipcRenderer.on(ch, (_,d) => cb(d));
 
-// ── Expose secure API to renderer ──────────────────────────────────────────
-contextBridge.exposeInMainWorld('electronAPI', {
-
-  // Window controls
-  window: {
-    minimize:      () => invoke('window:minimize'),
-    maximize:      () => invoke('window:maximize'),
-    close:         () => invoke('window:close'),
-    fullscreen:    () => invoke('window:fullscreen'),
-    alwaysOnTop:   val => invoke('window:alwaysOnTop', val),
-    isMaximized:   () => invoke('window:isMaximized'),
-    isFullscreen:  () => invoke('window:isFullscreen'),
-    onState:       cb => ipcRenderer.on('window:state', (_ev, s)  => cb(s)),
-    onResize:      cb => ipcRenderer.on('window:resize', (_ev, s) => cb(s)),
+contextBridge.exposeInMainWorld('api', {
+  win: {
+    minimize:   () => inv('win:minimize'),
+    maximize:   () => inv('win:maximize'),
+    close:      () => inv('win:close'),
+    fullscreen: () => inv('win:fullscreen'),
+    alwaysTop:  v  => inv('win:alwaysTop',v),
+    isMax:      () => inv('win:isMax'),
+    isFs:       () => inv('win:isFs'),
+    onState:    cb => on('win:state', cb),
   },
-
-  // Dialogs
   dialog: {
-    openFile:   () => invoke('dialog:openFile'),
-    openFolder: () => invoke('dialog:openFolder'),
+    open: () => inv('dialog:open'),
   },
-
-  // mpv playback
   mpv: {
-    command:       (cmd, ...args)  => invoke('mpv:command', cmd, ...args),
-    openFiles:     files           => invoke('mpv:openFiles', files),
-    addToPlaylist: filePath        => invoke('mpv:addToPlaylist', filePath),
-    getStatus:     ()              => invoke('mpv:getStatus'),
-    downloadMpv:   ()              => invoke('app:downloadMpv'),
-
-    onStatus:    cb => ipcRenderer.on('mpv:status',    (_ev, d) => cb(d)),
-    onEvent:     cb => ipcRenderer.on('mpv:event',     (_ev, d) => cb(d)),
-    onProp:      cb => ipcRenderer.on('mpv:prop',      (_ev, d) => cb(d)),
-    onFilesOpen: cb => ipcRenderer.on('player:files-opened', (_ev, d) => cb(d)),
-    onDownload:  cb => ipcRenderer.on('mpv:download-progress', (_ev, d) => cb(d)),
+    cmd:    (c,...a) => inv('mpv:cmd',c,...a),
+    open:   files   => inv('mpv:open',files),
+    append: f       => inv('mpv:append',f),
+    status: ()      => inv('mpv:status'),
+    onStatus: cb    => on('mpv:status',  cb),
+    onEvent:  cb    => on('mpv:event',   cb),
+    onProp:   cb    => on('mpv:prop',    cb),
+    onOpened: cb    => on('mpv:opened',  cb),
   },
-
-  // App info
   app: {
-    getVersion:   () => invoke('app:getVersion'),
-    openExternal: url => invoke('app:openExternal', url),
-    getMpvPath:   () => invoke('app:getMpvPath'),
+    version:  () => inv('app:version'),
+    external: u  => inv('app:external',u),
   },
-
-  // Auto-updater
   updater: {
-    check:     () => invoke('updater:check'),
-    install:   () => invoke('updater:install'),
-    onStatus:  cb => ipcRenderer.on('updater:status', (_ev, d) => cb(d)),
+    install: () => inv('updater:install'),
+    onUpdate: cb => on('updater', cb),
   }
 });
