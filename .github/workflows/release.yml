@@ -135,3 +135,25 @@ jobs:
           name: BM-Player-x86
           path: dist/BM-Player-Setup-*-ia32.exe
           if-no-files-found: error
+  publish-release:
+    name: Publish to GitHub Releases
+    needs: [build-x64, build-x86]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download x64 Installers
+        uses: actions/download-artifact@v4
+        with:
+          name: BM-Player-x64
+          path: release-binaries
+          
+      - name: Download x86 Installers
+        uses: actions/download-artifact@v4
+        with:
+          name: BM-Player-x86
+          path: release-binaries
+          
+      - name: Upload to GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: release-binaries/*.exe
+          generate_release_notes: true

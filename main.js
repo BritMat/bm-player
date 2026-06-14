@@ -9,7 +9,6 @@ const { spawn } = require('child_process');
 app.commandLine.appendSwitch('ignore-gpu-blocklist');
 app.commandLine.appendSwitch('enable-gpu-rasterization');
 
-// State
 let win = null, bgWin = null, mpvProc = null, mpvSock = null;
 let ipcOk = false, mpvBuf = '', reqId = 0;
 const cbs = new Map();
@@ -17,11 +16,8 @@ const PIPE  = `\\\\.\\pipe\\bm-mpv-${process.pid}`;
 const MEDIA = new Set(['mp4','mkv','avi','mov','wmv','flv','webm','ts','m2ts',
   'm4v','3gp','rmvb','ogv','mp3','flac','aac','ogg','wav','m4a','wma','opus','ape','mka']);
 
-// Track state for context menu
 let trackList      = [];
 let currentSubDelay = 0;
-let currentSubSize  = 38;
-let currentVolume   = 100;
 
 const gotLock = app.requestSingleInstanceLock();
 if (!gotLock) { app.quit(); process.exit(0); }
@@ -33,14 +29,12 @@ app.on('second-instance', (_e, argv) => {
 });
 
 app.whenReady().then(() => {
-  // Backstop Window
   bgWin = new BrowserWindow({
     width: 1200, height: 760, minWidth: 800, minHeight: 520,
     frame: false, transparent: false, backgroundColor: '#000000',
     show: false, title: 'BM Player'
   });
 
-  // Transparent UI Window
   win = new BrowserWindow({
     parent: bgWin,
     width: 1200, height: 760, minWidth: 800, minHeight: 520,
@@ -99,9 +93,16 @@ function registerIpc() {
   ipcMain.handle('mpv:append', async (_, f)         => mpvCmd('loadfile', f, 'append-play').catch(() => {}));
   ipcMain.handle('mpv:status', () => ({ ready: ipcOk }));
 
-  // Phase 2 Context Menu Logic
   ipcMain.handle('show-context-menu', async () => {
     if (!ipcOk) return;
+
+    try {
+      const tracks = await mpvCmd('get_property', 'track-list');
+      if (Array.isArray(tracks)) trackList = tracks;
+    } catch (e) {
+      console.log("Track fetch skipped");
+    }
+
     const audio = trackList.filter(t => t.type === 'audio');
     const subs  = trackList.filter(t => t.type === 'sub');
     const trackLabel = t =>
@@ -110,17 +111,23 @@ function registerIpc() {
 
     const menu = Menu.buildFromTemplate([
       {
-        label: '🎵  Audio Track',
-        submenu: audio.length
-          ? audio.map(t => ({
-              label: trackLabel(t), type: 'radio', checked: !!t.selected,
-              click: () => mpvCmd('set_property', 'aid', t.id).catch(() => {})
-            }))
-          : [{ label: 'No audio tracks', enabled: false }]
+        label: 'Audio Track',
+        submenu: [
+          // ── NEW: DISABLE AUDIO OPTION ──
+          {
+            label: 'Disable Audio', type: 'radio', checked: !audio.some(t => t.selected),
+            click: () => mpvCmd('set_property', 'aid', 'no').catch(() => {})
+          },
+          { type: 'separator' },
+          ...audio.map(t => ({
+            label: trackLabel(t), type: 'radio', checked: !!t.selected,
+            click: () => mpvCmd('set_property', 'aid', t.id).catch(() => {})
+          }))
+        ]
       },
       { type: 'separator' },
       {
-        label: '💬  Subtitle Track',
+        label: 'Subtitle Track',
         submenu: [
           {
             label: 'Off', type: 'radio', checked: !subs.some(t => t.selected),
@@ -137,7 +144,7 @@ function registerIpc() {
       },
       { type: 'separator' },
       {
-        label: `⏱  Subtitle Delay  (${currentSubDelay.toFixed(1)}s)`,
+        label: `Subtitle Delay  (${currentSubDelay.toFixed(1)}s)`,
         submenu: [
           { label: '+0.5 s', accelerator: 'z', click: () => adjustSubDelay(+0.5) },
           { label: '-0.5 s', accelerator: 'x', click: () => adjustSubDelay(-0.5) },
@@ -145,14 +152,14 @@ function registerIpc() {
         ]
       },
       {
-        label: '📐  Subtitle Size',
+        label: 'Subtitle Size',
         submenu: [
           { label: 'Larger  (+4)', click: () => mpvCmd('add', 'sub-font-size', 4).catch(() => {}) },
           { label: 'Smaller (-4)', click: () => mpvCmd('add', 'sub-font-size', -4).catch(() => {}) },
         ]
       },
       { type: 'separator' },
-      { label: '🔁  Loop File', click: () => mpvCmd('cycle', 'loop-file').catch(() => {}) },
+      { label: 'Loop File', click: () => mpvCmd('cycle', 'loop-file').catch(() => {}) },
     ]);
     menu.popup({ window: win });
   });
@@ -197,6 +204,7 @@ function startMpv(exe) {
     '--hwdec=auto-safe',
     '--vo=direct3d',
     '--volume=100',
+    '--sid=no', // Forces subs off by default (if they aren't hardcoded)
     '--sub-auto=fuzzy',
     '--sub-bold=yes',
     '--sub-font-size=38',
@@ -216,7 +224,7 @@ function connectIpc(retry = 0) {
     win?.webContents.send('mpv:status', { state: 'ready' });
     [
       [1, 'pause'], [2, 'time-pos'], [3, 'duration'], [4, 'volume'],
-      [6, 'media-title'], [9, 'sub-delay'], [10, 'sub-font-size'], 
+      [5, 'mute'], [6, 'media-title'], [9, 'sub-delay'], [10, 'sub-font-size'], 
       [11, 'sub-visibility'], [12, 'track-list']
     ].forEach(([id, name]) =>
       mpvSock.write(JSON.stringify({ command: ['observe_property', id, name] }) + '\n')
@@ -257,7 +265,6 @@ function handleMsg(msg) {
     win?.webContents.send('mpv:tracks', trackList);
   }
   if (msg.event === 'property-change' && msg.name === 'sub-delay') currentSubDelay = msg.data ?? 0;
-  if (msg.event === 'property-change' && msg.name === 'volume') currentVolume = msg.data ?? 100;
   win?.webContents.send('mpv:event', msg);
   if (msg.event === 'property-change') win?.webContents.send('mpv:prop', { name: msg.name, data: msg.data });
 }
