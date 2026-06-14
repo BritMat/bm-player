@@ -1,6 +1,6 @@
 # 🎵 BM Player
 
-A modern, gorgeous media player powered by **mpv** — with a Three.js fox mascot, liquid-glass UI, music visualizer, and auto-updates.
+A modern, gorgeous, hardware-accelerated media player powered by **mpv** — featuring a Three.js interactive 3D fox mascot, liquid-glass UI themes, dynamic on-screen display (OSD) notifications, and automated CI/CD deployment pipelines.
 
 ---
 
@@ -8,111 +8,63 @@ A modern, gorgeous media player powered by **mpv** — with a Three.js fox masco
 
 | Feature | Details |
 |---|---|
-| **Engine** | mpv — plays every format (MP4, MKV, AVI, MP3, FLAC, OGG, OPUS, HEVC, AV1 …) |
-| **UI Themes** | 🌙 Dark · ☀️ Light · 🔮 Liquid Glass |
-| **3D Fox Mascot** | Three.js, cursor tracking, media-reactive states |
-| **Fox Interactions** | Waves hello · Gets excited when media starts · Dances to music · Covers ears at loud volume · Sleeps when idle · Confused on error |
-| **Visualizer** | Spectrum Bars · Radial Ring · Waveform · Particles |
-| **Keybindings** | VLC-style (Space, ←/→ seek, ↑/↓ volume, F fullscreen, M mute …) |
-| **Auto-update** | Electron-updater via GitHub Releases |
-| **Installer** | NSIS — x64 + x86, Start Menu, desktop shortcut |
-| **File associations** | MP4, MKV, AVI, MP3, FLAC … |
+| **Engine** | mpv — native hardware-accelerated playback for almost all formats (MP4, MKV, AVI, MP3, FLAC, OGG, OPUS, HEVC, AV1…) |
+| **Dynamic Themes** | 🌙 Dark · ☀️ Light · 🔮 Liquid Glass · 🧛 Dracula (Animated Blood Flow) · 🌌 Northern Lights (Animated Aurora) |
+| **3D Fox Mascot** | Interactive Three.js fox with cursor tracking, blink cycles, ear twitching, and "boop" physics |
+| **OSD System** | Real-time elegant overlay notifications for volume, seeking, and playback state |
+| **VLC Shortcuts** | VLC-style controls (`Space`, `←`/`→`, `↑`/`↓`, `F`, `M`) |
+| **Automated Build** | CI/CD pipeline compiles Windows (x64/x86) installers automatically on version tag |
 
 ---
 
-## Keybindings
+## Keybindings (VLC Style)
 
 | Key | Action |
 |---|---|
 | `Space` / `K` | Play / Pause |
 | `←` / `→` | Seek −5s / +5s |
 | `Ctrl+←` / `Ctrl+→` | Seek −30s / +30s |
-| `↑` / `↓` | Volume +5% / −5% |
-| `F` / `F11` | Toggle fullscreen |
-| `M` | Toggle mute |
-| `S` | Stop |
-| `N` / `P` | Next / Previous in playlist |
-| `1`–`9` | Jump to 10%–90% |
-| `[` / `]` | Speed −/+ |
-| `Backspace` | Reset speed to 1× |
-| `G` / `V` | Cycle subtitle tracks |
-| `A` | Cycle audio tracks |
-| `Ctrl+O` | Open file |
-| `Ctrl+T` | Screenshot |
-| `Escape` | Exit fullscreen / stop |
+| `↑` / `↓` | Volume +10% / −10% |
+| `F` | Toggle Fullscreen |
+| `M` | Toggle Mute |
 
 ---
 
-## Fox Mascot States
+## How to Build Locally
 
-| State | Trigger |
-|---|---|
-| **Wave** | App launches |
-| **Idle** | No media / paused briefly |
-| **Excited** | Media file opened |
-| **Watching** | Playing video |
-| **Dancing** | Audio-only files |
-| **Sleeping** | Paused > 35 seconds |
-| **Cover Ears** | Volume > 115% |
-| **Confused** | Playback error |
-| **Happy** | End of playback |
-| **Scared** | Sudden loud start |
-
----
-
-## Building
-
-### Option A — GitHub Actions (recommended, automatic)
-
-1. Fork / push this repo to GitHub  
-2. Edit `electron-builder.yml` → set your GitHub username/repo under `publish`  
-3. Tag a release: `git tag v1.0.0 && git push origin v1.0.0`  
-4. GitHub Actions builds both x64 and x86 installers and uploads them to the release  
-5. Download from the **Releases** tab  
-
-### Option B — Build locally on Windows
+**Prerequisites:** Node.js 20+ installed on your system.
 
 ```bash
-git clone https://github.com/YOUR_USER/bm-player
+# 1. Clone the repository
+git clone [https://github.com/BritMat/bm-player.git](https://github.com/BritMat/bm-player.git)
+
+# 2. Enter the directory
 cd bm-player
+
+# 3. Install the dependencies
 npm install
-npm run build:win64   # or build:win32 for 32-bit
-```
 
-Requires: Node.js 20+, and mpv placed in `vendor/mpv/` (download from https://mpv.io).
-
----
-
-## Auto-update
-
-The app checks for new GitHub Releases on startup and every 4 hours.  
-- Minor/patch updates: auto-download in background, prompt to restart  
-- The user is notified in Settings → About  
+# 4. Start the app in development mode
+npm start  
 
 ---
 
-## Project Structure
-
-```
 bm-player/
-├── main.js              ← Electron main process (mpv, IPC, updater)
-├── preload.js           ← Secure contextBridge API
+├── .github/workflows/
+│   └── release.yml      ← CI/CD Pipeline for auto-compiling/publishing installers
 ├── src/
-│   ├── index.html       ← UI layout
-│   ├── css/app.css      ← All styles (3 themes)
+│   ├── index.html       ← Core application DOM and structure
+│   ├── css/
+│   │   └── style.css    ← Liquid glass UI, theme animations, OSD styles
 │   └── js/
-│       ├── app.js       ← App bootstrap
-│       ├── fox.js       ← Three.js fox mascot
-│       ├── visualizer.js← Audio visualizer (4 modes)
-│       ├── player.js    ← VLC keybindings + controls
-│       └── themes.js    ← Theme manager
-├── scripts/
-│   └── generate-icon.js ← Programmatic icon generation
-├── buildResources/
-│   └── installer.nsh    ← NSIS customization
-├── vendor/mpv/          ← mpv binaries (filled by CI or manually)
-└── .github/workflows/
-    └── release.yml      ← Build + publish workflow
+│       ├── app.js       ← Main frontend logic, IPC, VLC keybinds, OSD controller
+│       └── fox.js       ← Three.js interactive math engine & 3D geometry
+├── main.js              ← Electron backend (mpv instantiation, Win32 pipes, IPC, menus)
+├── preload.js           ← Secure contextBridge API for frontend-backend communication
+├── package.json         ← Scripts, dependencies, and application versioning
+├── electron-builder.yml ← NSIS Installer configuration
+└── scripts/
+    └── generate-icon.js ← Programmatic icon generation
 ```
 
 ---
