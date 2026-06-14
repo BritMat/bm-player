@@ -38,7 +38,6 @@
   },
   "build": {
     "appId": "com.bmplayer.app",
-    "publish": ["github"],
     "win": {
       "target": "nsis"
     },

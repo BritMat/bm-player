@@ -6,12 +6,6 @@ on:
       - 'v*.*.*'
   workflow_dispatch:
 
-env:
-  GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-  # Forces all GitHub background actions to use Node 24, silencing the warnings
-  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
-
-# Grants the automated runner permission to publish to your Releases page
 permissions:
   contents: write
 
@@ -30,11 +24,8 @@ jobs:
           node-version: '24'
           cache: 'npm'
 
-      - name: Fix npm scripts and Install
-        shell: bash
-        run: |
-          npm pkg delete scripts.postinstall
-          npm install
+      - name: Install Dependencies
+        run: npm install
 
       - name: Generate icon
         run: node scripts/generate-icon.js
@@ -72,25 +63,13 @@ jobs:
         run: |
           mkdir -p vendor/mpv
           cd vendor/mpv
-          
-          echo "Fetching latest mpv x64 release URL..."
-          # STRICT MATCH: Must start with mpv-x86_64, and explicitly block "dev" and "debug" files
           ASSET_URL=$(curl -sL -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" "https://api.github.com/repos/shinchiro/mpv-winbuild-cmake/releases/latest" | jq -r '.assets[] | select(.name | test("^mpv-x86_64.*\\.7z$")) | select(.name | test("dev|debug") | not) | .browser_download_url' | head -n 1)
-          
-          if [ -z "$ASSET_URL" ] || [ "$ASSET_URL" == "null" ]; then
-            echo "Error: Could not find mpv asset URL."
-            exit 1
-          fi
-          
-          echo "Downloading mpv from $ASSET_URL..."
           curl -sL "$ASSET_URL" -o mpv.7z
-          
-          echo "Extracting mpv..."
           7z e mpv.7z -y
           rm mpv.7z
 
       - name: Build x64 installer
-        run: npx electron-builder --win nsis --x64 --publish always
+        run: npx electron-builder --win nsis --x64
 
       - name: Upload x64 artifact
         uses: actions/upload-artifact@v4
@@ -113,11 +92,8 @@ jobs:
           node-version: '24'
           cache: 'npm'
 
-      - name: Fix npm scripts and Install
-        shell: bash
-        run: |
-          npm pkg delete scripts.postinstall
-          npm install
+      - name: Install Dependencies
+        run: npm install
 
       - name: Generate icon
         run: node scripts/generate-icon.js
@@ -155,25 +131,13 @@ jobs:
         run: |
           mkdir -p vendor/mpv
           cd vendor/mpv
-          
-          echo "Searching release history for the last available 32-bit (i686) mpv build..."
-          # STRICT MATCH: Blocks "dev" files from the legacy pull
           ASSET_URL=$(curl -sL -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" "https://api.github.com/repos/shinchiro/mpv-winbuild-cmake/releases" | jq -r '[.[] | select(.assets[].name | test("^mpv-i686.*\\.7z$"))][0] | .assets[] | select(.name | test("^mpv-i686.*\\.7z$")) | select(.name | test("dev|debug") | not) | .browser_download_url' | head -n 1)
-          
-          if [ -z "$ASSET_URL" ] || [ "$ASSET_URL" == "null" ]; then
-            echo "Error: Could not find any historical mpv x86 asset URL."
-            exit 1
-          fi
-          
-          echo "Downloading 32-bit mpv from $ASSET_URL..."
           curl -sL "$ASSET_URL" -o mpv-x86.7z
-          
-          echo "Extracting 32-bit mpv..."
           7z e mpv-x86.7z -y
           rm mpv-x86.7z
 
       - name: Build x86 installer
-        run: npx electron-builder --win nsis --ia32 --publish always
+        run: npx electron-builder --win nsis --ia32
 
       - name: Upload x86 artifact
         uses: actions/upload-artifact@v4
