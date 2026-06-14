@@ -35,5 +35,8 @@ contextBridge.exposeInMainWorld('api', {
   updater: {
     install: () => inv('updater:install'),
     onUpdate: cb => on('updater', cb),
-  }
+  },
+  
+  // 👇 THE NEW CONTEXT MENU BRIDGE 👇
+  showContextMenu: () => inv('show-context-menu')
 });

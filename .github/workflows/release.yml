@@ -7,8 +7,8 @@ on:
   workflow_dispatch:
 
 env:
-  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
   GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 permissions:
   contents: write
@@ -18,132 +18,120 @@ jobs:
     name: Windows x64 Installer
     runs-on: windows-latest
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
         with:
-          node-version: '24'
+          node-version: '20'
           cache: 'npm'
-
       - name: Install dependencies
-        run: npm ci
-
-      - name: Generate icon
+        run: npm ci --ignore-scripts
+      - name: Generate PNG icon
         run: node scripts/generate-icon.js
-
-      - name: Convert icon PNG to ICO
+      - name: Convert PNG → ICO
         shell: pwsh
         run: |
-          $pngPath = "buildResources\icon.png"
-          $icoPath = "buildResources\icon.ico"
           Add-Type -AssemblyName System.Drawing
-          $bmp = [System.Drawing.Bitmap]::FromFile((Resolve-Path $pngPath).Path)
-          $sizes = @(16, 32, 48, 64, 128, 256)
-          $stream = [System.IO.File]::Create($icoPath)
-          $writer = New-Object System.IO.BinaryWriter($stream)
-          $writer.Write([uint16]0); $writer.Write([uint16]1); $writer.Write([uint16]$sizes.Count)
-          $offset = 6 + $sizes.Count * 16; $images = @()
-          foreach ($size in $sizes) {
-            $resized = New-Object System.Drawing.Bitmap($bmp, $size, $size)
+          $bmp = [System.Drawing.Bitmap]::FromFile((Resolve-Path "buildResources\icon.png").Path)
+          $sizes = @(16,32,48,64,128,256)
+          $stream = [System.IO.File]::Create("buildResources\icon.ico")
+          $w = New-Object System.IO.BinaryWriter($stream)
+          $w.Write([uint16]0); $w.Write([uint16]1); $w.Write([uint16]$sizes.Count)
+          $offset = 6 + $sizes.Count * 16; $imgs = @()
+          foreach ($s in $sizes) {
+            $r = New-Object System.Drawing.Bitmap($bmp,$s,$s)
             $ms = New-Object System.IO.MemoryStream
-            $resized.Save($ms, [System.Drawing.Imaging.ImageFormat]::Png)
-            $images += ,$ms.ToArray(); $resized.Dispose()
+            $r.Save($ms,[System.Drawing.Imaging.ImageFormat]::Png)
+            $imgs += ,$ms.ToArray(); $r.Dispose()
           }
-          foreach ($i in 0..($sizes.Count-1)) {
-            $sz=$sizes[$i]; $data=$images[$i]
-            $writer.Write([byte]($sz -band 0xFF)); $writer.Write([byte]($sz -band 0xFF))
-            $writer.Write([byte]0); $writer.Write([byte]0)
-            $writer.Write([uint16]1); $writer.Write([uint16]32)
-            $writer.Write([uint32]$data.Length); $writer.Write([uint32]$offset); $offset+=$data.Length
+          for ($i=0; $i -lt $sizes.Count; $i++) {
+            $sz=$sizes[$i]; $d=$imgs[$i]
+            $w.Write([byte]($sz -band 0xFF)); $w.Write([byte]($sz -band 0xFF))
+            $w.Write([byte]0); $w.Write([byte]0); $w.Write([uint16]1); $w.Write([uint16]32)
+            $w.Write([uint32]$d.Length); $w.Write([uint32]$offset); $offset+=$d.Length
           }
-          foreach ($data in $images) { $writer.Write($data) }
-          $writer.Close(); $stream.Close(); $bmp.Dispose()
-
-      - name: Download and Extract mpv x64
+          $imgs | ForEach-Object { $w.Write($_) }
+          $w.Close(); $stream.Close(); $bmp.Dispose()
+          Write-Host "ICO created at buildResources\icon.ico"
+      - name: Download mpv x64
         shell: bash
         run: |
           mkdir -p vendor/mpv
-          cd vendor/mpv
-          ASSET_URL=$(curl -sL -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" "https://api.github.com/repos/shinchiro/mpv-winbuild-cmake/releases/latest" | jq -r '.assets[] | select(.name | test("^mpv-x86_64.*\\.7z$")) | select(.name | test("dev|debug") | not) | .browser_download_url' | head -n 1)
-          curl -sL "$ASSET_URL" -o mpv.7z
-          7z e mpv.7z -y
-          rm mpv.7z
-
-      - name: Build x64 installer
-        run: npx electron-builder --win nsis --x64 --config.publish=never
-
-      - name: Upload x64 artifact
-        uses: actions/upload-artifact@v4
+          ASSET_URL=$(curl -sf \
+            -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
+            "https://api.github.com/repos/shinchiro/mpv-winbuild-cmake/releases/latest" \
+            | jq -r '.assets[] | select(.name | test("^mpv-x86_64-[0-9]+-git-[0-9a-f]+\\.7z$")) | .browser_download_url' \
+            | head -1)
+          echo "Downloading: $ASSET_URL"
+          curl -fL "$ASSET_URL" -o vendor/mpv/mpv.7z
+          cd vendor/mpv && 7z e mpv.7z -y && rm mpv.7z
+      - name: Build x64
+        run: npx electron-builder --win nsis --x64 --publish never
+      - uses: actions/upload-artifact@v4
         with:
           name: BM-Player-x64
           path: dist/BM-Player-Setup-*-x64.exe
-          if-no-files-found: warn
+          if-no-files-found: error
 
   build-x86:
     name: Windows x86 Installer
     runs-on: windows-latest
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
         with:
-          node-version: '24'
+          node-version: '20'
           cache: 'npm'
-
       - name: Install dependencies
-        run: npm ci
-
-      - name: Generate icon
+        run: npm ci --ignore-scripts
+      - name: Generate PNG icon
         run: node scripts/generate-icon.js
-
-      - name: Convert icon PNG to ICO
+      - name: Convert PNG → ICO
         shell: pwsh
         run: |
-          $pngPath = "buildResources\icon.png"
-          $icoPath = "buildResources\icon.ico"
           Add-Type -AssemblyName System.Drawing
-          $bmp = [System.Drawing.Bitmap]::FromFile((Resolve-Path $pngPath).Path)
-          $sizes = @(16, 32, 48, 64, 128, 256)
-          $stream = [System.IO.File]::Create($icoPath)
-          $writer = New-Object System.IO.BinaryWriter($stream)
-          $writer.Write([uint16]0); $writer.Write([uint16]1); $writer.Write([uint16]$sizes.Count)
-          $offset = 6 + $sizes.Count * 16; $images = @()
-          foreach ($size in $sizes) {
-            $resized = New-Object System.Drawing.Bitmap($bmp, $size, $size)
+          $bmp = [System.Drawing.Bitmap]::FromFile((Resolve-Path "buildResources\icon.png").Path)
+          $sizes = @(16,32,48,64,128,256)
+          $stream = [System.IO.File]::Create("buildResources\icon.ico")
+          $w = New-Object System.IO.BinaryWriter($stream)
+          $w.Write([uint16]0); $w.Write([uint16]1); $w.Write([uint16]$sizes.Count)
+          $offset = 6 + $sizes.Count * 16; $imgs = @()
+          foreach ($s in $sizes) {
+            $r = New-Object System.Drawing.Bitmap($bmp,$s,$s)
             $ms = New-Object System.IO.MemoryStream
-            $resized.Save($ms, [System.Drawing.Imaging.ImageFormat]::Png)
-            $images += ,$ms.ToArray(); $resized.Dispose()
+            $r.Save($ms,[System.Drawing.Imaging.ImageFormat]::Png)
+            $imgs += ,$ms.ToArray(); $r.Dispose()
           }
-          foreach ($i in 0..($sizes.Count-1)) {
-            $sz=$sizes[$i]; $data=$images[$i]
-            $writer.Write([byte]($sz -band 0xFF)); $writer.Write([byte]($sz -band 0xFF))
-            $writer.Write([byte]0); $writer.Write([byte]0)
-            $writer.Write([uint16]1); $writer.Write([uint16]32)
-            $writer.Write([uint32]$data.Length); $writer.Write([uint32]$offset); $offset+=$data.Length
+          for ($i=0; $i -lt $sizes.Count; $i++) {
+            $sz=$sizes[$i]; $d=$imgs[$i]
+            $w.Write([byte]($sz -band 0xFF)); $w.Write([byte]($sz -band 0xFF))
+            $w.Write([byte]0); $w.Write([byte]0); $w.Write([uint16]1); $w.Write([uint16]32)
+            $w.Write([uint32]$d.Length); $w.Write([uint32]$offset); $offset+=$d.Length
           }
-          foreach ($data in $images) { $writer.Write($data) }
-          $writer.Close(); $stream.Close(); $bmp.Dispose()
-
-      - name: Download and Extract Legacy mpv x86
+          $imgs | ForEach-Object { $w.Write($_) }
+          $w.Close(); $stream.Close(); $bmp.Dispose()
+      - name: Download mpv x86
         shell: bash
         run: |
           mkdir -p vendor/mpv
-          cd vendor/mpv
-          ASSET_URL=$(curl -sL -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" "https://api.github.com/repos/shinchiro/mpv-winbuild-cmake/releases" | jq -r '[.[] | select(.assets[].name | test("^mpv-i686.*\\.7z$"))][0] | .assets[] | select(.name | test("^mpv-i686.*\\.7z$")) | select(.name | test("dev|debug") | not) | .browser_download_url' | head -n 1)
-          curl -sL "$ASSET_URL" -o mpv-x86.7z
-          7z e mpv-x86.7z -y
-          rm mpv-x86.7z
-
-      - name: Build x86 installer
-        run: npx electron-builder --win nsis --ia32 --config.publish=never
-
-      - name: Upload x86 artifact
-        uses: actions/upload-artifact@v4
+          ASSET_URL=$(curl -sf \
+            -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
+            "https://api.github.com/repos/shinchiro/mpv-winbuild-cmake/releases?per_page=10" \
+            | jq -r '.[].assets[] | select(.name | test("^mpv-i686-[0-9]+-git-[0-9a-f]+\\.7z$")) | .browser_download_url' \
+            | head -1)
+          if [ -z "$ASSET_URL" ]; then
+            ASSET_URL=$(curl -sf \
+              -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
+              "https://api.github.com/repos/shinchiro/mpv-winbuild-cmake/releases/latest" \
+              | jq -r '.assets[] | select(.name | test("^mpv-x86_64-[0-9]+-git-[0-9a-f]+\\.7z$")) | .browser_download_url' \
+              | head -1)
+          fi
+          echo "Downloading: $ASSET_URL"
+          curl -fL "$ASSET_URL" -o vendor/mpv/mpv.7z
+          cd vendor/mpv && 7z e mpv.7z -y && rm mpv.7z
+      - name: Build x86
+        run: npx electron-builder --win nsis --ia32 --publish never
+      - uses: actions/upload-artifact@v4
         with:
           name: BM-Player-x86
           path: dist/BM-Player-Setup-*-ia32.exe
-          if-no-files-found: warn
+          if-no-files-found: error

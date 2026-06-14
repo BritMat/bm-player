@@ -1,39 +1,29 @@
 appId: "com.bmplayer.app"
 productName: "BM Player"
-copyright: "Copyright © 2024 BM Player"
-
+copyright: "Copyright © 2026 BM Player"
 directories:
   output: "dist"
   buildResources: "buildResources"
-
 files:
   - "main.js"
   - "preload.js"
   - "src/**/*"
   - "node_modules/**/*"
   - "!node_modules/*/{CHANGELOG.md,README.md,readme.md}"
-  - "!node_modules/*/{test,__tests__,tests,powered-test,example,examples}"
+  - "!node_modules/*/{test,__tests__,tests,example,examples}"
   - "!node_modules/**/*.d.ts"
   - "!node_modules/.bin"
   - "!dist"
-
 extraResources:
   - from: "vendor/mpv"
     to: "mpv"
-    filter:
-      - "**/*"
-      - "!.keep"
-
+    filter: ["**/*", "!*.md", "!.keep"]
 win:
   icon: "buildResources/icon.ico"
   target:
     - target: "nsis"
-      arch:
-        - x64
-        - ia32
   artifactName: "BM-Player-Setup-${version}-${arch}.exe"
   requestedExecutionLevel: "asInvoker"
-
 nsis:
   oneClick: false
   perMachine: false
@@ -45,9 +35,3 @@ nsis:
   uninstallerIcon: "buildResources/icon.ico"
   installerHeaderIcon: "buildResources/icon.ico"
   deleteAppDataOnUninstall: false
-
-publish:
-  provider: github
-  owner: BritMat
-  repo: bm-player
-  releaseType: release

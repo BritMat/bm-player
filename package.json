@@ -1,7 +1,7 @@
 {
   "name": "bm-player",
   "productName": "BM Player",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "A modern, gorgeous media player powered by mpv",
   "main": "main.js",
   "scripts": {
@@ -22,10 +22,6 @@
   ],
   "author": "BM Player",
   "license": "MIT",
-  "repository": {
-    "type": "git",
-    "url": "https://github.com/bm-player/bm-player.git"
-  },
   "dependencies": {
     "adm-zip": "^0.5.10",
     "electron-updater": "^6.1.7",
@@ -35,17 +31,5 @@
   "devDependencies": {
     "electron": "^28.2.0",
     "electron-builder": "^24.9.1"
-  },
-  "build": {
-    "appId": "com.bmplayer.app",
-    "win": {
-      "target": "nsis"
-    },
-    "extraResources": [
-      {
-        "from": "vendor/mpv/mpv.exe",
-        "to": "mpv/mpv.exe"
-      }
-    ]
   }
 }

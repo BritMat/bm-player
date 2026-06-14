@@ -1,5 +1,5 @@
 'use strict';
-const { app, BrowserWindow, ipcMain, dialog } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, Menu, shell } = require('electron');
 const path   = require('path');
 const fs     = require('fs');
 const os     = require('os');
@@ -9,158 +9,279 @@ const { spawn } = require('child_process');
 app.commandLine.appendSwitch('ignore-gpu-blocklist');
 app.commandLine.appendSwitch('enable-gpu-rasterization');
 
+// State
 let win = null, bgWin = null, mpvProc = null, mpvSock = null;
 let ipcOk = false, mpvBuf = '', reqId = 0;
 const cbs = new Map();
-const PIPE   = `\\\\.\\pipe\\bm-mpv-${process.pid}`;
-const MEDIA  = new Set(['mp4','mkv','avi','mov','wmv','flv','webm','ts','m2ts','m4v','3gp','rmvb','ogv','mp3','flac','aac','ogg','wav','m4a','wma','opus','ape','mka']);
+const PIPE  = `\\\\.\\pipe\\bm-mpv-${process.pid}`;
+const MEDIA = new Set(['mp4','mkv','avi','mov','wmv','flv','webm','ts','m2ts',
+  'm4v','3gp','rmvb','ogv','mp3','flac','aac','ogg','wav','m4a','wma','opus','ape','mka']);
+
+// Track state for context menu
+let trackList      = [];
+let currentSubDelay = 0;
+let currentSubSize  = 38;
+let currentVolume   = 100;
+
+const gotLock = app.requestSingleInstanceLock();
+if (!gotLock) { app.quit(); process.exit(0); }
+
+app.on('second-instance', (_e, argv) => {
+  if (win) { win.isMinimized() && win.restore(); win.focus(); }
+  const f = argv.slice(2).find(a => fs.existsSync(a) && MEDIA.has(path.extname(a).slice(1).toLowerCase()));
+  if (f) openFiles([f]);
+});
 
 app.whenReady().then(() => {
-  // 1. The Backstop Window (Solid Black to block the desktop)
+  // Backstop Window
   bgWin = new BrowserWindow({
-    width: 1200, height: 760,
-    minWidth: 800, minHeight: 520,
-    frame: false,
-    transparent: false,
-    backgroundColor: '#000000',
-    show: false,
-    title: "BM Player"
+    width: 1200, height: 760, minWidth: 800, minHeight: 520,
+    frame: false, transparent: false, backgroundColor: '#000000',
+    show: false, title: 'BM Player'
   });
 
-  // 2. The Main UI Window (Transparent, holds the UI and Video)
+  // Transparent UI Window
   win = new BrowserWindow({
-    parent: bgWin,               // CRITICAL: Locks the UI window permanently on top of the black background
-    width: 1200, height: 760,
-    minWidth: 800, minHeight: 520,
-    frame: false,
-    transparent: true,           // CRITICAL: Must be transparent so the video can shine through
-    backgroundColor: '#00000000',
+    parent: bgWin,
+    width: 1200, height: 760, minWidth: 800, minHeight: 520,
+    frame: false, transparent: true, backgroundColor: '#00000000',
     show: false,
     webPreferences: {
-      nodeIntegration: false,
-      contextIsolation: true,
-      preload: path.join(__dirname, 'preload.js')
+      nodeIntegration: false, contextIsolation: true,
+      preload: path.join(__dirname, 'preload.js'),
+      webSecurity: false
     }
   });
 
-  // Keeps the black background perfectly glued to the main window when you move it
-  const syncWins = () => {
-    if (!win || !bgWin) return;
-    bgWin.setBounds(win.getBounds());
-  };
-  win.on('resize', syncWins);
-  win.on('move', syncWins);
+  const sync = () => { if (win && bgWin) bgWin.setBounds(win.getBounds()); };
+  win.on('resize', sync);
+  win.on('move',   sync);
+  win.on('maximize',          () => { bgWin?.maximize();   win?.webContents.send('win:state','maximized'); });
+  win.on('unmaximize',        () => { bgWin?.unmaximize(); win?.webContents.send('win:state','normal'); });
+  win.on('enter-full-screen', () => win?.webContents.send('win:state','fullscreen'));
+  win.on('leave-full-screen', () => win?.webContents.send('win:state','normal'));
 
   win.loadFile(path.join(__dirname, 'src', 'index.html'));
-  win.once('ready-to-show', () => { 
-    bgWin.show(); 
-    win.show(); 
-    registerIpc(); 
-    initMpv(); 
+  win.once('ready-to-show', () => {
+    bgWin.show(); win.show();
+    registerIpc();
+    initMpv();
   });
-  
-  win.on('closed', () => { 
-    killMpv(); 
-    if (bgWin) bgWin.destroy();
-    app.exit(0); 
-  });
+  win.on('closed', () => { killMpv(); if (bgWin) bgWin.destroy(); app.exit(0); });
 });
 
+app.on('window-all-closed', () => { killMpv(); if (process.platform !== 'darwin') app.quit(); });
+app.on('will-quit', killMpv);
+
 function registerIpc() {
-  ipcMain.handle('win:minimize', () => { win?.minimize(); bgWin?.minimize(); });
-  ipcMain.handle('win:maximize', () => {
+  ipcMain.handle('win:minimize',   () => { win?.minimize(); bgWin?.minimize(); });
+  ipcMain.handle('win:maximize',   () => {
     if (win?.isMaximized()) { win.unmaximize(); bgWin?.unmaximize(); }
-    else { bgWin?.maximize(); win.maximize(); }
+    else { bgWin?.maximize(); win?.maximize(); }
   });
-  ipcMain.handle('win:close', () => { killMpv(); app.exit(0); });
-  
+  ipcMain.handle('win:close',      () => { killMpv(); app.exit(0); });
+  ipcMain.handle('win:fullscreen', () => win?.setFullScreen(!win.isFullScreen()));
+  ipcMain.handle('win:alwaysTop',  (_, v) => win?.setAlwaysOnTop(v));
+  ipcMain.handle('win:isMax',      () => win?.isMaximized());
+  ipcMain.handle('win:isFs',       () => win?.isFullScreen());
+
   ipcMain.handle('dialog:open', async () => {
     if (!win) return [];
-    const r = await dialog.showOpenDialog(win, { properties: ['openFile'], filters: [{ name:'Media', extensions:[...MEDIA] }] });
+    const r = await dialog.showOpenDialog(win, {
+      title: 'Open Media', properties: ['openFile', 'multiSelections'],
+      filters: [{ name: 'Media', extensions: [...MEDIA] }, { name: 'All Files', extensions: ['*'] }]
+    });
     return r.canceled ? [] : r.filePaths;
   });
-  
-  ipcMain.handle('mpv:cmd', async (_e, cmd, ...args) => mpvCmd(cmd, ...args).catch(()=>{}));
-  ipcMain.handle('mpv:open', async (_e, files) => {
-    if (!files?.length) return;
-    mpvCmd('loadfile', files[0], 'replace').catch(e => console.error("MPV Load Error:", e));
+
+  ipcMain.handle('mpv:cmd',    async (_, cmd, ...a) => mpvCmd(cmd, ...a).catch(e => ({ error: e.message })));
+  ipcMain.handle('mpv:open',   async (_, files)     => openFiles(files));
+  ipcMain.handle('mpv:append', async (_, f)         => mpvCmd('loadfile', f, 'append-play').catch(() => {}));
+  ipcMain.handle('mpv:status', () => ({ ready: ipcOk }));
+
+  // Phase 2 Context Menu Logic
+  ipcMain.handle('show-context-menu', async () => {
+    if (!ipcOk) return;
+    const audio = trackList.filter(t => t.type === 'audio');
+    const subs  = trackList.filter(t => t.type === 'sub');
+    const trackLabel = t =>
+      [t.lang ? `[${t.lang.toUpperCase()}]` : '', t.title || t.codec || `Track ${t.id}`]
+        .filter(Boolean).join(' ');
+
+    const menu = Menu.buildFromTemplate([
+      {
+        label: '🎵  Audio Track',
+        submenu: audio.length
+          ? audio.map(t => ({
+              label: trackLabel(t), type: 'radio', checked: !!t.selected,
+              click: () => mpvCmd('set_property', 'aid', t.id).catch(() => {})
+            }))
+          : [{ label: 'No audio tracks', enabled: false }]
+      },
+      { type: 'separator' },
+      {
+        label: '💬  Subtitle Track',
+        submenu: [
+          {
+            label: 'Off', type: 'radio', checked: !subs.some(t => t.selected),
+            click: () => mpvCmd('set_property', 'sub-visibility', false).catch(() => {})
+          },
+          ...subs.map(t => ({
+            label: trackLabel(t), type: 'radio', checked: !!t.selected,
+            click: () => {
+              mpvCmd('set_property', 'sub-visibility', true).catch(() => {});
+              mpvCmd('set_property', 'sid', t.id).catch(() => {});
+            }
+          }))
+        ]
+      },
+      { type: 'separator' },
+      {
+        label: `⏱  Subtitle Delay  (${currentSubDelay.toFixed(1)}s)`,
+        submenu: [
+          { label: '+0.5 s', accelerator: 'z', click: () => adjustSubDelay(+0.5) },
+          { label: '-0.5 s', accelerator: 'x', click: () => adjustSubDelay(-0.5) },
+          { label: 'Reset', click: () => setSubDelay(0) },
+        ]
+      },
+      {
+        label: '📐  Subtitle Size',
+        submenu: [
+          { label: 'Larger  (+4)', click: () => mpvCmd('add', 'sub-font-size', 4).catch(() => {}) },
+          { label: 'Smaller (-4)', click: () => mpvCmd('add', 'sub-font-size', -4).catch(() => {}) },
+        ]
+      },
+      { type: 'separator' },
+      { label: '🔁  Loop File', click: () => mpvCmd('cycle', 'loop-file').catch(() => {}) },
+    ]);
+    menu.popup({ window: win });
   });
+
+  ipcMain.handle('app:version',  () => app.getVersion());
+}
+
+function adjustSubDelay(delta) {
+  currentSubDelay += delta;
+  mpvCmd('set_property', 'sub-delay', currentSubDelay).catch(() => {});
+  win?.webContents.send('mpv:prop', { name: 'sub-delay', data: currentSubDelay });
+}
+
+function setSubDelay(v) {
+  currentSubDelay = v;
+  mpvCmd('set_property', 'sub-delay', v).catch(() => {});
+  win?.webContents.send('mpv:prop', { name: 'sub-delay', data: v });
 }
 
 function getMpv() {
-  const candidates = [
-    path.join(__dirname, 'vendor', 'mpv', 'mpv.exe'),
-    path.join(__dirname, 'bin', 'mpv.exe'),
-    path.join(os.homedir(), 'AppData', 'Roaming', 'BM Player', 'mpv', 'mpv.exe'),
-    path.join(process.resourcesPath || '', 'mpv', 'mpv.exe')
+  const paths = [
+    path.join(process.resourcesPath || '', 'mpv', 'mpv.exe'),
+    path.join(__dirname, 'vendor', 'mpv', 'mpv.exe')
   ];
-  return candidates.find(p => fs.existsSync(p)) || null;
+  return paths.find(p => fs.existsSync(p)) || null;
 }
 
 function initMpv() {
   const exe = getMpv();
-  if (exe) startMpv(exe);
+  if (!exe) { win?.webContents.send('mpv:status', { state: 'missing' }); return; }
+  startMpv(exe);
 }
 
 function startMpv(exe) {
   killMpv();
-  
-  // Bind MPV to the transparent UI window!
-  const wid = win.getNativeWindowHandle().readInt32LE();
-
+  const wid = win.getNativeWindowHandle().readInt32LE(0);
   mpvProc = spawn(exe, [
     `--input-ipc-server=${PIPE}`,
     `--wid=${wid}`,
-    '--idle=yes',
-    '--keep-open=yes',
-    '--no-border',
-    '--osd-level=0',
+    '--idle=yes', '--keep-open=yes',
+    '--no-border', '--osd-level=0',
     '--hwdec=auto-safe',
-    '--vo=direct3d',       // THE MAGIC FLAG: This exact setting produced your successful toast image!
-    '--volume=100'
-  ], { stdio:'ignore', windowsHide: true }); 
-
+    '--vo=direct3d',
+    '--volume=100',
+    '--sub-auto=fuzzy',
+    '--sub-bold=yes',
+    '--sub-font-size=38',
+    '--sub-margin-y=90',
+  ], { stdio: 'ignore', windowsHide: true });
+  
   mpvProc.on('exit', () => { ipcOk = false; });
   setTimeout(() => connectIpc(), 1500);
 }
 
-function connectIpc(retry=0) {
+function connectIpc(retry = 0) {
   if (!mpvProc || mpvProc.killed) return;
+  mpvSock?.destroy();
   mpvSock = net.createConnection(PIPE);
-  
   mpvSock.on('connect', () => {
     ipcOk = true;
-    [['pause',1],['time-pos',2],['duration',3]].forEach(([n,id]) => 
-      mpvSock.write(JSON.stringify({command:['observe_property',id,n]})+'\n')
+    win?.webContents.send('mpv:status', { state: 'ready' });
+    [
+      [1, 'pause'], [2, 'time-pos'], [3, 'duration'], [4, 'volume'],
+      [6, 'media-title'], [9, 'sub-delay'], [10, 'sub-font-size'], 
+      [11, 'sub-visibility'], [12, 'track-list']
+    ].forEach(([id, name]) =>
+      mpvSock.write(JSON.stringify({ command: ['observe_property', id, name] }) + '\n')
     );
   });
-
   mpvSock.on('data', chunk => {
     mpvBuf += chunk.toString();
     let nl;
     while ((nl = mpvBuf.indexOf('\n')) !== -1) {
-      const line = mpvBuf.slice(0,nl).trim(); mpvBuf = mpvBuf.slice(nl+1);
+      const line = mpvBuf.slice(0, nl).trim();
+      mpvBuf = mpvBuf.slice(nl + 1);
       if (!line) continue;
-      try { 
-        const msg = JSON.parse(line);
-        if (msg.event === 'property-change') win?.webContents.send('mpv:prop', {name: msg.name, data: msg.data});
-      } catch(_){}
+      try { handleMsg(JSON.parse(line)); } catch (_) {}
     }
   });
-
-  mpvSock.on('error', () => { if (retry < 15) setTimeout(() => connectIpc(retry+1), 500); });
+  mpvSock.on('error', e => {
+    if ((e.code === 'ENOENT' || e.code === 'ECONNREFUSED') && retry < 15)
+      setTimeout(() => connectIpc(retry + 1), 500);
+  });
+  mpvSock.on('close', () => {
+    ipcOk = false;
+    if (mpvProc && !mpvProc.killed) setTimeout(() => connectIpc(), 2000);
+  });
 }
 
-function mpvCmd(cmd,...args) {
-  return new Promise((res,rej) => {
-    if (!ipcOk || !mpvSock) return rej(new Error('MPV dead'));
-    const id = ++reqId; cbs.set(id, {res,rej});
-    mpvSock.write(JSON.stringify({command:[cmd,...args],request_id:id})+'\n');
-    setTimeout(() => { if(cbs.has(id)) { cbs.delete(id); rej(new Error('timeout')); }}, 5000);
+function handleMsg(msg) {
+  if (msg.request_id !== undefined) {
+    const cb = cbs.get(msg.request_id);
+    if (cb) {
+      cbs.delete(msg.request_id);
+      (msg.error && msg.error !== 'success') ? cb.rej(new Error(msg.error)) : cb.res(msg.data);
+    }
+    return;
+  }
+  if (!msg.event) return;
+  if (msg.event === 'property-change' && msg.name === 'track-list') {
+    trackList = Array.isArray(msg.data) ? msg.data : [];
+    win?.webContents.send('mpv:tracks', trackList);
+  }
+  if (msg.event === 'property-change' && msg.name === 'sub-delay') currentSubDelay = msg.data ?? 0;
+  if (msg.event === 'property-change' && msg.name === 'volume') currentVolume = msg.data ?? 100;
+  win?.webContents.send('mpv:event', msg);
+  if (msg.event === 'property-change') win?.webContents.send('mpv:prop', { name: msg.name, data: msg.data });
+}
+
+function mpvCmd(cmd, ...args) {
+  return new Promise((res, rej) => {
+    if (!ipcOk || !mpvSock) return rej(new Error('mpv not ready'));
+    const id = ++reqId;
+    cbs.set(id, { res, rej });
+    mpvSock.write(JSON.stringify({ command: [cmd, ...args], request_id: id }) + '\n');
+    setTimeout(() => { if (cbs.has(id)) { cbs.delete(id); rej(new Error('timeout')); } }, 8000);
   });
+}
+
+function openFiles(files) {
+  if (!files?.length) return;
+  const valid = files.filter(f => f.startsWith('http') || MEDIA.has(path.extname(f).slice(1).toLowerCase()));
+  if (!valid.length) return;
+  mpvCmd('loadfile', valid[0], 'replace').catch(() => {});
+  valid.slice(1).forEach(f => mpvCmd('loadfile', f, 'append').catch(() => {}));
 }
 
 function killMpv() {
-  ipcOk = false; mpvSock?.destroy(); mpvSock = null;
-  if (mpvProc) { try { mpvProc.kill(); } catch(_){} mpvProc = null; }
+  ipcOk = false;
+  mpvSock?.destroy(); mpvSock = null;
+  if (mpvProc) { try { mpvProc.kill(); } catch (_) {} mpvProc = null; }
 }
