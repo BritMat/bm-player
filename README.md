@@ -49,6 +49,7 @@ npm start
 ```
 ---
 ## Project Structure
+```
 bm-player/
 ├── .github/workflows/
 │   └── release.yml      ← CI/CD Pipeline for auto-compiling/publishing installers
@@ -66,6 +67,7 @@ bm-player/
 └── scripts/
     └── generate-icon.js ← Programmatic icon generation
 
+```
 ---
 
 ## License
