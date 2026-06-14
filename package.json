@@ -8,9 +8,9 @@
     "start": "electron .",
     "dev": "NODE_ENV=development electron .",
     "build": "npm run gen-icon && electron-builder",
-    "build:win": "npm run gen-icon && electron-builder --win",
-    "build:win64": "npm run gen-icon && electron-builder --win --x64",
-    "build:win32": "npm run gen-icon && electron-builder --win --ia32",
+    "build:win": "npm run gen-icon && electron-builder --win -p always",
+    "build:win64": "npm run gen-icon && electron-builder --win --x64 -p always",
+    "build:win32": "npm run gen-icon && electron-builder --win --ia32 -p always",
     "gen-icon": "node scripts/generate-icon.js"
   },
   "keywords": [
@@ -35,5 +35,18 @@
   "devDependencies": {
     "electron": "^28.2.0",
     "electron-builder": "^24.9.1"
+  },
+  "build": {
+    "appId": "com.bmplayer.app",
+    "publish": ["github"],
+    "win": {
+      "target": "nsis"
+    },
+    "extraResources": [
+      {
+        "from": "vendor/mpv/mpv.exe",
+        "to": "mpv/mpv.exe"
+      }
+    ]
   }
 }
