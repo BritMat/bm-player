@@ -1,43 +1,58 @@
 'use strict';
 const { app, BrowserWindow, ipcMain, dialog, Menu, shell } = require('electron');
-const path   = require('path');
-const fs     = require('fs');
-const os     = require('os');
-const net    = require('net');
+const path = require('path');
+const fs   = require('fs');
+const os   = require('os');
+const net  = require('net');
 const { spawn } = require('child_process');
 
 app.commandLine.appendSwitch('ignore-gpu-blocklist');
 app.commandLine.appendSwitch('enable-gpu-rasterization');
 
+// ── State ──────────────────────────────────────────────────────────────────
 let win = null, bgWin = null, mpvProc = null, mpvSock = null;
 let ipcOk = false, mpvBuf = '', reqId = 0;
 const cbs = new Map();
 const PIPE  = `\\\\.\\pipe\\bm-mpv-${process.pid}`;
-const MEDIA = new Set(['mp4','mkv','avi','mov','wmv','flv','webm','ts','m2ts',
-  'm4v','3gp','rmvb','ogv','mp3','flac','aac','ogg','wav','m4a','wma','opus','ape','mka']);
+const MEDIA = new Set([
+  'mp4','mkv','avi','mov','wmv','flv','webm','ts','m2ts','m4v','3gp','rmvb',
+  'ogv','mp3','flac','aac','ogg','wav','m4a','wma','opus','ape','mka',
+  'vob','mpg','mpeg','m2v','divx','xvid','264','265','hevc','av1',
+  'm3u','m3u8','pls'
+]);
 
-let trackList      = [];
+let trackList = [];
 let currentSubDelay = 0;
+let currentAudioDelay = 0;
+let mediaProps = {};
 
+// ── Single instance ────────────────────────────────────────────────────────
 const gotLock = app.requestSingleInstanceLock();
-if (!gotLock) { app.quit(); process.exit(0); }
+if (!gotLock) { 
+  app.quit(); 
+  process.exit(0); 
+}
 
 app.on('second-instance', (_e, argv) => {
-  if (win) { win.isMinimized() && win.restore(); win.focus(); }
-  const f = argv.slice(2).find(a => fs.existsSync(a) && MEDIA.has(path.extname(a).slice(1).toLowerCase()));
+  if (win) { 
+    if (win.isMinimized()) win.restore(); 
+    win.focus(); 
+  }
+  const f = argv.slice(2).find(a => fs.existsSync(a) && isMedia(a));
   if (f) openFiles([f]);
 });
 
+// ── App ready ──────────────────────────────────────────────────────────────
 app.whenReady().then(() => {
   bgWin = new BrowserWindow({
-    width: 1200, height: 760, minWidth: 800, minHeight: 520,
-    frame: false, transparent: false, backgroundColor: '#000000',
+    width: 1200, height: 760, minWidth: 900, minHeight: 560,
+    frame: false, transparent: false, backgroundColor: '#000',
     show: false, title: 'BM Player'
   });
-
+  
   win = new BrowserWindow({
     parent: bgWin,
-    width: 1200, height: 760, minWidth: 800, minHeight: 520,
+    width: 1200, height: 760, minWidth: 900, minHeight: 560,
     frame: false, transparent: true, backgroundColor: '#00000000',
     show: false,
     webPreferences: {
@@ -47,149 +62,229 @@ app.whenReady().then(() => {
     }
   });
 
-  const sync = () => { if (win && bgWin) bgWin.setBounds(win.getBounds()); };
-  win.on('resize', sync);
-  win.on('move',   sync);
-  win.on('maximize',          () => { bgWin?.maximize();   win?.webContents.send('win:state','maximized'); });
-  win.on('unmaximize',        () => { bgWin?.unmaximize(); win?.webContents.send('win:state','normal'); });
-  win.on('enter-full-screen', () => win?.webContents.send('win:state','fullscreen'));
-  win.on('leave-full-screen', () => win?.webContents.send('win:state','normal'));
+  const sync = () => { 
+    if (!win || !bgWin) return;
+    if (win.isMaximized() || win.isFullScreen()) return; 
+    bgWin.setBounds(win.getBounds()); 
+  };
+  
+  win.on('resize', sync); 
+  win.on('move', sync);
+  
+  win.on('maximize', () => { 
+    if (bgWin && !bgWin.isMaximized()) bgWin.maximize();   
+    send('win:state','maximized'); 
+  });
+  
+  win.on('unmaximize', () => { 
+    if (bgWin && bgWin.isMaximized()) bgWin.unmaximize(); 
+    sync();
+    send('win:state','normal'); 
+  });
+  
+  win.on('enter-full-screen', () => { 
+    if (bgWin && !bgWin.isFullScreen()) bgWin.setFullScreen(true);
+    send('win:state','fullscreen');
+  });
+  
+  // ── WINDOWS FREEZE FIX: Delay sync slightly so Windows DWM catches up ──
+  win.on('leave-full-screen', () => { 
+    if (bgWin && bgWin.isFullScreen()) bgWin.setFullScreen(false);
+    setTimeout(() => sync(), 50); 
+    send('win:state','normal');
+  });
 
   win.loadFile(path.join(__dirname, 'src', 'index.html'));
+  
   win.once('ready-to-show', () => {
-    bgWin.show(); win.show();
+    bgWin.show(); 
+    win.show();
     registerIpc();
     initMpv();
   });
-  win.on('closed', () => { killMpv(); if (bgWin) bgWin.destroy(); app.exit(0); });
+  
+  win.on('closed', () => { 
+    killMpv(); 
+    if (bgWin) bgWin.destroy(); 
+    app.exit(0); 
+  });
 });
 
-app.on('window-all-closed', () => { killMpv(); if (process.platform !== 'darwin') app.quit(); });
+app.on('window-all-closed', () => { 
+  killMpv(); 
+  if (process.platform !== 'darwin') app.quit(); 
+});
+
 app.on('will-quit', killMpv);
 
+function send(ch, ...d) { 
+  if (win) win.webContents.send(ch, ...d); 
+}
+
+// ── IPC Handlers ───────────────────────────────────────────────────────────
 function registerIpc() {
-  ipcMain.handle('win:minimize',   () => { win?.minimize(); bgWin?.minimize(); });
-  ipcMain.handle('win:maximize',   () => {
-    if (win?.isMaximized()) { win.unmaximize(); bgWin?.unmaximize(); }
-    else { bgWin?.maximize(); win?.maximize(); }
+  ipcMain.handle('win:minimize', () => { 
+    if (win) win.minimize(); 
+    if (bgWin) bgWin.minimize(); 
   });
-  ipcMain.handle('win:close',      () => { killMpv(); app.exit(0); });
-  ipcMain.handle('win:fullscreen', () => win?.setFullScreen(!win.isFullScreen()));
-  ipcMain.handle('win:alwaysTop',  (_, v) => win?.setAlwaysOnTop(v));
-  ipcMain.handle('win:isMax',      () => win?.isMaximized());
-  ipcMain.handle('win:isFs',       () => win?.isFullScreen());
+
+  // THE STAIRCASE SWITCH: If one state is active, the other must be off
+  ipcMain.handle('win:maximize', () => {
+    if (!win) return;
+    // If Fullscreen is on, turn it off first
+    if (win.isFullScreen()) {
+      win.setFullScreen(false);
+      if (bgWin) bgWin.setFullScreen(false);
+    }
+    // Now toggle maximize
+    if (win.isMaximized()) win.unmaximize();
+    else win.maximize();
+  });
+
+  ipcMain.handle('win:fullscreen', () => {
+    if (!win) return;
+    // If Maximized, turn it off so we have a clean transition to Fullscreen
+    if (win.isMaximized()) {
+      win.unmaximize();
+      if (bgWin) bgWin.unmaximize();
+    }
+    // Toggle Fullscreen
+    const isFs = win.isFullScreen();
+    win.setFullScreen(!isFs);
+    if (bgWin) bgWin.setFullScreen(!isFs);
+  });
+
+  ipcMain.handle('win:close', () => { killMpv(); app.exit(0); });
+  
+  ipcMain.handle('win:alwaysTop', (_, v) => { 
+    if (win) win.setAlwaysOnTop(v); 
+    if (bgWin) bgWin.setAlwaysOnTop(v); 
+  });
+  
+  ipcMain.handle('win:isMax', () => win?.isMaximized());
+  ipcMain.handle('win:isFs',  () => win?.isFullScreen());
 
   ipcMain.handle('dialog:open', async () => {
-    if (!win) return [];
     const r = await dialog.showOpenDialog(win, {
-      title: 'Open Media', properties: ['openFile', 'multiSelections'],
-      filters: [{ name: 'Media', extensions: [...MEDIA] }, { name: 'All Files', extensions: ['*'] }]
+      title: 'Open Media', properties: ['openFile','multiSelections'],
+      filters: [{ name:'Media', extensions:[...MEDIA] }, { name:'All', extensions:['*'] }]
     });
     return r.canceled ? [] : r.filePaths;
   });
 
+  ipcMain.handle('dialog:openSub', async () => {
+    const r = await dialog.showOpenDialog(win, {
+      title: 'Add Subtitle File', properties: ['openFile'],
+      filters: [{ name:'Subtitles', extensions:['srt','ass','ssa','vtt','sub','idx','sup'] }]
+    });
+    return r.canceled ? null : r.filePaths[0];
+  });
+
   ipcMain.handle('mpv:cmd',    async (_, cmd, ...a) => mpvCmd(cmd, ...a).catch(e => ({ error: e.message })));
   ipcMain.handle('mpv:open',   async (_, files)     => openFiles(files));
-  ipcMain.handle('mpv:append', async (_, f)         => mpvCmd('loadfile', f, 'append-play').catch(() => {}));
+  ipcMain.handle('mpv:append', async (_, f)         => mpvCmd('loadfile', f, 'append').catch(() => {}));
   ipcMain.handle('mpv:status', () => ({ ready: ipcOk }));
 
-  ipcMain.handle('show-context-menu', async () => {
-    if (!ipcOk) return;
-
-    try {
-      const tracks = await mpvCmd('get_property', 'track-list');
-      if (Array.isArray(tracks)) trackList = tracks;
-    } catch (e) {
-      console.log("Track fetch skipped");
+  ipcMain.handle('mpv:getPlaylist', async () => {
+    try { 
+      return await mpvCmd('get_property', 'playlist'); 
+    } catch(_) { 
+      return []; 
     }
+  });
 
-    const audio = trackList.filter(t => t.type === 'audio');
-    const subs  = trackList.filter(t => t.type === 'sub');
-    const trackLabel = t =>
-      [t.lang ? `[${t.lang.toUpperCase()}]` : '', t.title || t.codec || `Track ${t.id}`]
-        .filter(Boolean).join(' ');
+  ipcMain.handle('show-context-menu', async () => {
+    if (ipcOk) {
+      try {
+        await new Promise(r => setTimeout(r, 50));
+        const fresh = await mpvCmd('get_property', 'track-list');
+        if (Array.isArray(fresh)) trackList = fresh;
+      } catch(_) {}
+    } else {
+      trackList = [];
+    }
+    buildAndShowContextMenu();
+  });
 
-    const menu = Menu.buildFromTemplate([
-      {
-        label: 'Audio Track',
-        submenu: [
-          // ── NEW: DISABLE AUDIO OPTION ──
-          {
-            label: 'Disable Audio', type: 'radio', checked: !audio.some(t => t.selected),
-            click: () => mpvCmd('set_property', 'aid', 'no').catch(() => {})
-          },
-          { type: 'separator' },
-          ...audio.map(t => ({
-            label: trackLabel(t), type: 'radio', checked: !!t.selected,
-            click: () => mpvCmd('set_property', 'aid', t.id).catch(() => {})
-          }))
-        ]
-      },
-      { type: 'separator' },
-      {
-        label: 'Subtitle Track',
-        submenu: [
-          {
-            label: 'Off', type: 'radio', checked: !subs.some(t => t.selected),
-            click: () => mpvCmd('set_property', 'sub-visibility', false).catch(() => {})
-          },
-          ...subs.map(t => ({
-            label: trackLabel(t), type: 'radio', checked: !!t.selected,
-            click: () => {
-              mpvCmd('set_property', 'sub-visibility', true).catch(() => {});
-              mpvCmd('set_property', 'sid', t.id).catch(() => {});
-            }
-          }))
-        ]
-      },
-      { type: 'separator' },
-      {
-        label: `Subtitle Delay  (${currentSubDelay.toFixed(1)}s)`,
-        submenu: [
-          { label: '+0.5 s', accelerator: 'z', click: () => adjustSubDelay(+0.5) },
-          { label: '-0.5 s', accelerator: 'x', click: () => adjustSubDelay(-0.5) },
-          { label: 'Reset', click: () => setSubDelay(0) },
-        ]
-      },
-      {
-        label: 'Subtitle Size',
-        submenu: [
-          { label: 'Larger  (+4)', click: () => mpvCmd('add', 'sub-font-size', 4).catch(() => {}) },
-          { label: 'Smaller (-4)', click: () => mpvCmd('add', 'sub-font-size', -4).catch(() => {}) },
-        ]
-      },
-      { type: 'separator' },
-      { label: 'Loop File', click: () => mpvCmd('cycle', 'loop-file').catch(() => {}) },
-    ]);
-    menu.popup({ window: win });
+  ipcMain.handle('adj:subDelay', (_, d) => { 
+    currentSubDelay += d; 
+    mpvCmd('set_property','sub-delay', currentSubDelay).catch(()=>{}); 
+    send('mpv:prop',{name:'sub-delay', data:currentSubDelay}); 
+  });
+  
+  ipcMain.handle('adj:audioDelay', (_, d) => { 
+    currentAudioDelay += d; 
+    mpvCmd('set_property','audio-delay', currentAudioDelay).catch(()=>{}); 
+    send('mpv:prop',{name:'audio-delay', data:currentAudioDelay}); 
+  });
+  
+  ipcMain.handle('reset:subDelay', () => { 
+    currentSubDelay = 0;   
+    mpvCmd('set_property','sub-delay',0).catch(()=>{}); 
+  });
+  
+  ipcMain.handle('reset:audioDelay', () => { 
+    currentAudioDelay = 0; 
+    mpvCmd('set_property','audio-delay',0).catch(()=>{}); 
   });
 
   ipcMain.handle('app:version',  () => app.getVersion());
+  ipcMain.handle('app:external', (_, u) => shell.openExternal(u));
+  ipcMain.handle('app:addRecent',(_, f) => { 
+    try { 
+      app.addRecentDocument(f); 
+    } catch(_){} 
+  });
 }
 
-function adjustSubDelay(delta) {
-  currentSubDelay += delta;
-  mpvCmd('set_property', 'sub-delay', currentSubDelay).catch(() => {});
-  win?.webContents.send('mpv:prop', { name: 'sub-delay', data: currentSubDelay });
+// ── Context menu builder ───────────────────────────────────────────────────
+function buildAndShowContextMenu() {
+  const audio = trackList.filter(t => t.type === 'audio');
+  const subs  = trackList.filter(t => t.type === 'sub');
+  const fmt = t => [t.lang ? `[${t.lang.toUpperCase()}]` : '', t.title || t.codec || `Track ${t.id}`].filter(Boolean).join(' ');
+
+  const menu = Menu.buildFromTemplate([
+    { label: '🎵 Audio Track', submenu: [
+      { label:'Disable Audio', type:'radio', checked:!audio.some(t=>t.selected), click:()=>mpvCmd('set_property','aid','no').catch(()=>{}) },
+      ...audio.map(t=>({ label: fmt(t), type:'radio', checked:!!t.selected, click:()=>mpvCmd('set_property','aid',t.id).catch(()=>{}) }))
+    ]},
+    { type:'separator' },
+    { label: '💬 Subtitle Track', submenu: [
+      { label:'Off', type:'radio', checked:!subs.some(t=>t.selected), click:()=>mpvCmd('set_property','sid','no').catch(()=>{}) },
+      ...subs.map(t=>({ label: fmt(t), type:'radio', checked:!!t.selected, click:()=>{ mpvCmd('set_property','sub-visibility',true).catch(()=>{}); mpvCmd('set_property','sid',t.id).catch(()=>{}); } }))
+    ]},
+    { type:'separator' },
+    { label:`⏱ Sub Delay (${currentSubDelay.toFixed(1)}s)`, submenu:[
+      { label:'+0.5s', click:()=>{ currentSubDelay+=0.5; mpvCmd('set_property','sub-delay',currentSubDelay).catch(()=>{}); } },
+      { label:'-0.5s', click:()=>{ currentSubDelay-=0.5; mpvCmd('set_property','sub-delay',currentSubDelay).catch(()=>{}); } },
+      { label:'Reset',  click:()=>{ currentSubDelay=0;   mpvCmd('set_property','sub-delay',0).catch(()=>{}); } },
+    ]},
+    { label:'📐 Sub Size', submenu:[
+      { label:'Larger',  click:()=>mpvCmd('add','sub-font-size',4).catch(()=>{})  },
+      { label:'Smaller', click:()=>mpvCmd('add','sub-font-size',-4).catch(()=>{}) },
+    ]},
+    { type:'separator' },
+    { label:'📸 Screenshot', click:()=>mpvCmd('screenshot','subtitles').catch(()=>{}) },
+    { label:'🔁 Loop File',  click:()=>mpvCmd('cycle','loop-file').catch(()=>{})     },
+  ]);
+  menu.popup({ window: win });
 }
 
-function setSubDelay(v) {
-  currentSubDelay = v;
-  mpvCmd('set_property', 'sub-delay', v).catch(() => {});
-  win?.webContents.send('mpv:prop', { name: 'sub-delay', data: v });
-}
-
+// ── MPV Engine Logic ───────────────────────────────────────────────────────
 function getMpv() {
-  const paths = [
-    path.join(process.resourcesPath || '', 'mpv', 'mpv.exe'),
-    path.join(__dirname, 'vendor', 'mpv', 'mpv.exe')
-  ];
-  return paths.find(p => fs.existsSync(p)) || null;
+  return [
+    path.join(process.resourcesPath||'','mpv','mpv.exe'),
+    path.join(__dirname,'vendor','mpv','mpv.exe'),
+    path.join(__dirname,'bin','mpv.exe'),
+  ].find(p => fs.existsSync(p)) || null;
 }
 
 function initMpv() {
   const exe = getMpv();
-  if (!exe) { win?.webContents.send('mpv:status', { state: 'missing' }); return; }
+  if (!exe) { 
+    send('mpv:status',{state:'missing'}); 
+    return; 
+  }
   startMpv(exe);
 }
 
@@ -200,53 +295,74 @@ function startMpv(exe) {
     `--input-ipc-server=${PIPE}`,
     `--wid=${wid}`,
     '--idle=yes', '--keep-open=yes',
-    '--no-border', '--osd-level=0',
-    '--hwdec=auto-safe',
-    '--vo=direct3d',
+    '--no-border',  '--osd-level=0',
+    '--hwdec=auto-safe', '--vo=direct3d',
     '--volume=100',
-    '--sid=no', // Forces subs off by default (if they aren't hardcoded)
     '--sub-auto=fuzzy',
+    '--sub-ass-override=force',   
+    '--sub-use-margins=yes',      
+    '--sub-margin-y=90',          
     '--sub-bold=yes',
     '--sub-font-size=38',
-    '--sub-margin-y=90',
-  ], { stdio: 'ignore', windowsHide: true });
-  
+    '--sub-shadow-offset=2',
+    '--sub-border-size=3',
+    '--sub-color=1.0/1.0/1.0/1.0',
+  ], { stdio:'ignore', windowsHide:true });
+
   mpvProc.on('exit', () => { ipcOk = false; });
   setTimeout(() => connectIpc(), 1500);
 }
 
 function connectIpc(retry = 0) {
   if (!mpvProc || mpvProc.killed) return;
-  mpvSock?.destroy();
+  if (mpvSock) mpvSock.destroy();
+  
   mpvSock = net.createConnection(PIPE);
+  
   mpvSock.on('connect', () => {
     ipcOk = true;
-    win?.webContents.send('mpv:status', { state: 'ready' });
+    send('mpv:status', { state:'ready' });
     [
-      [1, 'pause'], [2, 'time-pos'], [3, 'duration'], [4, 'volume'],
-      [5, 'mute'], [6, 'media-title'], [9, 'sub-delay'], [10, 'sub-font-size'], 
-      [11, 'sub-visibility'], [12, 'track-list']
-    ].forEach(([id, name]) =>
-      mpvSock.write(JSON.stringify({ command: ['observe_property', id, name] }) + '\n')
+      [1,'pause'],[2,'time-pos'],[3,'duration'],[4,'volume'],
+      [5,'mute'],[6,'media-title'],[7,'filename'],
+      [8,'track-list'],[9,'playlist-pos'],[10,'playlist-count'],
+      [11,'sub-delay'],[12,'audio-delay'],[13,'speed'],
+      [14,'video-params'],[15,'audio-params'],
+      [16,'video-codec'],[17,'audio-codec'],
+      [18,'file-size'],[19,'container-format'],
+      [20,'video-bitrate'],[21,'audio-bitrate'],
+      [22,'chapter-list'],[23,'chapter'],
+      [24,'loop-file'],[25,'loop-playlist'],
+    ].forEach(([id,name]) =>
+      mpvSock.write(JSON.stringify({command:['observe_property',id,name]})+'\n')
     );
   });
+
   mpvSock.on('data', chunk => {
     mpvBuf += chunk.toString();
     let nl;
     while ((nl = mpvBuf.indexOf('\n')) !== -1) {
-      const line = mpvBuf.slice(0, nl).trim();
-      mpvBuf = mpvBuf.slice(nl + 1);
-      if (!line) continue;
-      try { handleMsg(JSON.parse(line)); } catch (_) {}
+      const line = mpvBuf.slice(0,nl).trim(); 
+      mpvBuf = mpvBuf.slice(nl+1);
+      if (line) {
+        try { 
+          handleMsg(JSON.parse(line)); 
+        } catch(_){}
+      }
     }
   });
+
   mpvSock.on('error', e => {
-    if ((e.code === 'ENOENT' || e.code === 'ECONNREFUSED') && retry < 15)
-      setTimeout(() => connectIpc(retry + 1), 500);
+    if ((e.code==='ENOENT'||e.code==='ECONNREFUSED') && retry<15) {
+      setTimeout(()=>connectIpc(retry+1), 500);
+    }
   });
-  mpvSock.on('close', () => {
-    ipcOk = false;
-    if (mpvProc && !mpvProc.killed) setTimeout(() => connectIpc(), 2000);
+
+  mpvSock.on('close', () => { 
+    ipcOk = false; 
+    if (mpvProc && !mpvProc.killed) {
+      setTimeout(()=>connectIpc(),2000);
+    }
   });
 }
 
@@ -255,40 +371,86 @@ function handleMsg(msg) {
     const cb = cbs.get(msg.request_id);
     if (cb) {
       cbs.delete(msg.request_id);
-      (msg.error && msg.error !== 'success') ? cb.rej(new Error(msg.error)) : cb.res(msg.data);
+      if (msg.error && msg.error !== 'success') {
+        cb.rej(new Error(msg.error));
+      } else {
+        cb.res(msg.data);
+      }
     }
     return;
   }
+  
   if (!msg.event) return;
-  if (msg.event === 'property-change' && msg.name === 'track-list') {
-    trackList = Array.isArray(msg.data) ? msg.data : [];
-    win?.webContents.send('mpv:tracks', trackList);
+
+  if (msg.event === 'property-change') {
+    if (msg.name === 'track-list')  trackList = Array.isArray(msg.data) ? msg.data : [];
+    if (msg.name === 'sub-delay')   currentSubDelay   = msg.data ?? 0;
+    if (msg.name === 'audio-delay') currentAudioDelay = msg.data ?? 0;
+
+    if (['video-params','audio-params','video-codec','audio-codec',
+         'file-size','container-format','video-bitrate','audio-bitrate',
+         'duration','chapter-list','filename'].includes(msg.name)) {
+      mediaProps[msg.name] = msg.data;
+      send('mpv:mediaProps', mediaProps);
+    }
   }
-  if (msg.event === 'property-change' && msg.name === 'sub-delay') currentSubDelay = msg.data ?? 0;
-  win?.webContents.send('mpv:event', msg);
-  if (msg.event === 'property-change') win?.webContents.send('mpv:prop', { name: msg.name, data: msg.data });
+  
+  send('mpv:event', msg);
+  
+  if (msg.event === 'property-change') {
+    send('mpv:prop', {name:msg.name, data:msg.data});
+  }
 }
 
-function mpvCmd(cmd, ...args) {
-  return new Promise((res, rej) => {
-    if (!ipcOk || !mpvSock) return rej(new Error('mpv not ready'));
+function mpvCmd(cmd,...args) {
+  return new Promise((res,rej) => {
+    if (!ipcOk||!mpvSock) return rej(new Error('mpv not ready'));
     const id = ++reqId;
-    cbs.set(id, { res, rej });
-    mpvSock.write(JSON.stringify({ command: [cmd, ...args], request_id: id }) + '\n');
-    setTimeout(() => { if (cbs.has(id)) { cbs.delete(id); rej(new Error('timeout')); } }, 8000);
+    cbs.set(id,{res,rej});
+    mpvSock.write(JSON.stringify({command:[cmd,...args],request_id:id})+'\n');
+    setTimeout(() => { 
+      if (cbs.has(id)) {
+        cbs.delete(id);
+        rej(new Error('timeout'));
+      } 
+    }, 8000);
   });
 }
 
 function openFiles(files) {
-  if (!files?.length) return;
-  const valid = files.filter(f => f.startsWith('http') || MEDIA.has(path.extname(f).slice(1).toLowerCase()));
-  if (!valid.length) return;
-  mpvCmd('loadfile', valid[0], 'replace').catch(() => {});
-  valid.slice(1).forEach(f => mpvCmd('loadfile', f, 'append').catch(() => {}));
+  if (!files || files.length === 0) return;
+  const valid = files.filter(f => f.startsWith('http') || isMedia(f));
+  if (valid.length === 0) return;
+  
+  mpvCmd('loadfile',valid[0],'replace').catch(()=>{});
+  
+  valid.slice(1).forEach(f => {
+    mpvCmd('loadfile',f,'append').catch(()=>{});
+  });
+  
+  send('mpv:opened', valid);
+  
+  valid.forEach(f => { 
+    try {
+      app.addRecentDocument(f);
+    } catch(_){} 
+  });
 }
 
 function killMpv() {
-  ipcOk = false;
-  mpvSock?.destroy(); mpvSock = null;
-  if (mpvProc) { try { mpvProc.kill(); } catch (_) {} mpvProc = null; }
+  ipcOk = false; 
+  if (mpvSock) {
+    mpvSock.destroy(); 
+    mpvSock = null;
+  }
+  if (mpvProc) {
+    try {
+      mpvProc.kill();
+    } catch(_) {} 
+    mpvProc = null;
+  }
+}
+
+function isMedia(f) { 
+  return MEDIA.has(path.extname(f).slice(1).toLowerCase()); 
 }

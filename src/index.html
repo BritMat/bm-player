@@ -2,67 +2,252 @@
 <html lang="en" data-theme="dark">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>BM Player</title>
-  <link rel="stylesheet" href="./css/style.css">
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+  <link rel="stylesheet" href="css/style.css">
+  <script src="../node_modules/three/build/three.min.js"></script>
+  <style>
+    .mi-has-sub { position:relative; }
+    .mi-sub { position:absolute; left:100%; top:-6px; min-width:190px; background:var(--menu-bg); border:1px solid var(--border); border-radius:8px; padding:6px; display:none; flex-direction:column; box-shadow: 0 10px 30px rgba(0,0,0,0.5); z-index:1000; }
+    .mi-has-sub:hover > .mi-sub { display:flex; }
+  </style>
 </head>
 <body>
 
-  <div class="titlebar">
-    <div class="title-text" id="title-text">BM Player</div>
-    <div class="window-controls">
-      <button id="btn-minimize">─</button>
-      <button id="btn-maximize">□</button>
-      <button id="btn-close">✕</button>
+<div class="titlebar" id="titlebar">
+  <div class="tb-left">
+    <svg width="16" height="16" viewBox="0 0 32 32"><circle cx="16" cy="16" r="16" fill="url(#tg)"/><text x="16" y="21" text-anchor="middle" font-family="system-ui" font-weight="900" font-size="12" fill="#fff">BM</text><defs><linearGradient id="tg" x1="0" y1="0" x2="32" y2="32"><stop offset="0%" stop-color="var(--accent)"/><stop offset="100%" stop-color="var(--accent2)"/></linearGradient></defs></svg>
+    <span class="tb-title" id="title-text">BM Player</span>
+  </div>
+  <div class="tb-right">
+    <button id="btn-minimize" class="tb-btn">─</button>
+    <button id="btn-maximize" class="tb-btn">□</button>
+    <button id="btn-close" class="tb-btn danger">✕</button>
+  </div>
+</div>
+
+<nav class="menu-toolbar" id="menu-toolbar">
+  <div class="mi"><div class="mi-label">Media</div>
+    <div class="mi-drop">
+      <div class="mr" data-a="open">Open File…<kbd>Ctrl+O</kbd></div>
+      <div class="mr" data-a="open-multi">Open Multiple Files…</div>
+      <hr class="ms">
+      <div class="mr mi-has-sub">Recent Files ▸
+        <div class="mi-sub" id="recent-sub"><div class="mr disabled">No recent files</div></div>
+      </div>
+      <hr class="ms">
+      <div class="mr" data-a="quit">Quit<kbd>Ctrl+Q</kbd></div>
     </div>
   </div>
 
-  <div id="welcome-screen" class="active">
-    <canvas id="fox-canvas"></canvas>
-    <h2>Welcome to BM Player</h2>
-    <button id="btn-open-welcome" class="primary-btn">Open Media</button>
-    
-    <div class="theme-selector">
-      <button class="theme-pill active" data-theme="dark">Dark</button>
-      <button class="theme-pill" data-theme="light">Light</button>
-      <button class="theme-pill" data-theme="glass">Glass</button>
-      <button class="theme-pill" data-theme="dracula">Dracula</button>
-      <button class="theme-pill" data-theme="northern">Northern</button>
+  <div class="mi"><div class="mi-label">Playback</div>
+    <div class="mi-drop">
+      <div class="mr" data-a="play-pause">Play / Pause<kbd>Space</kbd></div>
+      <div class="mr" data-a="stop">Stop<kbd>S</kbd></div>
+      <hr class="ms">
+      <div class="mr" data-a="prev">Previous<kbd>P</kbd></div>
+      <div class="mr" data-a="next">Next<kbd>N</kbd></div>
+      <hr class="ms">
+      <div class="mr mi-has-sub">Speed ▸
+        <div class="mi-sub">
+          <div class="mr" data-a="speed" data-v="0.25">0.25×</div>
+          <div class="mr" data-a="speed" data-v="0.5">0.5×</div>
+          <div class="mr speed-mark" data-a="speed" data-v="1">1× Normal</div>
+          <div class="mr" data-a="speed" data-v="1.5">1.5×</div>
+          <div class="mr" data-a="speed" data-v="2">2×</div>
+        </div>
+      </div>
+      <hr class="ms">
+      <div class="mr" data-a="jump">Jump to Time…<kbd>Ctrl+J</kbd></div>
+      <hr class="ms">
+      <div class="mr" data-a="fullscreen">Full Screen<kbd>F</kbd></div>
     </div>
   </div>
 
-  <div id="player-view">
-    
-    <div id="osd" class="osd"></div>
+  <div class="mi"><div class="mi-label">Audio</div>
+    <div class="mi-drop">
+      <div class="mr mi-has-sub">Audio Track ▸
+        <div class="mi-sub" id="menu-audio-drop"><div class="mr disabled">Loading...</div></div>
+      </div>
+      <hr class="ms">
+      <div class="mr" data-a="vol-up">Volume Up<kbd>↑</kbd></div>
+      <div class="mr" data-a="vol-down">Volume Down<kbd>↓</kbd></div>
+      <div class="mr" data-a="mute">Mute / Unmute<kbd>M</kbd></div>
+      <hr class="ms">
+      <div class="mr mi-has-sub">Channels ▸
+        <div class="mi-sub">
+          <div class="mr" data-a="channels" data-v="auto">Auto (Default)</div>
+          <div class="mr" data-a="channels" data-v="stereo">Stereo</div>
+          <div class="mr" data-a="channels" data-v="5.1">5.1 Surround</div>
+          <div class="mr" data-a="channels" data-v="7.1">7.1 Surround</div>
+        </div>
+      </div>
+      <hr class="ms">
+      <div class="mr" data-a="equalizer">Equalizer…<kbd>Ctrl+E</kbd></div>
+    </div>
+  </div>
 
-    <div class="control-bar">
-      
+  <div class="mi"><div class="mi-label">Video</div>
+    <div class="mi-drop">
+      <div class="mr mi-has-sub">Aspect Ratio ▸
+        <div class="mi-sub">
+          <div class="mr" data-a="aspect" data-v="-1">Auto (Default)</div>
+          <div class="mr" data-a="aspect" data-v="16/9">16:9</div>
+          <div class="mr" data-a="aspect" data-v="21/9">21:9 Ultrawide</div>
+          <div class="mr" data-a="aspect" data-v="4/3">4:3</div>
+        </div>
+      </div>
+      <div class="mr mi-has-sub">Zoom ▸
+        <div class="mi-sub">
+          <div class="mr" data-a="zoom" data-v="0">100% (Original)</div>
+          <div class="mr" data-a="zoom" data-v="1">200%</div>
+          <div class="mr" data-a="zoom" data-v="-1">25%</div>
+          <div class="mr" data-a="zoom" data-v="-2">50%</div>
+        </div>
+      </div>
+      <hr class="ms">
+      <div class="mr" data-a="snapshot">Take Snapshot<kbd>S</kbd></div>
+    </div>
+  </div>
+
+  <div class="mi"><div class="mi-label">Subtitle</div>
+    <div class="mi-drop">
+      <div class="mr mi-has-sub">Subtitle Track ▸
+        <div class="mi-sub" id="menu-sub-drop"><div class="mr disabled">Loading...</div></div>
+      </div>
+      <div class="mr" data-a="sub-file">Add Subtitle File…</div>
+    </div>
+  </div>
+
+  <div class="mi"><div class="mi-label">Tools</div>
+    <div class="mi-drop">
+      <div class="mr mi-has-sub">Hardware Decoding ▸
+        <div class="mi-sub">
+          <div class="mr hwdec-opt" data-a="hwdec" data-v="auto-safe">✓ Auto (Safe)</div>
+          <div class="mr hwdec-opt" data-a="hwdec" data-v="nvdec">NVIDIA (nvdec)</div>
+          <div class="mr hwdec-opt" data-a="hwdec" data-v="d3d11va">DirectX 11 (d3d11va)</div>
+          <div class="mr hwdec-opt" data-a="hwdec" data-v="no">Software (CPU)</div>
+        </div>
+      </div>
+      <hr class="ms">
+      <div class="mr" data-a="media-info">Media Info<kbd>Ctrl+I</kbd></div>
+      <div class="mr" data-a="playlist">Playlist<kbd>Ctrl+L</kbd></div>
+    </div>
+  </div>
+  
+  <div class="toolbar-sep" style="flex:1;"></div>
+  
+  <div class="theme-selector" id="theme-selector">
+    <button class="tp active" data-theme="dark" title="Dark">🌙</button>
+    <button class="tp" data-theme="light" title="Light">☀️</button>
+    <button class="tp" data-theme="glass" title="Glass">🔮</button>
+    <button class="tp" data-theme="dracula" title="Dracula">🧛</button>
+    <button class="tp" data-theme="northern" title="Aurora">🌌</button>
+  </div>
+</nav>
+
+<div id="welcome-screen" class="active">
+  <div class="welcome-bg"></div>
+  <div class="welcome-content" style="display:flex; flex-direction:column; align-items:center;">
+    <div class="fox-stage"><canvas id="fox-canvas"></canvas></div>
+    <div class="welcome-text" style="text-align:center;">
+      <h1 class="welcome-title">BM Player</h1>
+      <p class="welcome-sub" style="color:var(--text-muted);">Powered by mpv · plays everything</p>
+    </div>
+    <button id="btn-open-welcome" class="btn-open">▶ Open Media</button>
+    <div id="recent-grid" class="recent-grid"></div>
+    <p class="drop-hint" style="color:var(--text-muted); font-size:11.5px; margin-top:10px;">or drag & drop files anywhere</p>
+  </div>
+  <div class="welcome-ver" id="version-badge" style="position:absolute; bottom:10px; right:14px; font-size:10.5px; color:var(--text-muted); opacity:0.5;">v1.3.0</div>
+</div>
+
+<div id="player-view">
+  <div class="controls-bar" id="controls-bar">
+    <div class="seek-wrap">
       <div class="seek-container" id="seek-bar">
-        <div class="seek-progress" id="seek-progress"></div>
+        <div class="seek-track"><div class="seek-fill" id="seek-progress"></div></div>
       </div>
-      
-      <div class="controls-row">
-        <div class="time-display">
-          <span id="time-current">00:00</span> / <span id="time-total">00:00</span>
-        </div>
+      <div class="time-display" style="font-size:12px; color:var(--text-muted); width:90px; text-align:right;">
+        <span id="time-current">0:00</span> / <span id="time-total">0:00</span>
+      </div>
+    </div>
 
-        <div class="center-controls">
-          <button id="btn-prev" class="icon-btn">⏮</button>
-          <button id="btn-play" class="icon-btn play-btn">▶</button>
-          <button id="btn-next" class="icon-btn">⏭</button>
-          <button id="btn-stop" class="icon-btn">⏹</button>
-        </div>
-
-        <div class="right-controls">
-          <button id="btn-mute" class="icon-btn vol-icon" style="padding:0;">🔊</button>
-          <input type="range" id="volume-slider" min="0" max="100" value="100">
-        </div>
+    <div class="controls-row" style="display: flex; justify-content: space-between; align-items: center; width: 100%;">
+      <div class="ctrl-group vol-group" style="display: flex; align-items: center; gap: 8px;">
+        <button class="ctrl-btn" id="btn-mute" title="Mute (M)">🔊</button>
+        <input type="range" id="volume-slider" min="0" max="130" value="100">
+        <span class="vol-label" id="vol-label" style="font-size:11px; color:var(--text-muted); width:35px;">100%</span>
       </div>
 
+      <div class="ctrl-group center-transport" style="display: flex; justify-content: center; gap: 4px; flex: 1;">
+        <button class="ctrl-btn" id="btn-prev" title="Previous (P)">⏮</button>
+        <button class="ctrl-btn" id="btn-rew" title="Seek −10s (←)">⏪</button>
+        <button class="ctrl-btn play-btn" id="btn-play" title="Play/Pause (Space)">▶</button>
+        <button class="ctrl-btn" id="btn-fwd" title="Seek +10s (→)">⏩</button>
+        <button class="ctrl-btn" id="btn-next" title="Next (N)">⏭</button>
+        <button class="ctrl-btn" id="btn-stop" title="Stop (S)">⏹</button>
+      </div>
+
+      <div class="ctrl-group right-group" style="display: flex; justify-content: flex-end; gap: 4px;">
+        <span class="speed-badge" id="speed-badge" style="font-size:11px; color:var(--text-muted); padding:4px 8px; border-radius:6px; background:var(--bar-bg); margin-right:4px; font-weight:600;">1×</span>
+        <button class="ctrl-btn" id="btn-info" title="Media Info (Ctrl+I)">ℹ</button>
+        <button class="ctrl-btn" id="btn-eq" title="Equalizer">🎚</button>
+        <button class="ctrl-btn" id="btn-playlist" title="Playlist (Ctrl+L)">≡</button>
+        <button class="ctrl-btn" id="btn-fs" title="Full Screen (F)">⛶</button>
+      </div>
     </div>
   </div>
+</div>
 
-  <script type="module" src="./js/app.js"></script>
+<div class="side-panel" id="panel-info">
+  <div class="panel-hdr">ℹ Advanced Media Info<button class="panel-close" data-panel="info">✕</button></div>
+  <div class="panel-body" style="background:#000; color:#0f0; font-family:monospace; font-size:11px; padding:10px; overflow-y:auto;">
+    <div id="media-info-dump" style="white-space: pre-wrap; word-break: break-all;">Awaiting stream data...</div>
+  </div>
+</div>
+
+<div class="side-panel" id="panel-eq">
+  <div class="panel-hdr">🎚 Equalizer <button class="panel-close" data-panel="eq">✕</button></div>
+  <div class="panel-body">
+    <div class="eq-bands" id="eq-bands"></div>
+    <button class="btn-reset-eq" id="btn-reset-eq" style="width: 100%; margin-top: 15px; padding: 10px; background: rgba(255,255,255,0.1); border-radius: 6px; border: 1px solid rgba(255,255,255,0.2); color:var(--text); cursor:pointer;">Reset All</button>
+  </div>
+</div>
+
+<div class="side-panel" id="panel-playlist">
+  <div class="panel-hdr">
+    ≡ Playlist
+    <div style="display:flex; gap:8px;">
+      <button id="btn-pl-add" style="font-size:11px; padding:4px 8px; background:var(--bar-bg); border-radius:4px; border:1px solid var(--border); color:var(--text); cursor:pointer;">+ Add Media</button>
+      <button class="panel-close" data-panel="playlist">✕</button>
+    </div>
+  </div>
+  <div class="panel-body">
+    <div class="pl-list" id="pl-list" style="display:flex; flex-direction:column; gap:6px;">
+      <div style="color:var(--text-muted); font-size:12px;">Queue is empty.</div>
+    </div>
+  </div>
+</div>
+
+<div class="dialog-overlay hidden" id="dlg-jump">
+  <div class="dlg-box" style="width:340px; background:var(--menu-bg); border:1px solid var(--border); border-radius:16px; padding:22px; display:flex; flex-direction:column; gap:14px; box-shadow:0 20px 60px rgba(0,0,0,0.5);">
+    <h3 style="font-size:15px; font-weight:700;">Jump to Time</h3>
+    <input type="text" id="jump-input" class="dlg-input" placeholder="1:23 or 1:23:45" style="background:var(--bg); border:1px solid var(--border); color:var(--text); padding:10px; border-radius:6px; outline:none;">
+    <div class="dlg-btns" style="display:flex; justify-content:flex-end; gap:10px;">
+      <button class="btn-ghost" id="jump-cancel" style="padding:8px 16px; border-radius:6px; color:var(--text-muted); background:var(--bar-bg); cursor:pointer;">Cancel</button>
+      <button class="btn-accent" id="jump-ok" style="padding:8px 16px; border-radius:6px; color:#fff; background:var(--accent); font-weight:bold; cursor:pointer;">Go</button>
+    </div>
+  </div>
+</div>
+
+<div class="osd" id="osd"></div>
+
+<div class="drop-overlay" id="drop-overlay" style="position:fixed; inset:0; background:rgba(91,111,248,.14); backdrop-filter:blur(4px); display:none; align-items:center; justify-content:center; z-index:500; pointer-events:none;">
+  <div class="drop-box" style="width:240px; height:190px; border:2px dashed var(--accent); border-radius:18px; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:10px; color:var(--accent); font-size:14px; font-weight:600;">
+    <div style="font-size:52px;">🎬</div>
+    <p>Drop media to play</p>
+  </div>
+</div>
+
+<script type="module" src="js/app.js"></script>
 </body>
 </html>
