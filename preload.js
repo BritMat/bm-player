@@ -39,9 +39,10 @@ contextBridge.exposeInMainWorld('api', {
     resetAudio:   () => inv('reset:audioDelay'),
   },
   app: {
-    version:   () => inv('app:version'),
-    external:  u  => inv('app:external', u),
-    addRecent: f  => inv('app:addRecent', f),
+    version:     () => inv('app:version'),
+    external:    u  => inv('app:external', u),
+    addRecent:   f  => inv('app:addRecent', f),
+    checkUpdate: () => inv('app:checkUpdate'),
   },
   showContextMenu: () => inv('show-context-menu'),
 });
