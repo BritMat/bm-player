@@ -45,4 +45,9 @@ contextBridge.exposeInMainWorld('api', {
     checkUpdate: () => inv('app:checkUpdate'),
   },
   showContextMenu: () => inv('show-context-menu'),
+
+  gallery: {
+    browse: ()         => inv('gallery:browse'),
+    scan:   folderPath => inv('gallery:scan', folderPath),
+  },
 });

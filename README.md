@@ -1,75 +1,98 @@
-# 🎵 BM Player
+# 🎬 BM Player — v1.3.0
 
-A modern, gorgeous, hardware-accelerated media player powered by **mpv** — featuring a Three.js interactive 3D fox mascot, liquid-glass UI themes, dynamic on-screen display (OSD) notifications, and automated CI/CD deployment pipelines.
+A modern, VLC-grade media player powered by **mpv** — gorgeous UI, full audio/video/subtitle control, and a Three.js fox mascot.
 
 ---
 
-## Features
+## What's new in v1.3
 
-| Feature | Details |
+**Bug fixes**
+- Subtitles no longer clip or double-render — forced ASS override + margin honouring keeps them clear of the controls bar
+- Controls bar now auto-hides after 3 seconds of inactivity during playback (VLC-style), and stays visible while paused, hovered, or a side panel is open
+- Audio/subtitle track menus do a fresh `get_property` fetch right before opening (both the right-click context menu *and* the new toolbar menus), so tracks are never stale or missing
+
+**VLC-parity controls**
+- Full menu bar: Media · Playback · Audio · Video · Subtitle · Tools
+- Hardware decoder selection (Auto / NVIDIA nvdec / D3D11VA / DXVA2 / Software)
+- 10-band graphic equalizer with presets (Flat, Bass Boost, Treble Boost, Rock, Pop, Jazz, Classical)
+- Media Info panel (codec, resolution, fps, bitrate, container, sample rate, channels)
+- Playlist panel with add/remove/clear and click-to-play
+- Aspect ratio, zoom, deinterlace, audio channel mapping, audio/sub delay, subtitle position & size
+- Jump-to-time dialog, chapter navigation, screenshot, loop modes
+
+**Polish**
+- Two new themes: Dracula and Northern Lights (Aurora), alongside Dark / Light / Glass
+- Fox mascot now tints to match the active theme
+- Refined welcome screen with a recent-files grid (click to resume instantly)
+- Drag-and-drop anywhere, OSD feedback for every action
+
+---
+
+## Keybindings
+
+| Key | Action | Key | Action |
+|---|---|---|---|
+| `Space` | Play / Pause | `M` | Mute |
+| `←` `→` | Seek ±5s | `F` / `F11` | Fullscreen |
+| `↑` `↓` | Volume ±5% | `S` | Stop |
+| `Z` / `X` | Sub delay ±0.5s | `P` / `N` | Prev / Next |
+| `Shift+K` / `Shift+J` | Audio delay ±0.5s | `G` / `V` | Cycle subtitle |
+| `[` / `]` | Speed −/+ | `Backspace` | Reset speed |
+| `1`-`9` | Jump to 10-90% | `Ctrl+O` | Open file |
+| `Ctrl+I` | Media info | `Ctrl+L` | Playlist |
+| `Ctrl+T` | Screenshot | `Ctrl+Q` | Quit |
+| `Esc` | Exit fullscreen / Stop | | |
+
+---
+
+## Roadmap status
+
+| Item | Status |
 |---|---|
-| **Engine** | mpv — native hardware-accelerated playback for almost all formats (MP4, MKV, AVI, MP3, FLAC, OGG, OPUS, HEVC, AV1…) |
-| **Dynamic Themes** | 🌙 Dark · ☀️ Light · 🔮 Liquid Glass · 🧛 Dracula (Animated Blood Flow) · 🌌 Northern Lights (Animated Aurora) |
-| **3D Fox Mascot** | Interactive Three.js fox with cursor tracking, blink cycles, ear twitching, and "boop" physics |
-| **OSD System** | Real-time elegant overlay notifications for volume, seeking, and playback state |
-| **VLC Shortcuts** | VLC-style controls (`Space`, `←`/`→`, `↑`/`↓`, `F`, `M`) |
-| **Automated Build** | CI/CD pipeline compiles Windows (x64/x86) installers automatically on version tag |
+| Subtitle rendering fix, smart control-bar hide, track-menu sync | Shipped in v1.3 |
+| Hardware decoder selection, channel mapping, equalizer | Shipped in v1.3 |
+| Themed fox skins (snow wolf, dracula cape, monochrome) | Planned — v1.3 ships theme-tinted colours as a preview |
+| Refined welcome dashboard | Shipped in v1.3 (recent grid); further polish ongoing |
+| AI-powered live subtitles (Whisper.cpp pipeline) | Ambition — not yet started |
 
 ---
 
-## Keybindings (VLC Style)
-
-| Key | Action |
-|---|---|
-| `Space` / `K` | Play / Pause |
-| `←` / `→` | Seek −5s / +5s |
-| `Ctrl+←` / `Ctrl+→` | Seek −30s / +30s |
-| `↑` / `↓` | Volume +10% / −10% |
-| `F` | Toggle Fullscreen |
-| `M` | Toggle Mute |
-
----
-
-## How to Build Locally
-
-**Prerequisites:** Node.js 20+ installed on your system.
+## Building
 
 ```bash
-# 1. Clone the repository
-git clone [https://github.com/BritMat/bm-player.git](https://github.com/BritMat/bm-player.git)
-
-# 2. Enter the directory
-cd bm-player
-
-# 3. Install the dependencies
-npm install
-
-# 4. Start the app in development mode
-npm start  
+npm ci
+npm run gen-icon
+npm run build:win64   # or build:win32
 ```
+
+Requires `mpv.exe` in `vendor/mpv/`. GitHub Actions (`.github/workflows/release.yml`) handles this automatically on every `vX.Y.Z` tag push — it downloads mpv, builds both architectures, and publishes a GitHub Release.
+
+```bash
+git add -A
+git commit -m "v1.3.0 - VLC-parity controls, bug fixes, two new themes"
+git tag v1.3.0
+git push origin main --tags
+```
+
 ---
-## Project Structure
+
+## Project structure
+
 ```
 bm-player/
-├── .github/workflows/
-│   └── release.yml      ← CI/CD Pipeline for auto-compiling/publishing installers
+├── main.js                   <- Electron main: mpv process, IPC, context menu, track state
+├── preload.js                <- contextBridge API surface
 ├── src/
-│   ├── index.html       ← Core application DOM and structure
-│   ├── css/
-│   │   └── style.css    ← Liquid glass UI, theme animations, OSD styles
+│   ├── index.html            <- Full UI: titlebar, menu bar, welcome, player, panels, dialogs
+│   ├── css/style.css         <- All 5 themes + every UI component
 │   └── js/
-│       ├── app.js       ← Main frontend logic, IPC, VLC keybinds, OSD controller
-│       └── fox.js       ← Three.js interactive math engine & 3D geometry
-├── main.js              ← Electron backend (mpv instantiation, Win32 pipes, IPC, menus)
-├── preload.js           ← Secure contextBridge API for frontend-backend communication
-├── package.json         ← Scripts, dependencies, and application versioning
-├── electron-builder.yml ← NSIS Installer configuration
-└── scripts/
-    └── generate-icon.js ← Programmatic icon generation
-
+│       ├── app.js            <- All renderer logic (transport, panels, EQ, playlist, keys, menus)
+│       ├── fox.js            <- Three.js mascot (boop, sleep, theme tinting)
+│       └── visualizer.js     <- Synthetic audio visualizer for audio-only files
+├── scripts/generate-icon.js  <- Programmatic icon generation (pngjs)
+├── buildResources/           <- installer.nsh, icon (generated at build time)
+└── .github/workflows/release.yml  <- CI: build x64+x86, publish to Releases
 ```
----
 
 ## License
-
-MIT — © 2024 BM Player
+MIT

@@ -100,12 +100,15 @@ body.playing .menu-toolbar.faded-top { transform: translateY(-100px); opacity: 0
 .vol-group { justify-content: flex-start; }
 .vol-track { display: flex; align-items: center; margin-left: 4px; }
 
-.seek-wrap{display:flex;align-items:center;gap:12px;margin-bottom:6px;width:100%;}
-.seek-container{flex:1;position:relative;height:18px;display:flex;align-items:center;cursor:pointer;}
-.seek-track{position:relative;width:100%;height:4px;background:var(--bar-bg);border-radius:4px;}
-.seek-fill{position:absolute;left:0;top:0;bottom:0;background:var(--accent);width:0%; border-radius:4px; pointer-events:none;}
-.seek-thumb { position: absolute; top: 50%; transform: translate(-50%, -50%); width: 12px; height: 12px; background: var(--accent); border-radius: 50%; pointer-events: none; transition: left 0.1s linear; }
-.time-display { font-size: 12px; color: var(--text-muted); display: flex; gap: 4px; white-space: nowrap; }
+/* ══ ENHANCED GLOWING SEEK BAR ══ */
+.seek-wrap { display: flex; align-items: center; gap: 14px; margin-bottom: 8px; width: 100%; }
+.seek-container { flex: 1; position: relative; height: 24px; display: flex; align-items: center; cursor: pointer; }
+.seek-track { position: relative; width: 100%; height: 5px; background: rgba(255, 255, 255, 0.1); border-radius: 6px; transition: height 0.2s cubic-bezier(0.4, 0, 0.2, 1); }
+.seek-container:hover .seek-track { height: 7px; }
+.seek-fill { position: absolute; left: 0; top: 0; bottom: 0; width: 0%; background: linear-gradient(90deg, var(--accent), var(--accent2)); border-radius: 6px; pointer-events: none; box-shadow: 0 0 12px var(--accent-glow); }
+.seek-thumb { position: absolute; top: 50%; left: 0%; transform: translate(-50%, -50%); width: 0px; height: 0px; background: #ffffff; border-radius: 50%; pointer-events: none; transition: width 0.2s, height 0.2s, box-shadow 0.2s; }
+.seek-container:hover .seek-thumb { width: 14px; height: 14px; box-shadow: 0 0 10px var(--accent), 0 0 20px var(--accent2); }
+.time-display { font-size: 12px; font-weight: 600; color: var(--text-muted); display: flex; gap: 4px; white-space: nowrap; font-variant-numeric: tabular-nums; }
 
 .seek-tooltip { position: absolute; bottom: 20px; transform: translateX(-50%); background: var(--menu-bg); color: var(--text); padding: 4px 8px; border-radius: 4px; font-size: 11px; display: none; pointer-events: none; border: 1px solid var(--border); }
 .seek-container:hover .seek-tooltip { display: block; }
@@ -186,3 +189,298 @@ body.playing .menu-toolbar.faded-top { transform: translateY(-100px); opacity: 0
 .drop-overlay { position: fixed; inset: 0; background: rgba(91,111,248,.14); backdrop-filter: blur(4px); display: none; align-items: center; justify-content: center; z-index: 5000; pointer-events: none; }
 .drop-overlay.active { display: flex; }
 .drop-box { width: 240px; height: 190px; border: 2px dashed var(--accent); border-radius: 18px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; color: var(--accent); font-size: 14px; font-weight: 600; }
+/* ââ NEON ICON BUTTONS ââ */
+/* Palette pulled straight from the app icon artwork, used for the resting */
+/* + hover glow on every icon button so the chrome matches the brand mark. */
+:root {
+  --neon-cyan: #3BC8E8;
+  --neon-violet: #B14FE8;
+  --neon-amber: #FF9D3D;
+}
+
+.ico { width: 17px; height: 17px; display: block; overflow: visible; }
+.ctrl-btn, .tb-btn, .panel-close { position: relative; }
+
+/* Resting glow â subtle, so icons read as "lit" even when idle */
+.ctrl-btn .ico, .tb-btn .ico, .panel-close .ico {
+  filter: drop-shadow(0 0 2px var(--neon-cyan)) drop-shadow(0 0 5px rgba(177, 79, 232, 0.35));
+  transition: filter 0.18s ease, transform 0.12s ease;
+}
+/* Hover â the full three-stop gradient glow blooms outward */
+.ctrl-btn:hover .ico, .tb-btn:hover .ico, .panel-close:hover .ico {
+  filter: drop-shadow(0 0 3px var(--neon-cyan)) drop-shadow(0 0 7px var(--neon-violet)) drop-shadow(0 0 11px var(--neon-amber));
+  transform: scale(1.08);
+}
+.ctrl-btn:active .ico, .tb-btn:active .ico { transform: scale(0.94); }
+
+/* Play/pause sits bigger â it's the primary action */
+.play-btn .ico { width: 16px; height: 16px; }
+.play-btn .ico { filter: drop-shadow(0 0 3px rgba(255,255,255,0.5)); }
+.play-btn:hover .ico { filter: drop-shadow(0 0 4px rgba(255,255,255,0.7)) drop-shadow(0 0 9px var(--neon-amber)); }
+
+/* Danger (close) button glows red on hover instead of the brand gradient */
+.tb-btn.danger:hover .ico { filter: drop-shadow(0 0 4px #fff) drop-shadow(0 0 8px #ff3b3b); }
+
+/* Two-state icon buttons (play/pause, mute/volume) â both icons are */
+/* pre-rendered and stacked; JS toggles which one is visible. */
+.ico-pair { display: inline-flex; }
+.ico-pair.ico-hidden { display: none; }
+
+/* ════════════════════════════════════════════════════════════════
+   v1.4 ADDITIONS
+   Phase 1: Sidebar · Phase 2: Gallery/Lightbox
+   Phase 4: Theme-FX canvases · Themed seekbar/titlebar treatments
+════════════════════════════════════════════════════════════════ */
+
+/* ── Sidebar ──────────────────────────────────────────────────── */
+.sidebar {
+  position: fixed;
+  left: 0; top: 64px; bottom: 0;   
+  width: 52px;
+  background: var(--surface);
+  border-right: 1px solid var(--border);
+  display: flex; flex-direction: column; align-items: center;
+  padding: 10px 0; gap: 4px;
+  z-index: 8800;
+  transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.3s;
+}
+
+/* Shift all content right of the sidebar with smooth transitions */
+#welcome-screen, #player-view, .dashboard-view {
+  left: 52px;
+  transition: left 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.menu-toolbar { 
+  left: 52px; right: 0; position: fixed; top: 34px; 
+  transition: left 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* 🌟 AUTO-HIDE LOGIC DURING PLAYBACK 🌟 */
+body.playing .sidebar {
+  transform: translateX(-100%);
+  opacity: 0;
+  pointer-events: none;
+}
+
+body.playing #player-view,
+body.playing .menu-toolbar {
+  left: 0; /* Snaps the transparent video hole back to full screen! */
+}
+.sidebar-btn {
+  width: 38px; height: 38px; border-radius: 9px;
+  display: flex; align-items: center; justify-content: center;
+  color: var(--text-muted); font-size: 14px;
+  transition: background .15s, color .15s, box-shadow .15s;
+  position: relative;
+}
+.sidebar-btn:hover {
+  background: var(--hover); color: var(--text);
+}
+.sidebar-btn.active {
+  background: var(--accent);
+  color: #fff;
+  box-shadow: 0 0 12px var(--accent-glow), 0 2px 6px rgba(0,0,0,.3);
+}
+.sidebar-btn .ico { width: 18px; height: 18px; }
+/* Tooltip */
+.sidebar-btn::after {
+  content: attr(title);
+  position: absolute; left: calc(100% + 10px); top: 50%;
+  transform: translateY(-50%);
+  background: var(--menu-bg); color: var(--text);
+  border: 1px solid var(--border); border-radius: 6px;
+  padding: 5px 10px; font-size: 11.5px; white-space: nowrap;
+  pointer-events: none; opacity: 0; transition: opacity .15s;
+  box-shadow: 0 4px 16px rgba(0,0,0,.4); z-index: 9999;
+}
+.sidebar-btn:hover::after { opacity: 1; }
+
+/* ── Dashboard views (gallery, pdf — future) ─────────────────── */
+.dashboard-view {
+  position: fixed;
+  left: 52px; top: 64px; right: 0; bottom: 0;
+  background: var(--bg);
+  display: none; flex-direction: column;
+  z-index: 20; overflow: hidden;
+}
+.dashboard-view.active { display: flex; }
+
+.dash-header {
+  display: flex; align-items: center; gap: 16px;
+  padding: 18px 24px 14px;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+.dash-title {
+  font-size: 18px; font-weight: 800;
+  background: linear-gradient(135deg, var(--accent), var(--accent2));
+  -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+}
+.dash-subtitle { font-size: 12px; color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
+.dash-action-btn {
+  padding: 8px 16px; border-radius: 8px; font-size: 12.5px; font-weight: 700;
+  color: #fff; background: linear-gradient(135deg, var(--accent), var(--accent2));
+  box-shadow: 0 3px 12px var(--accent-glow); cursor: pointer; transition: .15s; flex-shrink: 0;
+}
+.dash-action-btn:hover { filter: brightness(1.1); transform: translateY(-1px); }
+
+/* ── Image Gallery grid ──────────────────────────────────────── */
+.gallery-grid {
+  flex: 1; overflow-y: auto; padding: 20px 24px;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+  gap: 12px; align-content: start;
+}
+.gallery-empty {
+  grid-column: 1 / -1;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 12px; color: var(--text-muted); font-size: 14px; padding: 60px 0;
+}
+.gallery-thumb {
+  position: relative; border-radius: 10px; overflow: hidden;
+  background: var(--surface); border: 1px solid var(--border);
+  cursor: pointer; aspect-ratio: 1;
+  transition: transform .18s, box-shadow .18s, border-color .18s;
+}
+.gallery-thumb:hover {
+  transform: translateY(-4px) scale(1.02);
+  box-shadow: 0 10px 30px rgba(0,0,0,.5), 0 0 0 2px var(--accent);
+  border-color: var(--accent);
+}
+.gallery-thumb img {
+  width: 100%; height: 100%; object-fit: cover; display: block;
+}
+.gallery-thumb .gt-name {
+  position: absolute; bottom: 0; left: 0; right: 0;
+  background: linear-gradient(to top, rgba(0,0,0,.85) 0%, transparent 100%);
+  color: #fff; font-size: 10.5px; padding: 20px 8px 7px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  opacity: 0; transition: opacity .18s;
+}
+.gallery-thumb:hover .gt-name { opacity: 1; }
+
+/* ── Lightbox ─────────────────────────────────────────────────── */
+.lightbox {
+  position: fixed; inset: 0; z-index: 9500;
+  background: rgba(0,0,0,.92); backdrop-filter: blur(12px);
+  display: none; align-items: center; justify-content: center;
+}
+.lightbox.open { display: flex; }
+.lightbox-img {
+  max-width: calc(100vw - 120px); max-height: calc(100vh - 80px);
+  border-radius: 6px; object-fit: contain;
+  box-shadow: 0 30px 80px rgba(0,0,0,.8);
+}
+.lightbox-close {
+  position: absolute; top: 18px; right: 22px;
+  width: 38px; height: 38px; border-radius: 50%;
+  background: rgba(255,255,255,.12); color: #fff; font-size: 18px;
+  display: flex; align-items: center; justify-content: center;
+  transition: background .15s; cursor: pointer;
+}
+.lightbox-close:hover { background: var(--accent); }
+.lightbox-nav {
+  position: absolute; top: 50%; transform: translateY(-50%);
+  width: 44px; height: 44px; border-radius: 50%;
+  background: rgba(255,255,255,.10); color: #fff; font-size: 26px;
+  display: flex; align-items: center; justify-content: center;
+  cursor: pointer; transition: background .15s;
+}
+.lightbox-nav:hover { background: var(--accent); }
+.lightbox-nav.prev { left: 18px; }
+.lightbox-nav.next { right: 18px; }
+.lightbox-caption {
+  position: absolute; bottom: 20px; left: 50%; transform: translateX(-50%);
+  background: rgba(0,0,0,.7); color: rgba(255,255,255,.8);
+  padding: 6px 16px; border-radius: 20px; font-size: 12px;
+  max-width: 60vw; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+
+/* ── Theme-FX canvases ────────────────────────────────────────── */
+/* Full-bleed blood rain (Dracula) — sits ABOVE welcome-bg, BELOW content */
+.theme-fx-canvas {
+  position: absolute; inset: 0; width: 100%; height: 100%;
+  pointer-events: none; z-index: 1;
+  opacity: 0; transition: opacity .5s;
+}
+[data-theme="dracula"] .theme-fx-canvas { opacity: 1; }
+
+/* Aurora canvas replaces fox in Northern theme */
+.aurora-canvas {
+  position: absolute;
+  width: 100%; height: 100%;
+  pointer-events: none; z-index: 2;
+  opacity: 0; transition: opacity .5s;
+}
+[data-theme="northern"] .aurora-canvas { opacity: 1; }
+/* Hide fox-stage when aurora is showing */
+[data-theme="northern"] .fox-stage { opacity: 0; pointer-events: none; }
+[data-theme="northern"] .welcome-content { pointer-events: all; } /* keep buttons clickable */
+
+/* ── Themed titlebar + seekbar treatments ────────────────────── */
+
+/* Dracula — blood-red titlebar accent, crimson seek gradient */
+[data-theme="dracula"] .titlebar {
+  background: linear-gradient(90deg, #1a0818 0%, #1c1224 100%);
+  border-bottom-color: rgba(200, 20, 50, 0.30);
+  box-shadow: 0 1px 0 rgba(200,20,50,.12);
+}
+[data-theme="dracula"] .menu-toolbar {
+  background: rgba(26, 8, 24, 0.92);
+  border-bottom-color: rgba(200,20,50,.18);
+}
+[data-theme="dracula"] .seek-fill {
+  background: linear-gradient(90deg, #cc0e20, #ff3b6e);
+  box-shadow: 0 0 14px rgba(200, 14, 32, 0.7), 0 0 4px rgba(255, 59, 110, 0.5);
+}
+[data-theme="dracula"] .seek-container:hover .seek-thumb {
+  box-shadow: 0 0 10px #cc0e20, 0 0 22px #ff3b6e;
+}
+[data-theme="dracula"] .controls-bar {
+  border-top-color: rgba(200,20,50,.22);
+}
+/* Tiny CSS blood drips hanging from titlebar bottom */
+[data-theme="dracula"] .titlebar::after {
+  content: '';
+  position: absolute; bottom: -8px; left: 0; right: 0; height: 8px;
+  background:
+    radial-gradient(ellipse 3px 8px at 12% 0%, #bb0a1a 100%, transparent 100%),
+    radial-gradient(ellipse 3px 6px at 27% 0%, #bb0a1a 100%, transparent 100%),
+    radial-gradient(ellipse 3px 9px at 43% 0%, #cc0e20 100%, transparent 100%),
+    radial-gradient(ellipse 3px 5px at 58% 0%, #bb0a1a 100%, transparent 100%),
+    radial-gradient(ellipse 3px 7px at 74% 0%, #cc0e20 100%, transparent 100%),
+    radial-gradient(ellipse 3px 10px at 89% 0%, #bb0a1a 100%, transparent 100%);
+  pointer-events: none; z-index: 9999;
+}
+
+/* Northern Lights — aurora-gradient titlebar, teal seek fill */
+[data-theme="northern"] .titlebar {
+  background: linear-gradient(90deg,
+    rgba(4,  22, 18, 0.95) 0%,
+    rgba(6,  28, 24, 0.95) 50%,
+    rgba(4,  18, 30, 0.95) 100%);
+  border-bottom-color: rgba(34, 232, 168, 0.22);
+}
+[data-theme="northern"] .menu-toolbar {
+  background: rgba(4, 14, 22, 0.92);
+  border-bottom-color: rgba(34, 232, 168, 0.14);
+}
+[data-theme="northern"] .seek-fill {
+  background: linear-gradient(90deg, #22e8a8, #3aa8ff, #22e8a8);
+  background-size: 200% 100%;
+  animation: aurora-flow 3s linear infinite;
+  box-shadow: 0 0 14px rgba(34, 232, 168, 0.6), 0 0 4px rgba(58, 168, 255, 0.4);
+}
+[data-theme="northern"] .seek-container:hover .seek-thumb {
+  box-shadow: 0 0 10px #22e8a8, 0 0 22px #3aa8ff;
+}
+@keyframes aurora-flow {
+  0%   { background-position: 0%   50%; }
+  100% { background-position: 200% 50%; }
+}
+
+/* Glass theme — subtle shimmer on seekbar */
+[data-theme="glass"] .seek-fill {
+  box-shadow: 0 0 16px rgba(141, 123, 255, 0.65), 0 0 5px rgba(67, 224, 255, 0.4);
+}

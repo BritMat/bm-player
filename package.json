@@ -30,7 +30,7 @@
   "dependencies": {
     "adm-zip": "^0.5.10",
     "electron-updater": "^6.1.7",
-    "pngjs": "^7.0.0",
+    "jimp": "^1.6.1",
     "three": "^0.160.0"
   },
   "devDependencies": {

@@ -231,6 +231,24 @@ function registerIpc() {
       app.addRecentDocument(f); 
     } catch(_){} 
   });
+
+  // ── Phase 2a: Image Gallery ──────────────────────────────────────────────
+  ipcMain.handle('gallery:browse', async () => {
+    const r = await dialog.showOpenDialog(win, {
+      title: 'Open Image Folder', properties: ['openDirectory'],
+    });
+    return r.canceled ? null : r.filePaths[0];
+  });
+
+  ipcMain.handle('gallery:scan', async (_, folderPath) => {
+    if (!folderPath || !fs.existsSync(folderPath)) return [];
+    const IMG = new Set(['jpg','jpeg','png','webp','gif','bmp','tiff','avif']);
+    try {
+      return fs.readdirSync(folderPath, { withFileTypes: true })
+        .filter(f => f.isFile() && IMG.has(path.extname(f.name).slice(1).toLowerCase()))
+        .map(f => ({ path: path.join(folderPath, f.name), name: f.name }));
+    } catch(e) { return []; }
+  });
 }
 
 function buildAndShowContextMenu() {

@@ -1,5 +1,7 @@
 import { Fox } from './fox.js';
 import { Visualizer } from './visualizer.js';
+import { applyIcons, setTogglePair } from './icons.js';
+import { ThemeFX } from './theme-fx.js';
 
 const EQ_BANDS = [{freq:31,label:'31'},{freq:62,label:'62'},{freq:125,label:'125'},{freq:250,label:'250'},{freq:500,label:'500'},{freq:1000,label:'1K'},{freq:2000,label:'2K'},{freq:4000,label:'4K'},{freq:8000,label:'8K'},{freq:16000,label:'16K'}];
 const EQ_PRESETS = { flat:[0,0,0,0,0,0,0,0,0,0], bass:[8,7,5,3,1,0,0,0,0,0], treble:[0,0,0,0,0,1,3,5,7,8], rock:[5,4,-2,-4,-2,2,5,6,6,5], pop:[-1,2,4,4,1,-1,-2,-2,-1,1], jazz:[3,2,1,2,-1,-1,0,1,2,3], classical:[4,3,2,1,-1,-1,-1,0,2,3] };
@@ -22,6 +24,9 @@ class BMPlayerApp {
     this.osdTimer = null;
     this.hideTimer = null;
     this.controlsHovered = false;
+    this.currentDash = 'video';       
+    this.galleryImages = [];          
+    this.galleryIndex  = -1;          
     this.init();
   }
 
@@ -31,6 +36,14 @@ class BMPlayerApp {
     
     const vizCanvas = document.getElementById('visualizer-canvas');
     if (vizCanvas) this.viz = new Visualizer(vizCanvas);
+
+    const fxCanvas = document.getElementById('theme-fx-canvas');
+    if (fxCanvas) this.themeFX = new ThemeFX(fxCanvas);
+    const auroraCanvas = document.getElementById('aurora-canvas');
+    if (auroraCanvas) this.auroraFX = new ThemeFX(auroraCanvas);
+
+    applyIcons();
+    this.wireSidebar();
 
     this.wireTitlebar();
     this.wireThemes();
@@ -42,6 +55,8 @@ class BMPlayerApp {
     this.wirePanels();
     this.wireEqualizer();
     this.wirePlaylist();
+    this.wireGallery();
+    this.wireStudioDashboards(); 
     this.wireDialogs();
     this.wireKeyboard();
     this.wireDragDrop();
@@ -56,6 +71,20 @@ class BMPlayerApp {
     }
 
     window.addEventListener('contextmenu', e => { e.preventDefault(); this.api?.showContextMenu(); });
+
+    this.ticker = document.createElement('div');
+    this.ticker.style.cssText = 'position:absolute;top:0;left:0;width:1px;height:1px;opacity:0.01;pointer-events:none;z-index:9999;';
+    document.body.appendChild(this.ticker);
+    this.tickPos = 0;
+    
+    const keepAwake = () => {
+      if (this.isPlaying) {
+        this.tickPos = (this.tickPos + 1) % 2;
+        this.ticker.style.transform = `translateX(${this.tickPos}px)`;
+      }
+      requestAnimationFrame(keepAwake);
+    };
+    keepAwake();
   }
 
   showOSD(msg, ms = 1400) {
@@ -74,14 +103,149 @@ class BMPlayerApp {
   }
 
   wireThemes() {
+    const SIDEBAR_ICONS = {
+      video:  `<svg class="ico" viewBox="0 0 24 24"><rect x="2" y="5" width="15" height="14" rx="2" fill="none" stroke="currentColor" stroke-width="2"/><path d="M17 9l5-3v12l-5-3V9z" fill="currentColor"/></svg>`,
+      music:  `<svg class="ico" viewBox="0 0 24 24"><path d="M9 18V5l12-2v13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><circle cx="6" cy="18" r="3" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="18" cy="16" r="3" fill="none" stroke="currentColor" stroke-width="2"/></svg>`,
+      images: `<svg class="ico" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="8.5" cy="8.5" r="1.5" fill="currentColor"/><path d="M21 15l-5-5L5 21" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>`,
+      pdf:    `<svg class="ico" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" fill="none" stroke="currentColor" stroke-width="2"/><polyline points="14 2 14 8 20 8" fill="none" stroke="currentColor" stroke-width="2"/><line x1="9" y1="13" x2="15" y2="13" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><line x1="9" y1="17" x2="15" y2="17" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>`,
+    };
+    document.querySelectorAll('.sidebar-btn[data-dest]').forEach(btn => {
+      btn.innerHTML = SIDEBAR_ICONS[btn.dataset.dest] || '';
+    });
+
     const apply = name => {
       document.documentElement.setAttribute('data-theme', name);
       document.querySelectorAll('.tp').forEach(b => b.classList.toggle('active', b.dataset.theme === name));
       localStorage.setItem('bm_theme', name);
       this.fox?.setTheme?.(name);
+
+      const isWelcome = document.getElementById('welcome-screen')?.classList.contains('active');
+
+      if (this.themeFX) {
+        this.themeFX.setMode(name === 'dracula' ? 'blood' : 'off');
+        if (name === 'dracula' && isWelcome) this.themeFX.start();
+      }
+
+      if (this.auroraFX) {
+        this.auroraFX.setMode(name === 'northern' ? 'aurora' : 'off');
+        if (name === 'northern' && isWelcome) this.auroraFX.start();
+      }
     };
     document.querySelectorAll('.tp').forEach(btn => btn.addEventListener('click', () => apply(btn.dataset.theme)));
     apply(localStorage.getItem('bm_theme') || 'dark');
+  }
+
+  wireSidebar() {
+    document.querySelectorAll('.sidebar-btn[data-dest]').forEach(btn => {
+      btn.addEventListener('click', () => this.switchDest(btn.dataset.dest));
+    });
+  }
+
+  // 🌟 Master visibility controller for all living canvases 🌟
+  switchDest(dest) {
+    this.currentDash = dest;
+    document.querySelectorAll('.sidebar-btn[data-dest]').forEach(btn => btn.classList.toggle('active', btn.dataset.dest === dest));
+
+    document.getElementById('welcome-screen')?.classList.remove('active');
+    document.getElementById('player-view')?.classList.remove('active');
+    document.querySelectorAll('.dashboard-view').forEach(v => v.classList.remove('active'));
+
+    let showWelcome = false;
+
+    if (dest === 'video') {
+      if (this.isPlaying || this.duration > 0) {
+        document.getElementById('player-view')?.classList.add('active');
+      } else {
+        document.getElementById('welcome-screen')?.classList.add('active');
+        showWelcome = true;
+      }
+    } else if (dest === 'images') {
+      document.getElementById('gallery-view')?.classList.add('active');
+    } else if (dest === 'music') {
+      document.getElementById('music-view')?.classList.add('active');
+    } else if (dest === 'pdf') {
+      document.getElementById('pdf-view')?.classList.add('active');
+    }
+
+    // Instantly wake or sleep all visual effects based on screen status
+    if (showWelcome) {
+      this.fox?.wake();
+      if (this.themeFX?.mode !== 'off') this.themeFX?.start();
+      if (this.auroraFX?.mode !== 'off') this.auroraFX?.start();
+    } else {
+      this.fox?.sleep();
+      this.themeFX?.stop();
+      this.auroraFX?.stop();
+    }
+  }
+
+  wireStudioDashboards() {
+    document.getElementById('btn-pdf-open')?.addEventListener('click', async () => {
+      const file = await this.api?.documents?.openPDF();
+      if (file) this.showOSD(`Loaded PDF Document Workspace: ${file.split(/[\\/]/).pop()}`);
+    });
+    document.getElementById('btn-music-open')?.addEventListener('click', async () => {
+      const files = await this.api?.dialog.open();
+      if (files?.length) this.playMedia(files);
+    });
+  }
+
+  wireGallery() {
+    document.getElementById('btn-gallery-open')?.addEventListener('click', async () => {
+      const folder = await this.api?.gallery?.browse();
+      if (!folder) return;
+      const label = document.getElementById('gallery-folder-label');
+      if (label) label.textContent = folder;
+      const images = await this.api?.gallery?.scan(folder);
+      this.galleryImages = images || [];
+      this._renderGallery();
+    });
+
+    document.getElementById('lightbox-close')?.addEventListener('click', () => this._closeLightbox());
+    document.getElementById('lightbox-prev')?.addEventListener('click', () => this._lightboxNav(-1));
+    document.getElementById('lightbox-next')?.addEventListener('click', () => this._lightboxNav(+1));
+    document.addEventListener('keydown', e => {
+      const lb = document.getElementById('lightbox');
+      if (!lb?.classList.contains('open')) return;
+      if (e.key === 'Escape')     this._closeLightbox();
+      if (e.key === 'ArrowLeft')  this._lightboxNav(-1);
+      if (e.key === 'ArrowRight') this._lightboxNav(+1);
+    });
+  }
+
+  _renderGallery() {
+    const grid = document.getElementById('gallery-grid');
+    if (!grid) return;
+    if (!this.galleryImages.length) {
+      grid.innerHTML = '<div class="gallery-empty"><div style="font-size:56px">🖼</div><p>No images found in this folder</p></div>';
+      return;
+    }
+    grid.innerHTML = this.galleryImages.map((img, i) => `
+      <div class="gallery-thumb" data-idx="${i}">
+        <img src="file://${img.path.replace(/\\/g, '/')}" loading="lazy" alt="${img.name}">
+        <div class="gt-name">${img.name}</div>
+      </div>`).join('');
+    grid.querySelectorAll('.gallery-thumb').forEach(card => card.addEventListener('click', () => this._openLightbox(+card.dataset.idx)));
+  }
+
+  _openLightbox(idx) {
+    this.galleryIndex = idx;
+    const img  = this.galleryImages[idx];
+    const el   = document.getElementById('lightbox');
+    const imgEl= document.getElementById('lightbox-img');
+    const cap  = document.getElementById('lightbox-caption');
+    if (!el || !imgEl || !img) return;
+    imgEl.src = `file://${img.path.replace(/\\/g, '/')}`;
+    if (cap) cap.textContent = `${img.name}  (${idx + 1} / ${this.galleryImages.length})`;
+    el.classList.add('open');
+  }
+
+  _closeLightbox() { document.getElementById('lightbox')?.classList.remove('open'); }
+
+  _lightboxNav(dir) {
+    if (!this.galleryImages.length) return;
+    this.galleryIndex = (this.galleryIndex + dir + this.galleryImages.length) % this.galleryImages.length;
+    this._openLightbox(this.galleryIndex);
   }
 
   wireMenu() {
@@ -131,8 +295,7 @@ class BMPlayerApp {
       case 'vol-up': this.bumpVolume(5); break;
       case 'vol-down': this.bumpVolume(-5); break;
       case 'mute': this.toggleMute(); break;
-      case 'audio-delay':
-        if (v === '0') api?.adj.resetAudio(); else api?.adj.audioDelay(v === '+' ? 0.5 : -0.5); break;
+      case 'audio-delay': if (v === '0') api?.adj.resetAudio(); else api?.adj.audioDelay(v === '+' ? 0.5 : -0.5); break;
       case 'channels': api?.mpv.cmd('set_property','audio-channels', v); this.showOSD(`Channels: ${v}`); break;
       case 'equalizer': this.openPanel('eq'); break;
       case 'aspect': api?.mpv.cmd('set_property','video-aspect-override', v==='-1' ? '-1' : v); this.showOSD(`Aspect: ${v==='-1'?'Auto':v}`); break;
@@ -227,37 +390,33 @@ class BMPlayerApp {
     this.api.mpv.cmd('set_property','pause', !this.isPlaying);
     this.updatePlayIcon();
     this.showOSD(this.isPlaying ? '▶ Play' : '⏸ Pause');
-    if (this.isPlaying) this.fox?.wake(); else this.fox?.sleep();
   }
 
   stop() {
     if (!this.api?.mpv) return;
     this.api.mpv.cmd('stop');
     this.isPlaying = false;
+    this.duration  = 0;
     this.updatePlayIcon();
     this.updateTime('time-current', 0);
     this.updateSeek(0);
-    document.getElementById('player-view')?.classList.remove('active');
-    document.getElementById('welcome-screen')?.classList.add('active');
     document.getElementById('title-text').textContent = 'BM Player';
     document.documentElement.classList.remove('playing');
     document.body.classList.remove('playing');
     this.viz?.stop();
-    this.fox?.sleep();
+    this.switchDest('video'); // Triggers the wake sequence perfectly!
   }
 
-  updatePlayIcon() { const btn = document.getElementById('btn-play'); if (btn) btn.textContent = this.isPlaying ? '⏸' : '▶'; }
+  updatePlayIcon() { setTogglePair('btn-play', !this.isPlaying); }
 
   playMedia(files) {
     if (!this.api?.mpv) return;
-    document.getElementById('welcome-screen')?.classList.remove('active');
-    document.getElementById('player-view')?.classList.add('active');
     document.documentElement.classList.add('playing');
     document.body.classList.add('playing');
     this.api.mpv.open(files);
     this.isPlaying = true;
     this.updatePlayIcon();
-    this.fox?.wake();
+    this.switchDest('video'); // Triggers the sleep sequence securely!
     files.forEach(f => !f.startsWith('http') && this.addRecent(f));
   }
 
@@ -422,10 +581,27 @@ class BMPlayerApp {
     const overlay = document.getElementById('drop-overlay');
     document.addEventListener('dragover', e => { e.preventDefault(); overlay.classList.add('active'); });
     document.addEventListener('dragleave', e => { if (!e.relatedTarget) overlay.classList.remove('active'); });
-    document.addEventListener('drop', e => { e.preventDefault(); overlay.classList.remove('active'); const paths = [...e.dataTransfer.files].map(f => f.path).filter(Boolean); if (paths.length) this.playMedia(paths); });
+    document.addEventListener('drop', e => { 
+      e.preventDefault(); 
+      overlay.classList.remove('active'); 
+      const paths = [...e.dataTransfer.files].map(f => f.path).filter(Boolean); 
+      if (!paths.length) return;
+
+      const ext = paths[0].split('.').pop().toLowerCase();
+      const imgs = new Set(['jpg','jpeg','png','webp','gif','bmp']);
+
+      if (ext === 'pdf') {
+        this.switchDest('pdf');
+        this.showOSD(`Loaded PDF Workspace via drop: ${paths[0].split(/[\\/]/).pop()}`);
+      } else if (imgs.has(ext)) {
+        this.switchDest('images');
+        this.showOSD("Dropped an image. Use 'Open Folder' to scan full collections.");
+      } else {
+        this.playMedia(paths);
+      }
+    });
   }
 
-  // 🌟 UPGRADED AUTO-HIDE FOR ALL MENUS 🌟
   wireControlsAutoHide() {
     const bottomBar = document.getElementById('controls-bar');
     const topTitle = document.getElementById('titlebar');
@@ -473,7 +649,7 @@ class BMPlayerApp {
         case 'time-pos': this.updateTime('time-current', prop.data); this.updateSeek(prop.data); break;
         case 'duration': this.duration = prop.data || 0; this.updateTime('time-total', prop.data); break;
         case 'media-title': this.currentTitle = prop.data; document.getElementById('title-text').textContent = prop.data ? prop.data : 'BM Player'; break;
-        case 'mute': { const btn = document.getElementById('btn-mute'); if (btn) btn.textContent = prop.data ? '🔇' : '🔊'; break; }
+        case 'mute': { setTogglePair('btn-mute', !prop.data); break; }
         case 'volume': { const slider = document.getElementById('volume-slider'); if (slider) slider.value = prop.data; document.getElementById('vol-label').textContent = Math.round(prop.data) + '%'; break; }
         case 'track-list': this.renderTrackMenus(prop.data || []); this.updateVisualizerVisibility(prop.data || []); break;
         case 'loop-file': case 'loop-playlist': this.syncLoopMenu(); break;
