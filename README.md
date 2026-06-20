@@ -57,21 +57,20 @@ A modern, VLC-grade media player powered by **mpv** — gorgeous UI, full audio/
 
 ---
 
-## Building
+## Installation
+
+**Option 1: Quick Download (Recommended)**
+The easiest way to use BM-Player is to download the latest ready-to-run release.
+1. Navigate to the **Releases** tab on the right side of this repository.
+2. Download the latest executable file (e.g., `bm-player-win64.exe`).
+3. Double-click to run the player immediately.
+
+**Option 2: Clone the Source Code**
+If you prefer to review the code or run the application from source, you can clone the repository:
 
 ```bash
-npm ci
-npm run gen-icon
-npm run build:win64   # or build:win32
-```
-
-Requires `mpv.exe` in `vendor/mpv/`. GitHub Actions (`.github/workflows/release.yml`) handles this automatically on every `vX.Y.Z` tag push — it downloads mpv, builds both architectures, and publishes a GitHub Release.
-
-```bash
-git add -A
-git commit -m "v1.3.0 - VLC-parity controls, bug fixes, two new themes"
-git tag v1.3.0
-git push origin main --tags
+git clone https://github.com/BritMat/bm-player
+cd https://github.com/BritMat/bm-player
 ```
 
 ---
