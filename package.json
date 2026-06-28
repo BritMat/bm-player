@@ -1,26 +1,16 @@
 {
   "name": "bm-player",
   "productName": "BM Player",
-  "version": "1.3.5",
-  "description": "A modern, VLC-grade media player powered by mpv",
+  "version": "1.4.3",
+  "description": "A professional media player powered by mpv",
   "main": "main.js",
   "scripts": {
     "start": "electron .",
     "dev": "NODE_ENV=development electron .",
-    "build": "npm run gen-icon && electron-builder",
-    "build:win": "npm run gen-icon && electron-builder --win",
     "build:win64": "npm run gen-icon && electron-builder --win --x64",
     "build:win32": "npm run gen-icon && electron-builder --win --ia32",
-    "gen-icon": "node scripts/generate-icon.js",
-    "postinstall": "electron-builder install-app-deps"
+    "gen-icon": "node scripts/generate-icon.js"
   },
-  "keywords": [
-    "media",
-    "player",
-    "mpv",
-    "video",
-    "audio"
-  ],
   "author": "BM Player",
   "license": "MIT",
   "repository": {

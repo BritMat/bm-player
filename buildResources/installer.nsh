@@ -1,24 +1,18 @@
-; BM Player — Custom NSIS installer header
-; Included by electron-builder automatically
-
-!macro customInit
-  ; Set installer colors (optional: requires NSIS Modern UI)
-!macroend
-
 !macro customInstall
-  ; Register file associations after install
-  WriteRegStr HKCU "SOFTWARE\Classes\.mp4\OpenWithList\BMPlayer.exe" "" ""
-  WriteRegStr HKCU "SOFTWARE\Classes\.mkv\OpenWithList\BMPlayer.exe" "" ""
-  WriteRegStr HKCU "SOFTWARE\Classes\.avi\OpenWithList\BMPlayer.exe" "" ""
-  WriteRegStr HKCU "SOFTWARE\Classes\.mp3\OpenWithList\BMPlayer.exe" "" ""
-  WriteRegStr HKCU "SOFTWARE\Classes\.flac\OpenWithList\BMPlayer.exe" "" ""
+  WriteRegStr HKCU "Software\RegisteredApplications" "BM Player" "Software\Clients\Media\BM Player\Capabilities"
+  WriteRegStr HKCU "Software\Clients\Media\BM Player\Capabilities" "ApplicationName" "BM Player"
+  WriteRegStr HKCU "Software\Clients\Media\BM Player\Capabilities" "ApplicationDescription" "A professional media player powered by mpv"
+  WriteRegStr HKCU "Software\Classes\BMPlayer.Video" "" "Video file"
+  WriteRegStr HKCU "Software\Classes\BMPlayer.Video\DefaultIcon" "" "$INSTDIR\BM Player.exe,0"
+  WriteRegStr HKCU "Software\Classes\BMPlayer.Video\shell\open\command" "" '"$INSTDIR\BM Player.exe" "%1"'
+  WriteRegStr HKCU "Software\Classes\BMPlayer.Audio" "" "Audio file"
+  WriteRegStr HKCU "Software\Classes\BMPlayer.Audio\DefaultIcon" "" "$INSTDIR\BM Player.exe,0"
+  WriteRegStr HKCU "Software\Classes\BMPlayer.Audio\shell\open\command" "" '"$INSTDIR\BM Player.exe" "%1"'
+  System::Call 'Shell32::SHChangeNotify(i 0x8000000, i 0, i 0, i 0)'
 !macroend
-
-!macro customUnInstall
-  ; Clean up registry entries on uninstall
-  DeleteRegKey HKCU "SOFTWARE\Classes\.mp4\OpenWithList\BMPlayer.exe"
-  DeleteRegKey HKCU "SOFTWARE\Classes\.mkv\OpenWithList\BMPlayer.exe"
-  DeleteRegKey HKCU "SOFTWARE\Classes\.avi\OpenWithList\BMPlayer.exe"
-  DeleteRegKey HKCU "SOFTWARE\Classes\.mp3\OpenWithList\BMPlayer.exe"
-  DeleteRegKey HKCU "SOFTWARE\Classes\.flac\OpenWithList\BMPlayer.exe"
+!macro customUninstall
+  DeleteRegKey HKCU "Software\Clients\Media\BM Player"
+  DeleteRegValue HKCU "Software\RegisteredApplications" "BM Player"
+  DeleteRegKey HKCU "Software\Classes\BMPlayer.Video"
+  DeleteRegKey HKCU "Software\Classes\BMPlayer.Audio"
 !macroend

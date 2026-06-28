@@ -2,408 +2,557 @@
 <html lang="en" data-theme="dark">
 <head>
   <meta charset="UTF-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self' 'unsafe-inline' 'unsafe-eval' file: https://cdnjs.cloudflare.com https://cdn.jsdelivr.net blob: data:; img-src * file: blob: data:;">
   <title>BM Player</title>
   <link rel="stylesheet" href="css/style.css">
-  <script src="../node_modules/three/build/three.min.js"></script>
-  <style>
-    .mi-has-sub { position:relative; }
-    .mi-sub { position:absolute; left:100%; top:-6px; min-width:190px; background:var(--menu-bg); border:1px solid var(--border); border-radius:8px; padding:6px; display:none; flex-direction:column; box-shadow: 0 10px 30px rgba(0,0,0,0.5); z-index:1000; }
-    .mi-has-sub:hover > .mi-sub { display:flex; }
-  </style>
 </head>
 <body>
 
+<!-- ══ TITLEBAR ══════════════════════════════════════════════════ -->
 <div class="titlebar" id="titlebar">
   <div class="tb-left">
-    <svg width="16" height="16" viewBox="0 0 32 32"><circle cx="16" cy="16" r="16" fill="url(#tg)"/><text x="16" y="21" text-anchor="middle" font-family="system-ui" font-weight="900" font-size="12" fill="#fff">BM</text><defs><linearGradient id="tg" x1="0" y1="0" x2="32" y2="32"><stop offset="0%" stop-color="var(--accent)"/><stop offset="100%" stop-color="var(--accent2)"/></linearGradient></defs></svg>
+    <div class="tb-logo">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
+        <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5" stroke="url(#lg)" stroke-width="2" stroke-linecap="round"/>
+        <defs><linearGradient id="lg" x1="0" y1="0" x2="24" y2="24"><stop offset="0%" stop-color="var(--accent)"/><stop offset="100%" stop-color="var(--accent2)"/></linearGradient></defs>
+      </svg>
+    </div>
     <span class="tb-title" id="title-text">BM Player</span>
+    <span class="tb-status" id="tb-status"></span>
   </div>
   <div class="tb-right">
-    <button id="btn-minimize" class="tb-btn">─</button>
-    <button id="btn-maximize" class="tb-btn">□</button>
-    <button id="btn-close"    class="tb-btn danger">✕</button>
+    <button id="btn-minimize"  class="tb-btn" title="Minimise">─</button>
+    <button id="btn-theatre"   class="tb-btn" title="Theatre mode (T)">⊡</button>
+    <button id="btn-maximize"  class="tb-btn" title="Maximise">□</button>
+    <button id="btn-close"     class="tb-btn danger" title="Close">✕</button>
   </div>
 </div>
 
-<nav class="menu-toolbar" id="menu-toolbar">
-  <div class="mi"><div class="mi-label">Media</div>
+<!-- ══ MENU TOOLBAR ══════════════════════════════════════════════ -->
+<div class="menu-toolbar" id="menu-toolbar">
+  <!-- Media -->
+  <div class="mi"><span class="mi-label">Media</span>
     <div class="mi-drop">
-      <div class="mr" data-a="open">Open File…<kbd>Ctrl+O</kbd></div>
-      <div class="mr" data-a="open-multi">Open Multiple Files…</div>
-      <hr class="ms">
-      <div class="mr mi-has-sub">Recent Files ▸<div class="mi-sub" id="recent-sub"><div class="mr disabled">No recent files</div></div></div>
-      <hr class="ms">
-      <div class="mr" data-a="quit">Quit<kbd>Ctrl+Q</kbd></div>
+      <div class="mr" data-a="open">Open File… <kbd>Ctrl+O</kbd></div>
+      <div class="mr" data-a="open-url">Open URL… <kbd>Ctrl+U</kbd></div>
+      <div class="mr" data-a="open-sub">Load Subtitle…</div>
+      <div class="ms"></div>
+      <div class="mr" data-a="quit">Quit <kbd>Ctrl+Q</kbd></div>
     </div>
   </div>
-
-  <div class="mi"><div class="mi-label">Playback</div>
+  <!-- Playback -->
+  <div class="mi"><span class="mi-label">Playback</span>
     <div class="mi-drop">
-      <div class="mr" data-a="play-pause">Play / Pause<kbd>Space</kbd></div>
-      <div class="mr" data-a="stop">Stop<kbd>S</kbd></div>
-      <hr class="ms">
-      <div class="mr" data-a="prev">Previous<kbd>P</kbd></div>
-      <div class="mr" data-a="next">Next<kbd>N</kbd></div>
-      <hr class="ms">
-      <div class="mr mi-has-sub">Speed ▸
-        <div class="mi-sub">
-          <div class="mr" data-a="speed" data-v="0.25">0.25×</div>
-          <div class="mr" data-a="speed" data-v="0.5">0.5×</div>
-          <div class="mr" data-a="speed" data-v="0.75">0.75×</div>
-          <div class="mr speed-mark" data-a="speed" data-v="1">1× Normal</div>
-          <div class="mr" data-a="speed" data-v="1.25">1.25×</div>
-          <div class="mr" data-a="speed" data-v="1.5">1.5×</div>
-          <div class="mr" data-a="speed" data-v="2">2×</div>
-          <div class="mr" data-a="speed" data-v="3">3×</div>
-        </div>
-      </div>
-      <div class="mr mi-has-sub">Loop ▸
-        <div class="mi-sub">
-          <div class="mr loop-opt" data-a="loop" data-v="off">Off</div>
-          <div class="mr loop-opt" data-a="loop" data-v="file">Loop File</div>
-          <div class="mr loop-opt" data-a="loop" data-v="playlist">Loop Playlist</div>
-        </div>
-      </div>
-      <hr class="ms">
-      <div class="mr" data-a="jump">Jump to Time…</div>
-      <div class="mr" data-a="chapter-prev">Previous Chapter</div>
-      <div class="mr" data-a="chapter-next">Next Chapter</div>
-      <hr class="ms">
-      <div class="mr" data-a="fullscreen">Full Screen<kbd>F</kbd></div>
+      <div class="mr" data-a="toggle-play">Play / Pause <kbd>Space</kbd></div>
+      <div class="mr" data-a="stop">Stop <kbd>S</kbd></div>
+      <div class="ms"></div>
+      <div class="mr" data-a="prev">Previous <kbd>P</kbd></div>
+      <div class="mr" data-a="next">Next <kbd>N</kbd></div>
+      <div class="ms"></div>
+      <div class="mr" data-a="speed-dec">Speed − <kbd>[</kbd></div>
+      <div class="mr" data-a="speed-inc">Speed + <kbd>]</kbd></div>
+      <div class="mr" data-a="speed-reset">Reset Speed <kbd>Backspace</kbd></div>
+      <div class="ms"></div>
+      <div class="mr" data-a="loop-file">Loop File</div>
+      <div class="mr" data-a="screenshot">Screenshot <kbd>Ctrl+T</kbd></div>
+      <div class="mr" data-a="jump-to-time">Jump to Time… <kbd>Ctrl+J</kbd></div>
     </div>
   </div>
-
-  <div class="mi"><div class="mi-label">Audio</div>
-    <div class="mi-drop">
-      <div class="mr mi-has-sub">Audio Track ▸<div class="mi-sub" id="audio-track-sub"><div class="mr disabled">—</div></div></div>
-      <hr class="ms">
-      <div class="mr mi-has-sub">Visualizer ▸
-        <div class="mi-sub">
-          <div class="mr viz-opt active-opt" data-a="viz-mode" data-v="bars">✓ Bars</div>
-          <div class="mr viz-opt" data-a="viz-mode" data-v="radial">Radial</div>
-          <div class="mr viz-opt" data-a="viz-mode" data-v="wave">Wave</div>
-          <div class="mr viz-opt" data-a="viz-mode" data-v="particles">Particles</div>
-          <div class="mr viz-opt" data-a="viz-mode" data-v="off">Off</div>
-        </div>
-      </div>
-      <hr class="ms">
-      <div class="mr" data-a="vol-up">Volume Up<kbd>↑</kbd></div>
-      <div class="mr" data-a="vol-down">Volume Down<kbd>↓</kbd></div>
-      <div class="mr" data-a="mute">Mute / Unmute<kbd>M</kbd></div>
-      <hr class="ms">
-      <div class="mr mi-has-sub">Audio Delay ▸
-        <div class="mi-sub">
-          <div class="mr" data-a="audio-delay" data-v="+">+0.5 s<kbd>Shift+K</kbd></div>
-          <div class="mr" data-a="audio-delay" data-v="-">-0.5 s<kbd>Shift+J</kbd></div>
-          <div class="mr" data-a="audio-delay" data-v="0">Reset</div>
-        </div>
-      </div>
-      <div class="mr mi-has-sub">Channels ▸
-        <div class="mi-sub">
-          <div class="mr" data-a="channels" data-v="auto">Auto (Default)</div>
-          <div class="mr" data-a="channels" data-v="stereo">Stereo</div>
-          <div class="mr" data-a="channels" data-v="mono">Mono</div>
-          <div class="mr" data-a="channels" data-v="5.1">5.1 Surround</div>
-          <div class="mr" data-a="channels" data-v="7.1">7.1 Surround</div>
-        </div>
-      </div>
-      <hr class="ms">
-      <div class="mr" data-a="equalizer">Equalizer…</div>
+  <!-- Audio -->
+  <div class="mi"><span class="mi-label">Audio</span>
+    <div class="mi-drop" id="audio-drop">
+      <div class="mr" data-a="cycle-audio">Cycle Audio Track <kbd>A</kbd></div>
+      <div class="ms"></div>
+      <div class="mr" data-a="vol-up">Volume + <kbd>↑</kbd></div>
+      <div class="mr" data-a="vol-down">Volume − <kbd>↓</kbd></div>
+      <div class="mr" data-a="mute">Mute <kbd>M</kbd></div>
+      <div class="ms"></div>
+      <div id="audio-track-sub"></div>
+      <div class="ms"></div>
+      <div class="mr" data-a="audio-delay-p">Audio Delay + <kbd>Shift+K</kbd></div>
+      <div class="mr" data-a="audio-delay-m">Audio Delay − <kbd>Shift+J</kbd></div>
+      <div class="mr" data-a="audio-delay-r">Reset Audio Delay</div>
     </div>
   </div>
-
-  <div class="mi"><div class="mi-label">Video</div>
+  <!-- Video -->
+  <div class="mi"><span class="mi-label">Video</span>
     <div class="mi-drop">
-      <div class="mr mi-has-sub">Video Track ▸<div class="mi-sub" id="video-track-sub"><div class="mr disabled">—</div></div></div>
-      <hr class="ms">
-      <div class="mr mi-has-sub">Aspect Ratio ▸
-        <div class="mi-sub">
-          <div class="mr" data-a="aspect" data-v="-1">Auto (Default)</div>
-          <div class="mr" data-a="aspect" data-v="4/3">4:3</div>
-          <div class="mr" data-a="aspect" data-v="16/9">16:9</div>
-          <div class="mr" data-a="aspect" data-v="16/10">16:10</div>
-          <div class="mr" data-a="aspect" data-v="21/9">21:9 Ultrawide</div>
-          <div class="mr" data-a="aspect" data-v="2.39/1">2.39:1 Cinema</div>
-        </div>
-      </div>
-      <div class="mr mi-has-sub">Zoom ▸
-        <div class="mi-sub">
-          <div class="mr" data-a="zoom" data-v="-2">25%</div>
-          <div class="mr" data-a="zoom" data-v="-1">50%</div>
-          <div class="mr" data-a="zoom" data-v="0">100% (Original)</div>
-          <div class="mr" data-a="zoom" data-v="1">200%</div>
-        </div>
-      </div>
-      <div class="mr" data-a="deinterlace">Toggle Deinterlace</div>
-      <hr class="ms">
-      <div class="mr" data-a="snapshot">Take Snapshot<kbd>Ctrl+T</kbd></div>
+      <div class="mr" data-a="fullscreen">Full Screen <kbd>F</kbd></div>
+      <div class="mr" data-a="theatre">Theatre Mode <kbd>T</kbd></div>
+      <div class="ms"></div>
+      <div id="video-track-sub"></div>
+      <div class="ms"></div>
+      <div class="mr" data-a="aspect-auto">Aspect: Auto</div>
+      <div class="mr" data-a="aspect-16:9">Aspect: 16:9</div>
+      <div class="mr" data-a="aspect-4:3">Aspect: 4:3</div>
+      <div class="mr" data-a="aspect-21:9">Aspect: 21:9</div>
+      <div class="ms"></div>
+      <div class="mr" data-a="hwdec-auto">HW Decoder: Auto</div>
+      <div class="mr" data-a="hwdec-nvdec">HW Decoder: NVDEC</div>
+      <div class="mr" data-a="hwdec-off">HW Decoder: CPU</div>
     </div>
   </div>
-
-  <div class="mi"><div class="mi-label">Subtitle</div>
+  <!-- Subtitle -->
+  <div class="mi"><span class="mi-label">Subtitle</span>
     <div class="mi-drop">
-      <div class="mr mi-has-sub">Subtitle Track ▸<div class="mi-sub" id="sub-track-sub"><div class="mr sub-opt active-opt" data-a="sub-track" data-v="no">✓ Off</div></div></div>
-      <div class="mr" data-a="sub-file">Add Subtitle File…</div>
-      <hr class="ms">
-      <div class="mr mi-has-sub">Subtitle Delay ▸
-        <div class="mi-sub">
-          <div class="mr" data-a="sub-delay" data-v="+">+0.5 s<kbd>Z</kbd></div>
-          <div class="mr" data-a="sub-delay" data-v="-">-0.5 s<kbd>X</kbd></div>
-          <div class="mr" data-a="sub-delay" data-v="0">Reset</div>
-        </div>
-      </div>
-      <div class="mr mi-has-sub">Subtitle Size ▸
-        <div class="mi-sub">
-          <div class="mr" data-a="sub-size" data-v="+4">Larger</div>
-          <div class="mr" data-a="sub-size" data-v="-4">Smaller</div>
-        </div>
-      </div>
-      <div class="mr mi-has-sub">Subtitle Position ▸
-        <div class="mi-sub">
-          <div class="mr" data-a="sub-pos" data-v="up">Move Up</div>
-          <div class="mr" data-a="sub-pos" data-v="down">Move Down</div>
-          <div class="mr" data-a="sub-pos" data-v="reset">Reset</div>
-        </div>
-      </div>
+      <div class="mr" data-a="cycle-sub">Cycle Subtitles <kbd>V</kbd></div>
+      <div class="mr" data-a="open-sub">Load Subtitle…</div>
+      <div class="ms"></div>
+      <div id="sub-track-sub"></div>
+      <div class="ms"></div>
+      <div class="mr" data-a="sub-delay-p">Delay + <kbd>X</kbd></div>
+      <div class="mr" data-a="sub-delay-m">Delay − <kbd>Z</kbd></div>
+      <div class="mr" data-a="sub-delay-r">Reset Delay</div>
+      <div class="ms"></div>
+      <div class="mr" data-a="sub-size-p">Size +</div>
+      <div class="mr" data-a="sub-size-m">Size −</div>
     </div>
   </div>
-
-  <div class="mi"><div class="mi-label">Tools</div>
+  <!-- Tools -->
+  <div class="mi"><span class="mi-label">Tools</span>
     <div class="mi-drop">
-      <div class="mr mi-has-sub">Hardware Decoding ▸
-        <div class="mi-sub">
-          <div class="mr hwdec-opt" data-a="hwdec" data-v="auto-safe">✓ Auto (Safe)</div>
-          <div class="mr hwdec-opt" data-a="hwdec" data-v="nvdec">NVIDIA (nvdec)</div>
-          <div class="mr hwdec-opt" data-a="hwdec" data-v="d3d11va">DirectX 11 (d3d11va)</div>
-          <div class="mr hwdec-opt" data-a="hwdec" data-v="dxva2">DirectX 9 (dxva2)</div>
-          <div class="mr hwdec-opt" data-a="hwdec" data-v="no">Software (CPU)</div>
-        </div>
-      </div>
-      <hr class="ms">
-      <div class="mr" data-a="media-info">Media Info<kbd>Ctrl+I</kbd></div>
-      <div class="mr" data-a="playlist">Playlist<kbd>Ctrl+L</kbd></div>
-      <hr class="ms">
-      <div class="mr" id="mi-always-top" data-a="always-top">Always on Top</div>
-    </div>
-  </div>
-
-  <div class="mi"><div class="mi-label">Help</div>
-    <div class="mi-drop">
-      <div class="mr" data-a="check-updates">Check for Updates...</div>
-      <hr class="ms">
+      <div class="mr" data-a="open-eq">Equalizer…</div>
+      <div class="mr" data-a="open-info">Media Info… <kbd>Ctrl+I</kbd></div>
+      <div class="mr" data-a="open-playlist">Playlist… <kbd>Ctrl+L</kbd></div>
+      <div class="ms"></div>
+      <div class="mr" data-a="check-update">Check for Updates</div>
+      <div class="mr" data-a="preferences">Preferences…</div>
+      <div class="ms"></div>
       <div class="mr" data-a="about">About BM Player</div>
     </div>
   </div>
 
-  <div class="toolbar-sep"></div>
-  <div class="theme-selector" id="theme-selector">
-    <button class="tp active" data-theme="dark"    title="Dark">🌙</button>
-    <button class="tp"        data-theme="light"   title="Light">☀️</button>
-    <button class="tp"        data-theme="glass"   title="Glass">🔮</button>
-    <button class="tp"        data-theme="dracula" title="Dracula">🧛</button>
-    <button class="tp"        data-theme="northern"title="Aurora">🌌</button>
-  </div>
-</nav>
+  <span class="toolbar-sep"></span>
 
+  <!-- Theme pills -->
+  <div class="theme-selector">
+    <button class="tp active" data-theme="dark"     title="Dark">🌙</button>
+    <button class="tp"        data-theme="light"    title="Light">☀️</button>
+    <button class="tp"        data-theme="glass"    title="Glass">🔮</button>
+    <button class="tp"        data-theme="dracula"  title="Dracula">🧛</button>
+    <button class="tp"        data-theme="northern" title="Aurora">🌌</button>
+  </div>
+
+  <!-- Always on top -->
+  <button class="tb-tool-btn" id="mi-always-top" title="Always on top">📌</button>
+</div>
+
+<!-- ══ SIDEBAR ════════════════════════════════════════════════════ -->
 <nav class="sidebar" id="sidebar">
   <button class="sidebar-btn active" data-dest="video"  title="Video"></button>
   <button class="sidebar-btn"        data-dest="music"  title="Music"></button>
   <button class="sidebar-btn"        data-dest="images" title="Images"></button>
   <button class="sidebar-btn"        data-dest="pdf"    title="PDF"></button>
+  <div class="sidebar-spacer"></div>
+  <button class="sidebar-btn sidebar-mini" id="sidebar-mini-btn" title="Mini Player">⊞</button>
 </nav>
 
+<!-- ══ WELCOME SCREEN ════════════════════════════════════════════ -->
 <div id="welcome-screen" class="active">
   <canvas id="theme-fx-canvas" class="theme-fx-canvas"></canvas>
   <canvas id="aurora-canvas"   class="aurora-canvas"></canvas>
-  <div class="welcome-bg"></div>
-  <div class="welcome-content">
-    <div class="fox-stage"><canvas id="fox-canvas"></canvas></div>
-    <div class="welcome-text">
+
+  <div class="welcome-layout">
+    <!-- Left: Brand + fox -->
+    <div class="welcome-brand">
+      <div class="fox-stage"><canvas id="fox-canvas"></canvas></div>
       <h1 class="welcome-title">BM Player</h1>
-      <p class="welcome-sub">Powered by mpv · plays everything</p>
+      <p class="welcome-sub">Professional · Powered by mpv</p>
+      <div class="welcome-actions">
+        <button id="btn-open-welcome" class="btn-open">Open File</button>
+        <button id="btn-open-url-welcome" class="btn-open-ghost">Open URL</button>
+      </div>
+      <p class="drop-hint">or drag &amp; drop anywhere</p>
     </div>
-    <button id="btn-open-welcome" class="btn-open">▶ Open Media</button>
-    <p class="drop-hint">or drag &amp; drop files anywhere</p>
+
+    <!-- Right: Recent files -->
+    <div class="welcome-right">
+      <div class="recent-header">
+        <span class="recent-label">Recent Files</span>
+        <button class="recent-clear-btn" id="btn-clear-recent">Clear</button>
+      </div>
+      <div id="recent-grid" class="recent-grid">
+        <div class="recent-empty">
+          <div style="font-size:40px;margin-bottom:8px;opacity:.3">🎬</div>
+          <p>No recent files</p>
+        </div>
+      </div>
+    </div>
   </div>
 </div>
 
+<!-- ══ PLAYER VIEW ════════════════════════════════════════════════ -->
 <div id="player-view">
+  <!-- mpv renders here (transparent window over bgWin) -->
   <canvas id="visualizer-canvas" class="visualizer-canvas"></canvas>
 
+  <!-- Controls bar (auto-hides during playback) -->
   <div class="controls-bar" id="controls-bar">
-    <div class="seek-wrap">
-      <div class="seek-container" id="seek-bar">
-        <div class="seek-track">
-          <div class="seek-buffered" id="seek-buffered"></div>
-          <div class="seek-fill" id="seek-progress"></div>
-          <div class="seek-thumb" id="seek-thumb"></div>
+    <!-- Seekbar row -->
+    <div class="seek-row">
+      <span class="time-display" id="time-current">0:00</span>
+      <div class="seek-container" id="seek-container">
+        <div class="seek-track" id="seek-track">
+          <div class="seek-buffer"   id="seek-buffer"></div>
+          <div class="seek-fill"     id="seek-fill"></div>
+          <div class="seek-chapters" id="seek-chapters"></div>
         </div>
-        <div class="seek-tooltip" id="seek-tooltip">0:00</div>
+        <div class="seek-thumb"   id="seek-thumb"></div>
+        <div class="seek-preview" id="seek-preview">
+          <span class="seek-preview-time" id="seek-preview-time">0:00</span>
+        </div>
       </div>
-      <div class="time-display"><span id="time-current">0:00</span> <span class="time-sep">/</span> <span id="time-total">0:00</span></div>
+      <span class="time-display" id="time-total">0:00</span>
+      <span class="speed-badge"  id="speed-badge">1×</span>
     </div>
 
+    <!-- Transport row -->
     <div class="controls-row">
+      <!-- Left: Volume -->
       <div class="ctrl-group vol-group">
-        <button class="ctrl-btn" id="btn-mute" title="Mute (M)">🔊</button>
-        <div class="vol-track"><input type="range" id="volume-slider" min="0" max="130" value="100"></div>
-        <span class="vol-label" id="vol-label">100%</span>
+        <button class="ctrl-btn" id="btn-mute" title="Mute (M)"></button>
+        <div class="volume-wrap">
+          <input type="range" id="volume-slider" min="0" max="130" value="100">
+          <span class="vol-label" id="vol-label">100</span>
+        </div>
       </div>
 
+      <!-- Centre: Transport -->
       <div class="ctrl-group center-transport">
-        <button class="ctrl-btn" id="btn-prev" title="Previous (P)">⏮</button>
-        <button class="ctrl-btn" id="btn-rew" title="Seek −10s (←)">⏪</button>
-        <button class="ctrl-btn play-btn" id="btn-play" title="Play/Pause (Space)">▶</button>
-        <button class="ctrl-btn" id="btn-fwd" title="Seek +10s (→)">⏩</button>
-        <button class="ctrl-btn" id="btn-next" title="Next (N)">⏭</button>
-        <button class="ctrl-btn" id="btn-stop" title="Stop (S)">⏹</button>
+        <button class="ctrl-btn"  id="btn-rew"  title="Seek −30s">⏮</button>
+        <button class="ctrl-btn"  id="btn-prev" title="Previous (P)"></button>
+        <button class="ctrl-btn play-btn" id="btn-play" title="Play / Pause (Space)"></button>
+        <button class="ctrl-btn"  id="btn-next" title="Next (N)"></button>
+        <button class="ctrl-btn"  id="btn-fwd"  title="Seek +30s">⏭</button>
       </div>
 
+      <!-- Right: Utilities -->
       <div class="ctrl-group right-group">
-        <span class="speed-badge" id="speed-badge" title="Speed">1×</span>
-        <button class="ctrl-btn" id="btn-info" title="Media Info (Ctrl+I)">ℹ</button>
-        <button class="ctrl-btn" id="btn-eq" title="Equalizer">🎚</button>
-        <button class="ctrl-btn" id="btn-playlist" title="Playlist (Ctrl+L)">≡</button>
-        <button class="ctrl-btn" id="btn-fs" title="Full Screen (F)">⛶</button>
+        <button class="ctrl-btn" id="btn-stop"     title="Stop (S)"></button>
+        <button class="ctrl-btn" id="btn-playlist" title="Playlist (Ctrl+L)"></button>
+        <button class="ctrl-btn" id="btn-eq"       title="Equalizer"></button>
+        <button class="ctrl-btn" id="btn-info"     title="Media Info (Ctrl+I)"></button>
+        <button class="ctrl-btn" id="btn-theatre"  title="Theatre Mode (T)">⊡</button>
+        <button class="ctrl-btn" id="btn-fs"       title="Full Screen (F)"></button>
       </div>
     </div>
   </div>
 </div>
 
+<!-- ══ GALLERY DASHBOARD ════════════════════════════════════════ -->
 <div id="gallery-view" class="dashboard-view">
   <div class="dash-header">
-    <h2 class="dash-title">Image Gallery</h2>
-    <button class="dash-action-btn" id="btn-gallery-open">📂 Open Folder</button>
-    <span class="dash-subtitle" id="gallery-folder-label">No folder selected</span>
-  </div>
-  <div class="gallery-grid" id="gallery-grid">
-    <div class="gallery-empty">
-      <div style="font-size:56px">🖼</div>
-      <p>Click "Open Folder" to browse images</p>
+    <h2 class="dash-title">Gallery</h2>
+    <button class="dash-action-btn" id="btn-gallery-open">+ Open Folder</button>
+    <div class="gallery-toolbar">
+      <div class="view-mode-group">
+        <button class="vm-btn active" data-mode="masonry" title="Masonry">⬛</button>
+        <button class="vm-btn" data-mode="grid" title="Grid">⊞</button>
+        <button class="vm-btn" data-mode="list" title="List">≡</button>
+      </div>
+      <select class="dash-select" id="gallery-sort">
+        <option value="name">Name</option>
+        <option value="type">Type</option>
+      </select>
+      <input type="range" id="thumb-size" min="120" max="340" value="190" title="Thumbnail size">
     </div>
+    <span class="dash-count" id="gallery-count"></span>
   </div>
+  <div id="gallery-grid" class="gallery-grid masonry-view"></div>
 </div>
 
-<div class="lightbox" id="lightbox">
-  <button class="lightbox-close" id="lightbox-close">✕</button>
-  <button class="lightbox-nav prev" id="lightbox-prev">‹</button>
-  <button class="lightbox-nav next" id="lightbox-next">›</button>
-  <img class="lightbox-img" id="lightbox-img" src="" alt="">
-  <div class="lightbox-caption" id="lightbox-caption"></div>
-</div>
-
+<!-- ══ MUSIC DASHBOARD ══════════════════════════════════════════ -->
 <div id="music-view" class="dashboard-view">
-  <div class="dash-header">
-    <h2 class="dash-title">Music Studio</h2>
-    <button class="dash-action-btn" id="btn-music-open">🎵 Open Audio</button>
-    <span class="dash-subtitle">Music library integration coming soon</span>
-  </div>
-  <div class="gallery-grid">
-    <div class="gallery-empty">
-      <div style="font-size:56px; color: var(--accent);">🎵</div>
-      <p>Music library and advanced visualizer tools will appear here.</p>
+  <div class="music-layout">
+    <div class="music-lib">
+      <div class="music-lib-header">
+        <button class="dash-action-btn" id="btn-music-open">+ Add Folder</button>
+      </div>
+      <div class="music-lib-sections" id="music-lib-sections">
+        <div class="music-empty-lib">
+          <div style="font-size:38px;margin-bottom:8px">🎵</div>
+          <p>Add a folder to scan</p>
+        </div>
+      </div>
+    </div>
+    <div class="music-center">
+      <div class="music-center-header">
+        <div class="music-path-title" id="music-path-title">All Tracks</div>
+        <select class="dash-select" id="music-sort">
+          <option value="name">A–Z</option>
+          <option value="type">Type</option>
+        </select>
+      </div>
+      <div class="music-tracks" id="music-tracks">
+        <div class="music-empty-tracks">
+          <div style="font-size:48px;margin-bottom:8px">🎧</div>
+          <p>Select a folder from the library</p>
+        </div>
+      </div>
+    </div>
+    <div class="music-now-playing">
+      <div class="np-art-wrap">
+        <div class="np-art" id="np-art">
+          <div class="np-art-inner" id="np-art-inner"><span class="np-art-placeholder">♪</span></div>
+          <div class="np-glow" id="np-glow"></div>
+        </div>
+        <div class="np-bars" id="np-bars">
+          <span></span><span></span><span></span><span></span><span></span>
+          <span></span><span></span><span></span><span></span><span></span>
+        </div>
+      </div>
+      <div class="np-meta">
+        <div class="np-title"  id="np-title">Not Playing</div>
+        <div class="np-artist" id="np-artist">—</div>
+        <div class="np-format" id="np-format"></div>
+      </div>
+      <div class="np-seek-wrap" id="np-seek-wrap">
+        <span class="np-time" id="np-time-cur">0:00</span>
+        <div class="np-seek-track" id="np-seek-track">
+          <div class="np-seek-fill" id="np-seek-fill"></div>
+        </div>
+        <span class="np-time" id="np-time-tot">0:00</span>
+      </div>
+      <div class="np-queue-label">Up Next</div>
+      <div class="np-queue" id="np-queue"></div>
     </div>
   </div>
 </div>
 
+<!-- ══ PDF VIEWER ════════════════════════════════════════════════ -->
 <div id="pdf-view" class="dashboard-view">
-  <div class="dash-header">
-    <h2 class="dash-title">PDF Power Suite</h2>
-    <button class="dash-action-btn" id="btn-pdf-open">📄 Open PDF</button>
-    <span class="dash-subtitle">PDF rendering engine coming soon</span>
+  <div class="pdf-toolbar">
+    <button class="dash-action-btn" id="btn-pdf-open">+ Open PDF</button>
+    <div class="pdf-ctrl-group">
+      <button class="pdf-ctrl-btn" id="pdf-prev" disabled>‹</button>
+      <div class="pdf-page-field">
+        <input type="number" id="pdf-page-num" value="1" min="1">
+        <span class="pdf-page-sep">of</span>
+        <span id="pdf-total">—</span>
+      </div>
+      <button class="pdf-ctrl-btn" id="pdf-next" disabled>›</button>
+    </div>
+    <div class="pdf-ctrl-group">
+      <button class="pdf-ctrl-btn" id="pdf-zoom-out">−</button>
+      <span class="pdf-zoom-label" id="pdf-zoom-label">100%</span>
+      <button class="pdf-ctrl-btn" id="pdf-zoom-in">+</button>
+      <button class="pdf-ctrl-btn" id="pdf-fit" title="Fit width">⊡</button>
+    </div>
+    <div class="pdf-search-wrap">
+      <input type="text" class="pdf-search-input" id="pdf-search" placeholder="Search…">
+      <span class="pdf-search-count" id="pdf-search-count"></span>
+    </div>
+    <span class="pdf-filename" id="pdf-filename">No file open</span>
   </div>
-  <div class="gallery-grid">
-    <div class="gallery-empty">
-      <div style="font-size:56px; color: var(--accent);">📑</div>
-      <p>PDF editing, merging, and signing tools will appear here.</p>
+  <div class="pdf-body">
+    <div class="pdf-thumbs-panel" id="pdf-thumbs-panel">
+      <div class="pdf-thumbs-list" id="pdf-thumbs-list"></div>
+    </div>
+    <div class="pdf-main" id="pdf-main">
+      <div class="pdf-canvas-scroller" id="pdf-canvas-scroller">
+        <canvas id="pdf-canvas"></canvas>
+      </div>
+      <div class="pdf-empty" id="pdf-empty">
+        <div style="font-size:56px;margin-bottom:12px">📄</div>
+        <p>Open a PDF to begin reading</p>
+        <p style="font-size:11px;margin-top:6px;opacity:.45">Supports text selection, zoom, page thumbnails, search</p>
+      </div>
     </div>
   </div>
 </div>
 
-<div class="side-panel" id="panel-info">
-  <div class="panel-hdr">ℹ Media Info<button class="panel-close" data-panel="info">✕</button></div>
-  <div class="panel-body">
-    <div class="info-section"><div class="info-sec-title">📄 File</div>
-      <div class="info-row"><span>Name</span><span id="inf-name">—</span></div>
-      <div class="info-row"><span>Duration</span><span id="inf-dur">—</span></div>
-      <div class="info-row"><span>Size</span><span id="inf-size">—</span></div>
-      <div class="info-row"><span>Format</span><span id="inf-fmt">—</span></div>
-    </div>
-    <div class="info-section"><div class="info-sec-title">🎬 Video</div>
-      <div class="info-row"><span>Codec</span><span id="inf-vc">—</span></div>
-      <div class="info-row"><span>Resolution</span><span id="inf-res">—</span></div>
-      <div class="info-row"><span>FPS</span><span id="inf-fps">—</span></div>
-      <div class="info-row"><span>Aspect</span><span id="inf-asp">—</span></div>
-      <div class="info-row"><span>Bitrate</span><span id="inf-vbr">—</span></div>
-    </div>
-    <div class="info-section"><div class="info-sec-title">🔊 Audio</div>
-      <div class="info-row"><span>Codec</span><span id="inf-ac">—</span></div>
-      <div class="info-row"><span>Sample Rate</span><span id="inf-sr">—</span></div>
-      <div class="info-row"><span>Channels</span><span id="inf-ch">—</span></div>
-      <div class="info-row"><span>Bitrate</span><span id="inf-abr">—</span></div>
+<!-- ══ LIGHTBOX ══════════════════════════════════════════════════ -->
+<div class="lightbox" id="lightbox">
+  <div class="lb-backdrop" id="lb-backdrop"></div>
+  <button class="lb-close" id="lightbox-close">✕</button>
+  <button class="lb-nav lb-prev" id="lightbox-prev">‹</button>
+  <button class="lb-nav lb-next" id="lightbox-next">›</button>
+  <div class="lb-frame">
+    <img class="lb-img" id="lightbox-img" src="" alt="" draggable="false">
+  </div>
+  <div class="lb-bar">
+    <span class="lb-name" id="lightbox-caption"></span>
+    <span class="lb-counter" id="lb-counter"></span>
+    <div class="lb-zoom-group">
+      <button class="lb-ctrl" id="lb-zoom-out">−</button>
+      <span class="lb-ctrl-label" id="lb-zoom-label">100%</span>
+      <button class="lb-ctrl" id="lb-zoom-in">+</button>
+      <button class="lb-ctrl" id="lb-fit">⊡</button>
     </div>
   </div>
+</div>
+
+<!-- ══ SIDE PANELS ════════════════════════════════════════════════ -->
+<div class="side-panel" id="panel-info">
+  <div class="panel-hdr">
+    <span>Media Info</span>
+    <button class="panel-close" data-panel="info">✕</button>
+  </div>
+  <div class="panel-body" id="info-body"></div>
 </div>
 
 <div class="side-panel" id="panel-eq">
-  <div class="panel-hdr">🎚 Equalizer 
-    <div style="display:flex;align-items:center;gap:8px;">
-      <select id="eq-preset" class="eq-preset-sel">
-        <option value="">Custom</option>
-        <option value="flat">Flat</option>
-        <option value="bass">Bass Boost</option>
-        <option value="treble">Treble Boost</option>
-        <option value="rock">Rock</option>
-        <option value="pop">Pop</option>
-        <option value="jazz">Jazz</option>
-        <option value="classical">Classical</option>
-      </select>
-      <label class="eq-toggle"><input type="checkbox" id="eq-enable"> On</label>
-      <button class="panel-close" data-panel="eq">✕</button>
-    </div>
+  <div class="panel-hdr">
+    <span>Equalizer</span>
+    <button class="panel-close" data-panel="eq">✕</button>
   </div>
   <div class="panel-body">
+    <div class="eq-presets" id="eq-presets">
+      <button class="eq-preset-btn active" data-p="flat">Flat</button>
+      <button class="eq-preset-btn" data-p="bass">Bass</button>
+      <button class="eq-preset-btn" data-p="treble">Treble</button>
+      <button class="eq-preset-btn" data-p="rock">Rock</button>
+      <button class="eq-preset-btn" data-p="pop">Pop</button>
+      <button class="eq-preset-btn" data-p="jazz">Jazz</button>
+      <button class="eq-preset-btn" data-p="classical">Classical</button>
+    </div>
     <div class="eq-bands" id="eq-bands"></div>
-    <button class="btn-reset-eq" id="btn-reset-eq">Reset All</button>
+    <button class="btn-reset-eq" id="btn-reset-eq">Reset EQ</button>
   </div>
 </div>
 
 <div class="side-panel" id="panel-playlist">
-  <div class="panel-hdr">≡ Playlist
-    <div style="display:flex;gap:6px;align-items:center;">
-      <button class="pl-act-btn" id="btn-pl-add">+ Add</button>
-      <button class="pl-act-btn" id="btn-pl-clear">Clear</button>
+  <div class="panel-hdr">
+    <span>Playlist</span>
+    <div style="display:flex;gap:6px">
+      <button class="pl-act-btn" id="pl-add">+ Add</button>
+      <button class="pl-act-btn" id="pl-clear">Clear</button>
       <button class="panel-close" data-panel="playlist">✕</button>
     </div>
   </div>
-  <div class="panel-body" id="pl-body"><div class="pl-list" id="pl-list"></div></div>
+  <div class="panel-body">
+    <div class="pl-list" id="pl-list"></div>
+  </div>
 </div>
 
+<!-- ══ CONTEXT PANEL ═════════════════════════════════════════════ -->
+<div id="ctx-panel" class="ctx-panel hidden">
+  <div class="ctx-tabs">
+    <button class="ctx-tab active" data-tab="audio">Audio</button>
+    <button class="ctx-tab" data-tab="subs">Subs</button>
+    <button class="ctx-tab" data-tab="video">Video</button>
+    <button class="ctx-tab" data-tab="keys">Keys</button>
+    <button class="ctx-close" id="ctx-close">✕</button>
+  </div>
+  <div class="ctx-body active" id="ctx-tab-audio">
+    <div class="ctx-section-label">Audio Track</div>
+    <div class="ctx-track-list" id="ctx-audio-tracks"></div>
+    <div class="ctx-section-label">Volume</div>
+    <div class="ctx-row"><span class="ctx-row-label">Level</span><input type="range" class="ctx-slider" id="ctx-vol" min="0" max="130" value="100"><span class="ctx-val" id="ctx-vol-val">100%</span></div>
+    <div class="ctx-row"><span class="ctx-row-label">Mute</span><label class="ctx-toggle-wrap"><input type="checkbox" id="ctx-mute"><span class="ctx-toggle"></span></label></div>
+    <div class="ctx-section-label">Audio Delay</div>
+    <div class="ctx-row"><button class="ctx-adj-btn" data-cmd="audio-delay" data-v="-0.5">−0.5s</button><span class="ctx-val" id="ctx-audio-delay-val" style="flex:1;text-align:center">0.0s</span><button class="ctx-adj-btn" data-cmd="audio-delay" data-v="+0.5">+0.5s</button><button class="ctx-adj-btn" data-cmd="audio-delay" data-v="0">Reset</button></div>
+  </div>
+  <div class="ctx-body" id="ctx-tab-subs">
+    <div class="ctx-section-label">Subtitle Track</div>
+    <div class="ctx-track-list" id="ctx-sub-tracks"></div>
+    <div class="ctx-section-label">Delay</div>
+    <div class="ctx-row"><button class="ctx-adj-btn" data-cmd="sub-delay" data-v="-0.5">−0.5s</button><span class="ctx-val" id="ctx-sub-delay-val" style="flex:1;text-align:center">0.0s</span><button class="ctx-adj-btn" data-cmd="sub-delay" data-v="+0.5">+0.5s</button><button class="ctx-adj-btn" data-cmd="sub-delay" data-v="0">Reset</button></div>
+    <div class="ctx-section-label">Size &amp; Position</div>
+    <div class="ctx-row"><span class="ctx-row-label">Size</span><input type="range" class="ctx-slider" id="ctx-sub-size" min="16" max="72" value="44"><span class="ctx-val" id="ctx-sub-size-val">44</span></div>
+    <div class="ctx-row"><span class="ctx-row-label">Pos</span><input type="range" class="ctx-slider" id="ctx-sub-pos" min="50" max="150" value="100"><span class="ctx-val" id="ctx-sub-pos-val">100</span></div>
+    <button class="ctx-action-btn" id="ctx-add-sub">📂 Browse subtitle…</button>
+  </div>
+  <div class="ctx-body" id="ctx-tab-video">
+    <div class="ctx-section-label">Video Track</div>
+    <div class="ctx-track-list" id="ctx-video-tracks"></div>
+    <div class="ctx-section-label">Aspect Ratio</div>
+    <div class="ctx-chip-row"><button class="ctx-chip active" data-cmd="aspect" data-v="-1">Auto</button><button class="ctx-chip" data-cmd="aspect" data-v="4/3">4:3</button><button class="ctx-chip" data-cmd="aspect" data-v="16/9">16:9</button><button class="ctx-chip" data-cmd="aspect" data-v="21/9">21:9</button><button class="ctx-chip" data-cmd="aspect" data-v="2.39/1">Cinema</button></div>
+    <div class="ctx-section-label">Hardware Decoder</div>
+    <div class="ctx-chip-row"><button class="ctx-chip active" data-cmd="hwdec" data-v="auto-safe">Auto</button><button class="ctx-chip" data-cmd="hwdec" data-v="nvdec">NVDEC</button><button class="ctx-chip" data-cmd="hwdec" data-v="d3d11va">D3D11</button><button class="ctx-chip" data-cmd="hwdec" data-v="no">CPU</button></div>
+    <div class="ctx-section-label">Tools</div>
+    <div class="ctx-row" style="gap:8px">
+      <label class="ctx-toggle-wrap" title="Deinterlace"><input type="checkbox" id="ctx-deinterlace"><span class="ctx-toggle"></span></label><span class="ctx-row-label">Deinterlace</span>
+    </div>
+    <button class="ctx-action-btn" id="ctx-screenshot">📸 Screenshot</button>
+  </div>
+  <div class="ctx-body" id="ctx-tab-keys">
+    <div class="ctx-keymap">
+      <div class="ctx-km-row"><kbd>Space</kbd><span>Play / Pause</span></div>
+      <div class="ctx-km-row"><kbd>S</kbd><span>Stop</span></div>
+      <div class="ctx-km-row"><kbd>F / F11</kbd><span>Full Screen</span></div>
+      <div class="ctx-km-row"><kbd>T</kbd><span>Theatre Mode</span></div>
+      <div class="ctx-km-row"><kbd>M</kbd><span>Mute</span></div>
+      <div class="ctx-km-row"><kbd>← →</kbd><span>Seek ±5s</span></div>
+      <div class="ctx-km-row"><kbd>Shift+← →</kbd><span>Seek ±30s</span></div>
+      <div class="ctx-km-row"><kbd>↑ ↓</kbd><span>Volume ±5%</span></div>
+      <div class="ctx-km-row"><kbd>[ ]</kbd><span>Speed −/+</span></div>
+      <div class="ctx-km-row"><kbd>Backspace</kbd><span>Reset Speed</span></div>
+      <div class="ctx-km-row"><kbd>Z / X</kbd><span>Sub Delay ±0.5s</span></div>
+      <div class="ctx-km-row"><kbd>Shift+K/J</kbd><span>Audio Delay ±0.5s</span></div>
+      <div class="ctx-km-row"><kbd>V / A</kbd><span>Cycle Sub / Audio</span></div>
+      <div class="ctx-km-row"><kbd>P / N</kbd><span>Prev / Next</span></div>
+      <div class="ctx-km-row"><kbd>1–9</kbd><span>Jump 10–90%</span></div>
+      <div class="ctx-km-row"><kbd>Ctrl+O</kbd><span>Open File</span></div>
+      <div class="ctx-km-row"><kbd>Ctrl+I</kbd><span>Media Info</span></div>
+      <div class="ctx-km-row"><kbd>Ctrl+L</kbd><span>Playlist</span></div>
+      <div class="ctx-km-row"><kbd>Ctrl+T</kbd><span>Screenshot</span></div>
+    </div>
+  </div>
+</div>
+
+<!-- ══ DIALOGS ════════════════════════════════════════════════════ -->
+<!-- Jump to time -->
 <div class="dialog-overlay hidden" id="dlg-jump">
   <div class="dlg-box">
-    <h3>Jump to Time</h3>
-    <input type="text" id="jump-input" class="dlg-input" placeholder="1:23 or 1:23:45">
+    <div class="dlg-title">Jump to Time</div>
+    <input type="text" class="dlg-input" id="jump-input" placeholder="1:23  or  1:23:45">
     <div class="dlg-btns">
       <button class="btn-ghost" id="jump-cancel">Cancel</button>
-      <button class="btn-accent" id="jump-ok">Go</button>
+      <button class="btn-accent" id="jump-go">Go</button>
     </div>
   </div>
 </div>
 
-<div class="dialog-overlay hidden" id="dlg-about">
+<!-- URL open -->
+<div class="dialog-overlay hidden" id="dlg-url">
   <div class="dlg-box">
-    <h3>BM Player</h3>
-    <p style="font-size:12px; color:var(--text-muted); margin-bottom:10px;">Version <span id="lbl-version">1.3.5</span></p>
-    <div id="update-status" style="font-size:12px; color:var(--accent); margin-bottom:10px;">Checking for updates...</div>
+    <div class="dlg-title">Open URL / Stream</div>
+    <input type="text" class="dlg-input" id="url-input" placeholder="https://… or rtmp://…">
     <div class="dlg-btns">
-      <button class="btn-accent" id="about-ok">Close</button>
+      <button class="btn-ghost" id="url-cancel">Cancel</button>
+      <button class="btn-accent" id="url-go">Open</button>
     </div>
   </div>
 </div>
 
+<!-- ══ OSD & UTILITIES ════════════════════════════════════════════ -->
 <div class="osd" id="osd"></div>
-<div class="drop-overlay" id="drop-overlay"><div class="drop-box"><div style="font-size:52px;">🎬</div><p>Drop media to play</p></div></div>
+<div class="drop-overlay" id="drop-overlay">
+  <div class="drop-box">
+    <div style="font-size:52px;margin-bottom:8px">🎬</div>
+    <p>Drop to play</p>
+  </div>
+</div>
 
+<!-- ══ UPDATE BANNER ══════════════════════════════════════════════ -->
+<div id="update-banner" class="update-banner hidden">
+  <span class="update-icon">⬆</span>
+  <span id="update-msg">Update available</span>
+  <div class="update-progress-wrap hidden" id="update-progress-wrap">
+    <div class="update-progress-bar" id="update-progress-bar"></div>
+  </div>
+  <button class="update-btn" id="update-install-btn" style="display:none">Install &amp; Restart</button>
+  <button class="update-dismiss" id="update-dismiss">✕</button>
+</div>
+
+<!-- ══ DEFAULT PLAYER PROMPT ═════════════════════════════════════ -->
+<div id="default-player-prompt" class="default-prompt hidden">
+  <div class="default-prompt-box">
+    <div style="font-size:32px;margin-bottom:8px">🎬</div>
+    <h3>Set as default player?</h3>
+    <p>Open media files directly from Explorer</p>
+    <div class="default-prompt-btns">
+      <button class="btn-accent" id="btn-set-default">Yes, set default</button>
+      <button class="btn-ghost"  id="btn-skip-default">Not now</button>
+    </div>
+  </div>
+</div>
+
+<!-- Scripts -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<script>if(window.pdfjsLib) pdfjsLib.GlobalWorkerOptions.workerSrc='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';</script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <script type="module" src="js/app.js"></script>
 </body>
 </html>

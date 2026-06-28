@@ -10,7 +10,6 @@ files:
   - "src/**/*"
   - "node_modules/**/*"
   - "!node_modules/*/{CHANGELOG.md,README.md,readme.md}"
-  - "!node_modules/*/{test,__tests__,tests,example,examples}"
   - "!node_modules/**/*.d.ts"
   - "!node_modules/.bin"
   - "!dist"
@@ -18,6 +17,17 @@ extraResources:
   - from: "vendor/mpv"
     to: "mpv"
     filter: ["**/*", "!*.md", "!.keep"]
+fileAssociations:
+  - ext: ["mp4","m4v","mkv","avi","mov","wmv","flv","webm","ts","m2ts","mpg","mpeg","ogv","3gp","vob"]
+    name: "Video File"
+    description: "Video file (BM Player)"
+    role: "Viewer"
+    icon: "buildResources/icon.ico"
+  - ext: ["mp3","flac","aac","ogg","wav","m4a","wma","opus","ape","mka"]
+    name: "Audio File"
+    description: "Audio file (BM Player)"
+    role: "Viewer"
+    icon: "buildResources/icon.ico"
 win:
   icon: "buildResources/icon.ico"
   target:
@@ -35,3 +45,4 @@ nsis:
   uninstallerIcon: "buildResources/icon.ico"
   installerHeaderIcon: "buildResources/icon.ico"
   deleteAppDataOnUninstall: false
+  include: "buildResources/installer.nsh"
