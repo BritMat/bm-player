@@ -23,7 +23,10 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          # package.json needs Node 22.12 or newer (Electron 44). This said 20,
+          # so every job stopped at npm ci with EBADENGINE, on all three
+          # systems, before a single test ran. A contract now checks it.
+          node-version: 22
           cache: npm
 
       # electron's postinstall downloads a ~100MB binary that none of these
@@ -43,8 +46,17 @@ jobs:
       - name: Electron API surface
         run: npm run lint:electron
 
+      - name: PowerShell scripts
+        run: npm run lint:powershell
+
+      - name: Plugin safety
+        run: npm run test:plugins
+
       - name: Main process
         run: npm run test:main
+
+      - name: Modules
+        run: npm run test:modules
 
       - name: Renderer
         run: npm run test:smoke
@@ -77,9 +89,16 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
-        with: { node-version: 20, cache: npm }
+        with: { node-version: 22, cache: npm }
       - run: npm ci --no-audit --no-fund
       # Proves the icon pipeline works and electron-builder can read the
       # config, without producing (or signing) a real installer.
       - run: npm run gen-icon
       - run: npx electron-builder --linux --dir --publish never
+      # Every other test runs the app from the folder. This starts the build
+      # electron-builder produced: a file left out of its list (switches.js,
+      # v3.19 to v3.22) crashes only the packaged app.
+      - name: Packaged app starts
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq xvfb
+          xvfb-run -a node scripts/smoke-packaged.mjs

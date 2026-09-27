@@ -720,6 +720,66 @@ const group = list => {
   return by;
 };
 
+/* ── Packaging: what an installer contains ──────────────────────────
+   electron-builder packages only the files its config lists. main.js loads
+   ./switches at startup, and from v3.19 to v3.22 the list did not include
+   it (nor plugin-safety.js or plugin-templates): an installer built then
+   would have crashed on launch, and every test ran from the folder, never
+   the package. Every local module main.js loads, directly or through one it
+   loads, must be listed, and so must the folders it reads at runtime. */
+{
+  const globRe = g => new RegExp('^' + g.split('**/*').map(x => x.replace(/[.+^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '[^/]*')).join('.*') + '$');
+  const loaded = new Set(), queue = ['main.js'];
+  while (queue.length) {
+    const f = queue.shift(); if (loaded.has(f)) continue; loaded.add(f);
+    for (const m of fs.readFileSync(path.join(ROOT, f), 'utf8').matchAll(/require\(\s*['"](\.{1,2}\/[^'"]+)['"]\s*\)/g)) {
+      let r = path.posix.normalize(path.posix.join(path.posix.dirname(f), m[1]));
+      if (!/\.[cm]?js$/.test(r) && fs.existsSync(path.join(ROOT, r + '.js'))) r += '.js';
+      if (fs.existsSync(path.join(ROOT, r)) && fs.statSync(path.join(ROOT, r)).isFile()) queue.push(r);
+    }
+  }
+  // Folders main.js reads from its own directory. vendor reaches the app as
+  // an extraResource (mpv), not from inside the package.
+  const firstFile = dir => { const e = fs.readdirSync(path.join(ROOT, dir), { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name));
+    for (const x of e) { if (x.isFile()) return `${dir}/${x.name}`; if (x.isDirectory()) { const r = firstFile(`${dir}/${x.name}`); if (r) return r; } } return null; };
+  const runtimeDirs = [...new Set([...fs.readFileSync(path.join(ROOT, 'main.js'), 'utf8').matchAll(/path\.join\(\s*__dirname\s*,\s*'([a-z][\w-]*)'/g)].map(m => m[1]))]
+    // buildResources is only read for lite.flag, checked on its own below.
+    .filter(d => !['vendor', 'buildResources'].includes(d) && fs.existsSync(path.join(ROOT, d)) && fs.statSync(path.join(ROOT, d)).isDirectory());
+  for (const cfg of ['electron-builder.yml', 'electron-builder.lite.yml']) {
+    const p = path.join(ROOT, cfg); if (!fs.existsSync(p)) continue;
+    // The list may contain comment lines; YAML allows them, and one ended the
+    // list early on the first try, hiding every entry below it.
+    const block = (fs.readFileSync(p, 'utf8').match(/^files:\s*\n((?:[ \t]+(?:-|#).*\n?)+)/m) || [])[1] || '';
+    const globs = [...block.matchAll(/-\s+["']?([^"'\n]+?)["']?\s*$/gm)].map(m => m[1]).filter(g => !g.startsWith('!'));
+    if (!globs.length) { err('packaging', `${cfg}: could not read its files list`); continue; }
+    const covered = rel => globs.some(g => globRe(g).test(rel));
+    for (const f of loaded) if (!covered(f)) err('packaging', `${cfg} does not package ${f}, which main.js loads: an installed app would crash on launch`);
+    const lite = /lite/.test(cfg);
+    // Lite leaves plugins out on purpose: it does not load them.
+    for (const d of runtimeDirs) { if (lite && d === 'plugins') continue; const f = firstFile(d); if (f && !covered(f)) err('packaging', `${cfg} does not package ${d}/, which main.js reads at runtime`); }
+    // lite.flag is how a packaged build knows it is Lite: in the Lite build,
+    // and never in the normal one, which would then run as Lite.
+    if (lite && !covered('buildResources/lite.flag')) err('packaging', `${cfg} does not package buildResources/lite.flag: the Lite build would run as the full version`);
+    if (!lite && covered('buildResources/lite.flag')) err('packaging', `${cfg} packages buildResources/lite.flag: the normal build would run as Lite`);
+  }
+}
+
+/* ── CI uses a Node the app accepts ─────────────────────────────────
+   The workflow still set up Node 20 after package.json moved to 22.12, so
+   on GitHub every job stopped at npm ci with EBADENGINE, on all three
+   systems, before a single test ran. */
+{
+  const need = ((JSON.parse(fs.readFileSync(path.join(ROOT, 'package.json'), 'utf8')).engines || {}).node || '').match(/(\d+)\.(\d+)\.(\d+)/);
+  const wfDir = path.join(ROOT, '.github', 'workflows');
+  if (need && fs.existsSync(wfDir)) for (const wf of fs.readdirSync(wfDir).filter(f => /\.ya?ml$/.test(f))) {
+    for (const m of fs.readFileSync(path.join(wfDir, wf), 'utf8').matchAll(/node-version:\s*['"]?(\d+)(?:\.(\d+))?/g)) {
+      const major = +m[1], minor = m[2] === undefined ? Infinity : +m[2];
+      if (major < +need[1] || (major === +need[1] && minor < +need[2]))
+        err('ci', `${wf} sets up Node ${m[1]}${m[2] !== undefined ? '.' + m[2] : ''}, but package.json needs ${need[0]} or newer: npm ci stops with EBADENGINE`);
+    }
+  }
+}
+
 if (warns.length) {
   console.log('\n\x1b[33mWARNINGS\x1b[0m');
   for (const [cat, msgs] of Object.entries(group(warns))) {

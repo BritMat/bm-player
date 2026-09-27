@@ -18,6 +18,9 @@ directories:
 files:
   - "main.js"
   - "preload.js"
+  - "switches.js"
+  - "plugin-safety.js"
+  - "plugin-templates/**/*"
   - "src/**/*"
   - "plugins/**/*"
   - "node_modules/**/*"

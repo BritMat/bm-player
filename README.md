@@ -4,7 +4,7 @@ A desktop media player built on Electron with [mpv](https://mpv.io) as the
 playback engine. Video, a music library with tag reading, an image gallery, a
 PDF suite, IPTV, 15 themes, and a plugin system.
 
-![version](https://img.shields.io/badge/version-3.22.0-5B6FF8)
+![version](https://img.shields.io/badge/version-3.22.2-5B6FF8)
 ![license](https://img.shields.io/badge/license-MIT-green)
 
 ## First launch
@@ -284,6 +284,26 @@ way to leave the Music tab, so the mini player never appeared. The real-app
 test for this now clicks the sidebar with a real mouse click; it used to
 switch tabs in code, which is why it passed while the sidebar was hidden.
 
+### GitHub's checks, and what an installer contains (v3.22.2)
+
+The CI workflow set up Node 20 after package.json moved to Node 22.12, so on
+GitHub every job stopped at `npm ci` with EBADENGINE, on all three systems,
+before a single test ran. It now uses Node 22 and runs every layer
+(PowerShell parsing, plugin safety and the module tests were missing), and a
+contract checks that the workflow's Node meets package.json's minimum.
+
+`electron-builder.yml` packages only the files it lists, and from v3.19 to
+v3.22 it did not list `switches.js`, `plugin-safety.js` or
+`plugin-templates/`. main.js loads `./switches` at startup, so an installer
+built then would have crashed on launch; every test ran from the folder,
+never the package. The Lite config also never listed `buildResources/lite.flag`,
+although its own comment said it did, so a packaged Lite build would have run
+as the full version. A contract now follows every local module main.js
+loads, and the folders it reads at runtime, and checks both configs list
+them (and that only Lite has lite.flag). The build job on GitHub now starts
+the packaged app (`scripts/smoke-packaged.mjs`): a package without
+switches.js fails it.
+
 ### Publishing to GitHub (v3.22.0)
 
 When every check passes on a real Windows machine and the video check
@@ -293,7 +313,15 @@ github.com/BritMat/bm-player (the `publish` action in `tools/bm-helper.ps1`).
 - It never force-pushes. The release is committed on top of what is already
   on GitHub, so nothing there is overwritten; someone else's commit stays.
 - It never publishes a version twice: each release is tagged (`v3.22.0`),
-  and an existing tag means it skips.
+  and an existing tag means it skips. It only ever goes forwards: a version
+  that is not newer than the newest tag on GitHub is skipped, so running the
+  checker with an old zip can never publish old code over new.
+- Anything the video check flags stops it too: a failed step with your own
+  video, a timeout, an error, the app not launching or not reaching mpv, a
+  layout mismatch, or the default not showing the picture. (Not the
+  comparison run's note that the controls could not be checked, which only
+  means the mouse moved.) Checked against every real run so far: the good
+  ones pass, and the one run with a real error is stopped.
 - No password is stored anywhere. Git uses your own sign-in; the first time,
   Git for Windows asks through the browser.
 - The repository's files are made to match the release, leaving out

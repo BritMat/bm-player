@@ -38,9 +38,9 @@ for /f "usebackq delims=" %%Z in (`%PS% -Command "$z = Get-ChildItem -LiteralPat
 if not defined ZIPNAME goto :nozip
 call :say "Using %ZIPNAME%"
 set "OLDZIP="
-%PS% -Command "$v = [regex]::Match($env:ZIPNAME, '\d+\.\d+\.\d+').Value; if (-not $v -or [version]$v -lt [version]'3.22.0') { exit 1 }" >nul 2>&1
+%PS% -Command "$v = [regex]::Match($env:ZIPNAME, '\d+\.\d+\.\d+').Value; if (-not $v -or [version]$v -lt [version]'3.22.2') { exit 1 }" >nul 2>&1
 if errorlevel 1 set "OLDZIP=1"
-if defined OLDZIP call :say "NOTE: this zip is older than v3.22.0, which has fixes for Windows. Put BM-Player-v3.22.0.zip here for the best results."
+if defined OLDZIP call :say "NOTE: this zip is older than v3.22.2, which has fixes for Windows. Put BM-Player-v3.22.2.zip here for the best results."
 
 rem ---------- 2. unpack it ----------
 call :say "Unpacking..."
@@ -169,6 +169,11 @@ if not "%R2%"=="all passed" (set "R5=skipped: not every check passed" & goto :pu
 if not "%R3%"=="all passed" (set "R5=skipped: not every check passed" & goto :publish_done)
 if not "%R4%"=="finished" (set "R5=skipped: the video check did not finish" & goto :publish_done)
 findstr /c:"THE DEFAULT WORKS" "%RESULTS%\video-layer\summary.txt" >nul 2>&1 || (set "R5=skipped: the video check did not confirm the default" & goto :publish_done)
+rem Anything the video check flagged also stops it: a failed step with your
+rem video, a timeout, an error, the app not launching or not reaching mpv, a
+rem layout mismatch. Not the comparison run's note that the controls could
+rem not be checked, which only means the mouse moved.
+findstr /l /c:"   FAIL  " /c:"DEADLINE" /c:"   error: " /c:"could not launch" /c:"could not ask mpv" /c:"could not capture" /c:"did NOT show" /c:"NOTE: asked for" "%RESULTS%\video-layer\summary.txt" >nul 2>&1 && (set "R5=skipped: the video check flagged a problem, see SUMMARY" & goto :publish_done)
 call :say "Every check passed: publishing this release to GitHub..."
 %PS% -File "%APPDIR%\tools\bm-helper.ps1" -Action publish > "%RESULTS%\5-publish.log" 2>&1
 for /f "usebackq delims=" %%P in ("%RESULTS%\5-publish.log") do set "R5=%%P"
@@ -190,7 +195,7 @@ popd
 >> "%RESULTS%\SUMMARY.txt" echo 3. real app, playback and PiP ...... %R3%
 >> "%RESULTS%\SUMMARY.txt" echo 4. video layer question ............ %R4%
 >> "%RESULTS%\SUMMARY.txt" echo 5. publish to GitHub ............... %R5%
-if defined OLDZIP >> "%RESULTS%\SUMMARY.txt" echo NOTE: run with %ZIPNAME%, older than v3.22.0
+if defined OLDZIP >> "%RESULTS%\SUMMARY.txt" echo NOTE: run with %ZIPNAME%, older than v3.22.2
 if defined NOELECTRON >> "%RESULTS%\SUMMARY.txt" echo NOTE: Electron could not be installed, see run-log.txt
 >> "%RESULTS%\SUMMARY.txt" echo.
 if exist "%RESULTS%\video-layer\summary.txt" type "%RESULTS%\video-layer\summary.txt" >> "%RESULTS%\SUMMARY.txt"

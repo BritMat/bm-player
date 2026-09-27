@@ -30,6 +30,12 @@ directories:
 files:
   - "main.js"
   - "preload.js"
+  - "switches.js"
+  - "plugin-safety.js"
+  - "plugin-templates/**/*"
+  # How the packaged app knows it is the Lite build (main.js LITE_FLAG_FILE).
+  # The comment above always said so; the file was never actually listed.
+  - "buildResources/lite.flag"
   - "src/**/*"
   - "node_modules/**/*"
   - "!node_modules/*/{CHANGELOG.md,README.md,readme.md}"

@@ -113,6 +113,14 @@ switch ($Action) {
       $r = Invoke-Git @('ls-remote', '--tags', $repo, ('refs/tags/' + $tag))
       if ($r.code -ne 0) { 'FAILED: could not reach ' + $repo + ' - ' + ($r.out -split "`n")[0]; return }
       if ($r.out -match ('refs/tags/' + [regex]::Escape($tag))) { 'skipped: ' + $tag + ' is already on GitHub'; return }
+      # Only ever forwards: never publish a version older than the newest one
+      # already on GitHub, which running the checker with an old zip would do.
+      $r = Invoke-Git @('ls-remote', '--tags', $repo)
+      $newest = $null
+      foreach ($line in ($r.out -split "`n")) {
+        if ($line -match 'refs/tags/v(\d+\.\d+\.\d+)$') { $v = [version]$Matches[1]; if (-not $newest -or $v -gt $newest) { $newest = $v } }
+      }
+      if ($newest -and ([version]$ver) -le $newest) { 'skipped: ' + $tag + ' is not newer than v' + $newest + ', the newest on GitHub'; return }
       # A clone of its own, next to the batch file. It is emptied and refilled
       # below, so first make sure it really is that clone and nothing else.
       if (-not (Test-Path (Join-Path $work '.git'))) {
