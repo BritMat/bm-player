@@ -4,7 +4,7 @@ A desktop media player built on Electron with [mpv](https://mpv.io) as the
 playback engine. Video, a music library with tag reading, an image gallery, a
 PDF suite, IPTV, 15 themes, and a plugin system.
 
-![version](https://img.shields.io/badge/version-3.22.3-5B6FF8)
+![version](https://img.shields.io/badge/version-3.22.4-5B6FF8)
 ![license](https://img.shields.io/badge/license-MIT-green)
 
 ## First launch
@@ -283,6 +283,27 @@ sidebar away and fades the title bar and menus. With it set, there was no
 way to leave the Music tab, so the mini player never appeared. The real-app
 test for this now clicks the sidebar with a real mouse click; it used to
 switch tabs in code, which is why it passed while the sidebar was hidden.
+
+### Windows installer and GitHub Release (v3.22.4)
+
+Pushing a commit and a tag (what the checker publishes) creates no download:
+the Build check only proves the build works and keeps nothing, and a tag is
+not a Release. The `release` job in the CI workflow now runs for each new
+version tag: on GitHub's Windows machine it runs the fast checks, fetches
+mpv (the plain 64-bit build from shinchiro/mpv-winbuild-cmake, pinned by
+date in `MPV_BUILD`), builds the NSIS installer, starts the packaged app to
+be sure it launches, and creates a Release with
+`BM-Player-Setup-<version>-x64.exe` plus the updater's `latest.yml` and
+blockmap. No secret is needed: it uses GitHub's built-in token.
+
+Releases are marked pre-release. The app checks GitHub for updates shortly
+after it starts, and Electron's updater ignores pre-releases, so installed
+copies do not update on their own until a release is marked as the latest
+one on GitHub. For a version that is already tagged, run the workflow by hand
+(Actions, CI, Run workflow) and enter the tag.
+
+The installer is not code-signed, so Windows SmartScreen warns before
+running it (More info, Run anyway).
 
 ### Line endings on Windows (v3.22.3)
 

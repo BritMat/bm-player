@@ -3,12 +3,22 @@ name: CI
 on:
   push:
     branches: [main, master, develop]
+    # The checker publishes each stable version as a tag: that builds the
+    # Windows installer and creates the GitHub Release (the release job).
+    tags: ['v*']
   pull_request:
   workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Build the Windows installer and Release for an existing tag, for example v3.22.3 (leave empty to only run the checks)'
+        required: false
+        default: ''
 
 jobs:
   verify:
     name: Verify (${{ matrix.os }})
+    # A tag points at a commit that was already verified when it was pushed.
+    if: ${{ !startsWith(github.ref, 'refs/tags/') }}
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -85,7 +95,7 @@ jobs:
     name: Build check
     needs: verify
     runs-on: ubuntu-latest
-    if: github.event_name == 'push'
+    if: ${{ github.event_name == 'push' && !startsWith(github.ref, 'refs/tags/') }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -102,3 +112,78 @@ jobs:
         run: |
           sudo apt-get update -qq && sudo apt-get install -y -qq xvfb
           xvfb-run -a node scripts/smoke-packaged.mjs
+
+  # The Windows installer, as a GitHub Release. Pushing a commit and a tag (what
+  # the checker does) creates neither: the Build check above only proves the
+  # build works and keeps nothing. Runs for each new version tag, or by hand
+  # for an existing one (Actions, CI, Run workflow, with a tag).
+  release:
+    name: Windows installer and Release
+    if: ${{ startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && inputs.tag != '') }}
+    runs-on: windows-latest
+    permissions:
+      contents: write
+    env:
+      TAG: ${{ startsWith(github.ref, 'refs/tags/v') && github.ref_name || inputs.tag }}
+      # The mpv bundled with the installer: a shinchiro/mpv-winbuild-cmake
+      # release, pinned so a bad nightly cannot slip in. Bump it on purpose.
+      MPV_BUILD: '20260925'
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.TAG }}
+
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: npm }
+
+      - run: npm ci --no-audit --no-fund
+
+      - name: Fast checks
+        shell: bash
+        run: npm run lint:syntax && npm run lint:contracts && npm run test:plugins && npm run test:main && npm run test:smoke
+
+      - name: mpv for the installer
+        shell: bash
+        run: |
+          # The plain 64-bit player build: no newer CPU features needed
+          # (not the -v3 or -gcc variants, not the -dev library).
+          if ! gh release download "$MPV_BUILD" --repo shinchiro/mpv-winbuild-cmake --pattern 'mpv-x86_64-2*.7z' --dir mpvdl; then
+            echo "No mpv-x86_64-<date> archive in release $MPV_BUILD. It has:"; gh release view "$MPV_BUILD" --repo shinchiro/mpv-winbuild-cmake --json assets --jq '.assets[].name'; exit 1
+          fi
+          7z x mpvdl/*.7z -ovendor/mpv -y > /dev/null
+          test -f vendor/mpv/mpv.exe || { echo "mpv.exe is not in the mpv archive"; ls -R vendor/mpv | head -40; exit 1; }
+          ls vendor/mpv
+
+      - run: npm run gen-icon
+
+      - name: Build the installer
+        run: npx electron-builder --win nsis --x64 --publish never
+
+      # The same check as the Build check: an installer whose app crashes on
+      # launch is never released.
+      - name: The packaged app starts
+        run: node scripts/smoke-packaged.mjs
+
+      - name: Create the Release
+        shell: bash
+        run: |
+          ver="${TAG#v}"
+          # Only the installer and the updater's two files: electron-builder can leave
+          # other executables in dist (an uninstaller stub) that are not for release.
+          files=$(ls dist/BM-Player-Setup-*.exe dist/BM-Player-Setup-*.exe.blockmap dist/latest.yml 2>/dev/null)
+          test -n "$files" || { echo "no installer in dist"; ls dist; exit 1; }
+          cat > notes.md <<EOF
+          BM Player $TAG for Windows (64-bit).
+
+          Download **BM-Player-Setup-$ver-x64.exe** and run it. The installer is not code-signed, so Windows SmartScreen may warn: choose **More info**, then **Run anyway**.
+
+          Built by GitHub Actions from tag $TAG, after every check passed on a real Windows machine and on GitHub, and the packaged app was started to be sure it launches. Bundles mpv from shinchiro/mpv-winbuild-cmake release $MPV_BUILD.
+
+          Marked as a pre-release: installed copies of BM Player do not update to it on their own.
+          EOF
+          if gh release view "$TAG" > /dev/null 2>&1; then
+            gh release upload "$TAG" $files --clobber
+          else
+            gh release create "$TAG" $files --title "BM Player $TAG" --notes-file notes.md --prerelease --verify-tag
+          fi
