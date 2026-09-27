@@ -4,7 +4,7 @@ A desktop media player built on Electron with [mpv](https://mpv.io) as the
 playback engine. Video, a music library with tag reading, an image gallery, a
 PDF suite, IPTV, 15 themes, and a plugin system.
 
-![version](https://img.shields.io/badge/version-3.22.2-5B6FF8)
+![version](https://img.shields.io/badge/version-3.22.3-5B6FF8)
 ![license](https://img.shields.io/badge/license-MIT-green)
 
 ## First launch
@@ -283,6 +283,17 @@ sidebar away and fades the title bar and menus. With it set, there was no
 way to leave the Music tab, so the mini player never appeared. The real-app
 test for this now clicks the sidebar with a real mouse click; it used to
 switch tabs in code, which is why it passed while the sidebar was hidden.
+
+### Line endings on Windows (v3.22.3)
+
+On GitHub's Windows runner, Git checked files out with Windows line endings
+(CRLF), and the packaging contract read only the first entry of each build
+config's files list: in JavaScript a `.` does not match `\r`. It reported
+everything after main.js as missing, on Windows only. The contract script
+now reads files with line endings normalised, its files-list parser carries
+a self-test with CRLF input, and `.gitattributes` checks text files out with
+Unix line endings on every system (batch files keep Windows endings). Every
+GitHub step was run on a copy converted to CRLF: all pass.
 
 ### GitHub's checks, and what an installer contains (v3.22.2)
 

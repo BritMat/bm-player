@@ -1,0 +1,27 @@
+# Text files are checked out with Unix line endings on every system. On
+# GitHub's Windows runner Git converted them to CRLF by default, and a check
+# reading the build config saw only its first line (v3.22.2).
+* text=auto eol=lf
+
+# Windows batch files need Windows line endings.
+*.bat text eol=crlf
+*.cmd text eol=crlf
+
+# Never converted.
+*.png binary
+*.jpg binary
+*.ico binary
+*.icns binary
+*.gif binary
+*.webp binary
+*.woff binary
+*.woff2 binary
+*.ttf binary
+*.otf binary
+*.zip binary
+*.exe binary
+*.dll binary
+*.wasm binary
+*.pdf binary
+*.mp3 binary
+*.mp4 binary

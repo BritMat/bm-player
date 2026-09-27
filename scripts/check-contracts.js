@@ -19,6 +19,12 @@
  */
 
 const fs   = require('fs');
+// Every file this script reads, with Windows line endings made plain. On
+// GitHub's Windows runner Git checks files out with CRLF, and a . in a regex
+// does not match \r: the packaging check read only the first line of each
+// files list and reported everything after main.js as missing.
+{ const read = fs.readFileSync.bind(fs);
+  fs.readFileSync = (p, ...a) => { const r = read(p, ...a); return typeof r === 'string' ? r.replace(/\r\n?/g, '\n') : r; }; }
 const path = require('path');
 
 const ROOT = path.join(__dirname, '..');
@@ -720,6 +726,21 @@ const group = list => {
   return by;
 };
 
+/* The files list of an electron-builder config. Takes Windows line endings
+   too: on GitHub's Windows runner a . stopped at every \r and only the first
+   entry was read. .gitattributes now checks files out with Unix endings, so
+   this self-test keeps the parser honest on its own. */
+function filesList(text) {
+  const t = String(text).replace(/\r\n?/g, '\n');
+  const block = (t.match(/^files:\s*\n((?:[ \t]+(?:-|#).*\n?)+)/m) || [])[1] || '';
+  return [...block.matchAll(/-\s+["']?([^"'\n]+?)["']?\s*$/gm)].map(m => m[1]).filter(g => !g.startsWith('!'));
+}
+{
+  const sample = 'files:\r\n  - "main.js"\r\n  # a comment\r\n  - "switches.js"\r\n  - "src/**/*"\r\n  - "!dist"\r\nnext: 1\r\n';
+  const got = filesList(sample).join(',');
+  if (got !== 'main.js,switches.js,src/**/*') err('packaging', `the files-list parser misreads Windows line endings: got ${got}`);
+}
+
 /* ── Packaging: what an installer contains ──────────────────────────
    electron-builder packages only the files its config lists. main.js loads
    ./switches at startup, and from v3.19 to v3.22 the list did not include
@@ -749,8 +770,7 @@ const group = list => {
     const p = path.join(ROOT, cfg); if (!fs.existsSync(p)) continue;
     // The list may contain comment lines; YAML allows them, and one ended the
     // list early on the first try, hiding every entry below it.
-    const block = (fs.readFileSync(p, 'utf8').match(/^files:\s*\n((?:[ \t]+(?:-|#).*\n?)+)/m) || [])[1] || '';
-    const globs = [...block.matchAll(/-\s+["']?([^"'\n]+?)["']?\s*$/gm)].map(m => m[1]).filter(g => !g.startsWith('!'));
+    const globs = filesList(fs.readFileSync(p, 'utf8'));
     if (!globs.length) { err('packaging', `${cfg}: could not read its files list`); continue; }
     const covered = rel => globs.some(g => globRe(g).test(rel));
     for (const f of loaded) if (!covered(f)) err('packaging', `${cfg} does not package ${f}, which main.js loads: an installed app would crash on launch`);
