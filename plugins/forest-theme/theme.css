@@ -1,0 +1,59 @@
+/**
+ * Forest Theme — BM Player Plugin
+ * 
+ * Natural forest greens with earthy tones
+ * Features: Organic gradients, leaf-inspired patterns, nature glow effects
+ */
+:root[data-theme="forest"] {
+  --bg:          #0a1008;
+  --bg2:         #0f1a0e;
+  --surface:     #152418;
+  --surface2:    #1c301f;
+  --border:      rgba(80, 200, 120, .15);
+  --text:        #d8f0e0;
+  --text-muted:  #5a8a68;
+  --accent:      #50c878;
+  --accent2:     #98d85a;
+  --accent-glow: rgba(80, 200, 120, .35);
+  --bar-bg:      rgba(80, 200, 120, .08);
+  --hover:       rgba(80, 200, 120, .12);
+  --menu-bg:     #0e180f;
+  --danger:      #e85555;
+}
+
+/* Forest-specific enhancements */
+[data-theme="forest"] .titlebar {
+  background: linear-gradient(180deg, 
+    rgba(80, 200, 120, .08) 0%, 
+    var(--bg) 100%
+  );
+  border-bottom-color: rgba(80, 200, 120, .25);
+}
+
+[data-theme="forest"] .sidebar {
+  border-right: 1px solid rgba(80, 200, 120, .2);
+  box-shadow: 2px 0 15px rgba(80, 200, 120, .1);
+}
+
+[data-theme="forest"] .btn-primary {
+  background: linear-gradient(135deg, #2d8a4e, #50c878, #98d85a);
+  box-shadow: 0 4px 20px rgba(80, 200, 120, .35);
+}
+
+[data-theme="forest"] .seek-fill {
+  background: linear-gradient(90deg, #2d8a4e, #50c878, #98d85a);
+  box-shadow: 0 0 12px rgba(80, 200, 120, .5);
+}
+
+[data-theme="forest"] .welcome-screen::before {
+  background: 
+    radial-gradient(circle at 30% 70%, rgba(80, 200, 120, .12) 0%, transparent 50%),
+    radial-gradient(circle at 70% 30%, rgba(152, 216, 90, .08) 0%, transparent 50%);
+}
+
+/* Floating particles effect for forest */
+[data-theme="forest"] .fox-container::after {
+  border-top-color: var(--accent);
+  border-bottom-color: var(--accent2);
+  animation: rotate 10s linear infinite;
+}

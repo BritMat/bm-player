@@ -1,0 +1,235 @@
+/* ═══════════════════════════════════════════════════════════════════
+   BM Player — theme tokens
+   style.css defined tokens for dark / light / glass / dracula / northern
+   only. The picker offered ocean, sunset, sakura and midnight as well, and
+   fox.js carried palettes for cyberpunk, forest, lavender and golden on top
+   of that — so clicking most pills recoloured the mascot and nothing else.
+   Accents below match the fox PALETTES entries exactly.
+   ═══════════════════════════════════════════════════════════════════ */
+
+:root[data-theme="ocean"]{--on-accent:#0B0D14;
+  --bg:#04121c;--bg2:#071c2a;--surface:#0a2436;--surface2:#0e2c42;
+  --border:rgba(0,212,255,.13);--text:#dff2fb;--text-muted:#5f8fa8;
+  --accent:#00D4FF;--accent2:#2090D0;--accent-glow:rgba(0,212,255,.34);
+  --bar-bg:rgba(0,212,255,.08);--hover:rgba(0,212,255,.10);
+  --menu-bg:#08202f;--danger:#ff5a5a;
+}
+:root[data-theme="sunset"]{--on-accent:#0B0D14;
+  --bg:#1a0c08;--bg2:#241109;--surface:#2e170c;--surface2:#3a1e10;
+  --border:rgba(255,179,71,.16);--text:#ffeede;--text-muted:#b08a6a;
+  --accent:#FFB347;--accent2:#F06030;--accent-glow:rgba(255,179,71,.34);
+  --bar-bg:rgba(255,179,71,.09);--hover:rgba(255,179,71,.11);
+  --menu-bg:#241109;--danger:#ff4d3d;
+}
+:root[data-theme="sakura"]{--on-accent:#0B0D14;
+  --bg:#1c0d15;--bg2:#26121d;--surface:#301826;--surface2:#3a1e2e;
+  --border:rgba(255,128,191,.16);--text:#ffeaf4;--text-muted:#b57e9a;
+  --accent:#FF80BF;--accent2:#F090B0;--accent-glow:rgba(255,128,191,.34);
+  --bar-bg:rgba(255,128,191,.09);--hover:rgba(255,128,191,.11);
+  --menu-bg:#26121d;--danger:#ff5570;
+}
+:root[data-theme="midnight"]{--on-accent:#0B0D14;
+  --bg:#070a18;--bg2:#0b1024;--surface:#101630;--surface2:#151c3c;
+  --border:rgba(120,144,255,.14);--text:#e6e9ff;--text-muted:#7482b8;
+  --accent:#7890FF;--accent2:#5877D2;--accent-glow:rgba(120,144,255,.34);
+  --bar-bg:rgba(120,144,255,.08);--hover:rgba(120,144,255,.10);
+  --menu-bg:#0b1024;--danger:#ff5f6d;
+}
+:root[data-theme="cyberpunk"]{--on-accent:#0B0D14;
+  --bg:#0c0010;--bg2:#150018;--surface:#1d0322;--surface2:#26062c;
+  --border:rgba(0,255,255,.18);--text:#ffe6f6;--text-muted:#b060a0;
+  --accent:#00FFFF;--accent2:#FF2080;--accent-glow:rgba(0,255,255,.38);
+  --bar-bg:rgba(255,32,128,.12);--hover:rgba(0,255,255,.10);
+  --menu-bg:#15001a;--danger:#ff2080;
+}
+:root[data-theme="forest"]{--on-accent:#0B0D14;
+  --bg:#080f08;--bg2:#0d180d;--surface:#122012;--surface2:#182a18;
+  --border:rgba(152,216,90,.15);--text:#e8f6e2;--text-muted:#77926b;
+  --accent:#98D85A;--accent2:#40B860;--accent-glow:rgba(152,216,90,.32);
+  --bar-bg:rgba(152,216,90,.08);--hover:rgba(152,216,90,.10);
+  --menu-bg:#0d180d;--danger:#ff6363;
+}
+:root[data-theme="lavender"]{--on-accent:#0B0D14;
+  --bg:#100a1c;--bg2:#180f28;--surface:#1f1533;--surface2:#271b40;
+  --border:rgba(160,128,224,.17);--text:#f2eaff;--text-muted:#8f7cb0;
+  --accent:#A080E0;--accent2:#FF80BF;--accent-glow:rgba(160,128,224,.34);
+  --bar-bg:rgba(160,128,224,.09);--hover:rgba(160,128,224,.11);
+  --menu-bg:#180f28;--danger:#ff5f80;
+}
+:root[data-theme="golden"]{--on-accent:#0B0D14;
+  --bg:#14100a;--bg2:#1d1710;--surface:#261e14;--surface2:#30261a;
+  --border:rgba(240,160,48,.17);--text:#fdf2dc;--text-muted:#a68e63;
+  --accent:#F0A030;--accent2:#D0A030;--accent-glow:rgba(240,160,48,.32);
+  --bar-bg:rgba(240,160,48,.09);--hover:rgba(240,160,48,.11);
+  --menu-bg:#1d1710;--danger:#ff5f45;
+}
+
+/* Titlebar accents, matching the treatment dracula/northern already had */
+[data-theme="ocean"]     .titlebar{background:linear-gradient(90deg,#04121c,#082334);border-bottom-color:rgba(0,212,255,.20);}
+[data-theme="sunset"]    .titlebar{background:linear-gradient(90deg,#1a0c08,#2c1409);border-bottom-color:rgba(255,179,71,.22);}
+[data-theme="sakura"]    .titlebar{background:linear-gradient(90deg,#1c0d15,#2c1522);border-bottom-color:rgba(255,128,191,.22);}
+[data-theme="midnight"]  .titlebar{background:linear-gradient(90deg,#070a18,#0d1330);border-bottom-color:rgba(120,144,255,.20);}
+[data-theme="cyberpunk"] .titlebar{background:linear-gradient(90deg,#0c0010,#1a0020);border-bottom-color:rgba(0,255,255,.28);}
+[data-theme="forest"]    .titlebar{background:linear-gradient(90deg,#080f08,#101d10);border-bottom-color:rgba(152,216,90,.22);}
+[data-theme="lavender"]  .titlebar{background:linear-gradient(90deg,#100a1c,#1b1130);border-bottom-color:rgba(160,128,224,.22);}
+[data-theme="golden"]    .titlebar{background:linear-gradient(90deg,#14100a,#211a11);border-bottom-color:rgba(240,160,48,.24);}
+
+/* Cyberpunk earns a scanline — it's the one theme where it fits */
+[data-theme="cyberpunk"] #welcome-screen::after{
+  content:'';position:absolute;inset:0;pointer-events:none;z-index:2;opacity:.35;
+  background:repeating-linear-gradient(to bottom,transparent 0 2px,rgba(0,255,255,.05) 2px 3px);
+}
+
+/* ═══ CONTEXT MENU ════════════════════════════════════════════════ */
+
+.ctx-panel{ overflow-y:auto; }
+.ctx-track-list{ display:flex; flex-direction:column; gap:2px; margin:2px 0 4px; }
+.ctx-track-item{ white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.ctx-track-item.active::before{ content:'\2713'; font-size:10px; opacity:.9; }
+.ctx-slider-row{
+  display:flex; align-items:center; gap:6px; padding:5px 10px 7px;
+  font-size:11.5px; color:var(--text-muted);
+}
+.ctx-slider-label{ flex:1; }
+.ctx-slider-val{
+  min-width:52px; text-align:center; font-variant-numeric:tabular-nums;
+  color:var(--text); font-size:11.5px;
+}
+.ctx-mini-btn{
+  width:22px; height:22px; border-radius:6px; flex-shrink:0;
+  display:flex; align-items:center; justify-content:center;
+  background:var(--bar-bg); border:1px solid var(--border);
+  color:var(--text-muted); font-size:12px; cursor:pointer; transition:.12s;
+}
+.ctx-mini-btn:hover{ background:var(--accent); border-color:var(--accent); color:var(--on-accent); }
+.ctx-section.hidden{ display:none; }
+
+/* ═══ LITE MODE ═══════════════════════════════════════════════════ */
+/* .lite-mode was set on <html> but had no rules anywhere, so enabling it
+   changed nothing. These are the actual per-frame costs worth dropping on
+   a ~4GB / integrated-graphics machine. */
+
+/* .fox-stage::after is deliberately NOT hidden here — the lite flat-fox
+   silhouette further down reuses it. Only the blurred halo goes. */
+.lite-mode .theme-fx-canvas,
+.lite-mode .aurora-canvas,
+.lite-mode .np-glow,
+.lite-mode .fox-stage::before,
+.lite-mode [data-theme="cyberpunk"] #welcome-screen::after { display:none !important; }
+
+.lite-mode *,
+.lite-mode *::before,
+.lite-mode *::after {
+  backdrop-filter:none !important;
+  -webkit-backdrop-filter:none !important;
+  box-shadow:none !important;
+  text-shadow:none !important;
+}
+.lite-mode .welcome-title{
+  animation:none !important; background:none !important;
+  -webkit-text-fill-color:var(--text) !important; color:var(--text);
+}
+.lite-mode .btn-open::after{ display:none; }
+.lite-mode .dashboard-view,
+.lite-mode #welcome-screen,
+.lite-mode #player-view{ animation:none !important; }
+.lite-mode #welcome-screen{ background:var(--bg) !important; }
+.lite-mode .g-card:hover{ transform:none; }
+.lite-mode .g-card:hover img{ transform:none; }
+.lite-mode .track-row:hover{ transform:none; }
+.lite-mode .recent-item:hover{ transform:none; }
+/* Glass costs a full-window blur every frame — not affordable here. */
+.lite-mode[data-theme="glass"]{ --bg:#0a0c1a; --surface:#141830; --surface2:#1a1f3c; }
+
+/* Lives inline in the titlebar's .tb-right, next to the window buttons.
+   It had no CSS at all, so even when unhidden it rendered as bare text. */
+.lite-badge{
+  display:inline-flex; align-items:center; align-self:center;
+  height:16px; margin-right:8px;
+  font-size:9px; font-weight:800; letter-spacing:.12em;
+  padding:0 6px; border-radius:4px; -webkit-app-region:no-drag;
+  background:color-mix(in srgb, var(--accent) 16%, transparent);
+  border:1px solid color-mix(in srgb, var(--accent) 34%, transparent);
+  color:var(--accent);
+}
+.lite-badge.hidden{ display:none; }
+
+/* ═══ LITE FLOW ═══════════════════════════════════════════════════
+   Lite mode deletes the fox, theme-fx, aurora and visualiser canvases
+   outright (app.js removes the elements), which left the welcome screen
+   completely flat. This gives it motion back for zero GPU cost: three
+   composited gradient layers on long, offset cycles. No canvas, no
+   per-frame JS, no blur — just transform/opacity, which the compositor
+   handles without repainting.                                        */
+
+.lite-mode #welcome-screen{ position:fixed; overflow:hidden; }
+.lite-mode #welcome-screen::before,
+.lite-mode #welcome-screen::after{
+  content:''; position:absolute; z-index:0; pointer-events:none;
+  width:120vmax; height:120vmax; border-radius:50%;
+  will-change:transform;
+}
+.lite-mode #welcome-screen::before{
+  left:-35vmax; top:-55vmax;
+  background:radial-gradient(circle at center,
+    color-mix(in srgb, var(--accent) 22%, transparent) 0%,
+    color-mix(in srgb, var(--accent) 6%, transparent) 38%, transparent 66%);
+  animation:lite-flow-a 34s ease-in-out infinite;
+}
+.lite-mode #welcome-screen::after{
+  right:-45vmax; bottom:-60vmax;
+  background:radial-gradient(circle at center,
+    color-mix(in srgb, var(--accent2) 20%, transparent) 0%,
+    color-mix(in srgb, var(--accent2) 5%, transparent) 40%, transparent 68%);
+  animation:lite-flow-b 47s ease-in-out infinite;
+}
+.lite-mode .welcome-center{ position:relative; z-index:1; }
+
+@keyframes lite-flow-a{
+  0%,100%{ transform:translate3d(0,0,0)          scale(1);    opacity:.85 }
+  33%    { transform:translate3d(14vw,7vh,0)     scale(1.16); opacity:1   }
+  66%    { transform:translate3d(5vw,-9vh,0)     scale(.92);  opacity:.7  }
+}
+@keyframes lite-flow-b{
+  0%,100%{ transform:translate3d(0,0,0)          scale(1.05); opacity:.7  }
+  40%    { transform:translate3d(-13vw,-8vh,0)   scale(.88);  opacity:.95 }
+  75%    { transform:translate3d(-4vw,10vh,0)    scale(1.2);  opacity:.8  }
+}
+
+/* Lite still gets a mascot — a flat SVG-style fox drawn in CSS costs one
+   composited layer instead of a WebGL context and a render loop. */
+.lite-mode .fox-stage{
+  display:flex; align-items:center; justify-content:center;
+  position:relative; z-index:1;
+}
+.lite-mode .fox-stage::after{
+  /* enhance.css styles this same pseudo-element as the 3D fox's contact
+     shadow (absolute, blurred, 46%x16px, border-radius 50%). Reset all of
+     that so it can be a flex-centred silhouette instead. */
+  content:''; position:relative; left:auto; bottom:auto;
+  filter:none; border-radius:0; transform:none; display:block; width:120px; height:120px;
+  background:var(--accent); opacity:.9;
+  animation:lite-fox-breathe 5s ease-in-out infinite;
+  /* Angular fox head: ears, cheeks, muzzle — same silhouette as the 3D one */
+  clip-path:polygon(
+    18% 6%, 34% 30%, 66% 30%, 82% 6%,
+    88% 46%, 74% 68%, 56% 84%, 50% 96%,
+    44% 84%, 26% 68%, 12% 46%
+  );
+}
+@keyframes lite-fox-breathe{
+  0%,100%{ transform:translateY(0)     scale(1)    }
+  50%    { transform:translateY(-5px)  scale(1.03) }
+}
+/* prefers-reduced-motion is already handled globally in enhance.css */
+
+/* Snow (v3.21.0): icy blues over a deep night. Falling snow in the effects
+   layer, and the fox wears a Santa hat. */
+:root[data-theme="snow"]{--on-accent:#06121F;
+  --bg:#0b1522;--bg2:#0f1c2d;--surface:#132438;--surface2:#182c45;
+  --border:rgba(190,225,255,.16);--text:#eef6ff;--text-muted:#9fbad4;
+  --accent:#8fd0ff;--accent2:#cfe9ff;--accent-glow:rgba(143,208,255,.34);
+  --bar-bg:rgba(190,225,255,.09);--hover:rgba(190,225,255,.11);
+  --menu-bg:#0f1c2d;--danger:#ff6b6b;
+}
+[data-theme="snow"]      .titlebar{background:linear-gradient(90deg,#0a1420,#12233a);border-bottom-color:rgba(190,225,255,.20);}

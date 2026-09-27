@@ -1,0 +1,63 @@
+/**
+ * Lavender Theme — BM Player Plugin
+ * 
+ * Soft lavender and pink with ethereal dreamy aesthetics
+ * Features: Soft glows, pastel gradients, gentle animations
+ */
+:root[data-theme="lavender"] {
+  --bg:          #110b18;
+  --bg2:         #181028;
+  --surface:     #201835;
+  --surface2:    #2a2045;
+  --border:      rgba(180, 140, 255, .16);
+  --text:        #ede8ff;
+  --text-muted:  #9080bb;
+  --accent:      #b48cff;
+  --accent2:     #ff80bf;
+  --accent-glow: rgba(180, 140, 255, .4);
+  --bar-bg:      rgba(180, 140, 255, .09);
+  --hover:       rgba(180, 140, 255, .13);
+  --menu-bg:     #15102a;
+  --danger:      #ff6688;
+}
+
+/* Lavender-specific enhancements */
+[data-theme="lavender"] .titlebar {
+  background: linear-gradient(90deg, 
+    rgba(180, 140, 255, .12) 0%, 
+    transparent 50%, 
+    rgba(255, 128, 191, .08) 100%
+  );
+  border-bottom-color: rgba(180, 140, 255, .28);
+}
+
+[data-theme="lavender"] .sidebar {
+  border-right: 1px solid rgba(180, 140, 255, .22);
+  box-shadow: 2px 0 18px rgba(180, 140, 255, .12);
+}
+
+[data-theme="lavender"] .btn-primary {
+  background: linear-gradient(135deg, #9b6dff, #b48cff, #ff80bf);
+  box-shadow: 0 4px 22px rgba(180, 140, 255, .4);
+}
+
+[data-theme="lavender"] .seek-fill {
+  background: linear-gradient(90deg, #9b6dff, #b48cff, #ffa0d0);
+  box-shadow: 0 0 14px rgba(180, 140, 255, .55);
+}
+
+[data-theme="lavender"] .welcome-screen::before {
+  background: 
+    radial-gradient(circle at 50% 50%, rgba(180, 140, 255, .15) 0%, transparent 60%),
+    radial-gradient(circle at 80% 20%, rgba(255, 128, 191, .1) 0%, transparent 50%);
+}
+
+/* Dreamy soft animations */
+[data-theme="lavender"] .fox-container {
+  animation: float 5s ease-in-out infinite;
+}
+
+[data-theme="lavender"] .ctrl-btn.play-btn {
+  background: linear-gradient(135deg, #b48cff, #ff80bf);
+  box-shadow: 0 0 30px rgba(180, 140, 255, .5);
+}

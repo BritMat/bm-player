@@ -1,0 +1,60 @@
+/**
+ * Midnight Theme — BM Player Plugin
+ * 
+ * Deep midnight blue with starlight accents
+ * Features: Star-like sparkles, deep space gradients, cosmic glow
+ */
+:root[data-theme="midnight"] {
+  --bg:          #0c0a18;
+  --bg2:         #12102a;
+  --surface:     #1a1838;
+  --surface2:    #222048;
+  --border:      rgba(100, 120, 200, .14);
+  --text:        #e0e0ff;
+  --text-muted:  #7078a8;
+  --accent:      #4a5fcf;
+  --accent2:     #7890ff;
+  --accent-glow: rgba(74, 95, 207, .36);
+  --bar-bg:      rgba(74, 95, 207, .08);
+  --hover:       rgba(74, 95, 207, .12);
+  --menu-bg:     #100e24;
+  --danger:      #ff5577;
+}
+
+/* Midnight-specific enhancements */
+[data-theme="midnight"] .titlebar {
+  background: linear-gradient(180deg, 
+    rgba(120, 144, 255, .06) 0%, 
+    var(--bg) 100%
+  );
+  border-bottom-color: rgba(100, 120, 200, .25);
+}
+
+[data-theme="midnight"] .sidebar {
+  border-right: 1px solid rgba(100, 120, 200, .2);
+  box-shadow: 2px 0 16px rgba(74, 95, 207, .12);
+}
+
+[data-theme="midnight"] .btn-primary {
+  background: linear-gradient(135deg, #3030a0, #4a5fcf, #7890ff);
+  box-shadow: 0 4px 20px rgba(74, 95, 207, .38);
+}
+
+[data-theme="midnight"] .seek-fill {
+  background: linear-gradient(90deg, #3030a0, #4a5fcf, #7890ff, #98a8ff);
+  box-shadow: 0 0 12px rgba(74, 95, 207, .5);
+}
+
+[data-theme="midnight"] .welcome-screen::before {
+  background: 
+    radial-gradient(circle at 50% 50%, rgba(120, 144, 255, .1) 0%, transparent 60%),
+    radial-gradient(circle at 85% 15%, rgba(152, 168, 255, .07) 0%, transparent 40%);
+}
+
+/* Star-like sparkle effect */
+[data-theme="midnight"] .fox-container::after {
+  border-top-color: var(--accent);
+  border-bottom-color: var(--accent2);
+  animation: rotate 15s linear infinite;
+  opacity: .4;
+}

@@ -1,0 +1,70 @@
+/**
+ * Golden Theme — BM Player Plugin
+ * 
+ * Rich golden and amber tones with warm luxury feel
+ * Features: Gold gradients, warm highlights, elegant shadows
+ */
+:root[data-theme="golden"] {
+  --bg:          #12100a;
+  --bg2:         #1c1810;
+  --surface:     #262218;
+  --surface2:    #302c20;
+  --border:      rgba(220, 180, 80, .16);
+  --text:        #f8f0e0;
+  --text-muted:  #998860;
+  --accent:      #dcb450;
+  --accent2:     #f0a030;
+  --accent-glow: rgba(220, 180, 80, .38);
+  --bar-bg:      rgba(220, 180, 80, .09);
+  --hover:       rgba(220, 180, 80, .13);
+  --menu-bg:     #18140e;
+  --danger:      #ee6644;
+}
+
+/* Golden-specific enhancements */
+[data-theme="golden"] .titlebar {
+  background: linear-gradient(180deg, 
+    rgba(220, 180, 80, .1) 0%, 
+    var(--bg) 100%
+  );
+  border-bottom-color: rgba(220, 180, 80, .3);
+}
+
+[data-theme="golden"] .tb-logo {
+  background: linear-gradient(135deg, #dcb450, #f0a030, #ffd700);
+  animation: shimmer 3s linear infinite;
+  background-size: 200% auto;
+}
+
+[data-theme="golden"] .sidebar {
+  border-right: 1px solid rgba(220, 180, 80, .24);
+  box-shadow: 2px 0 18px rgba(220, 180, 80, .14);
+}
+
+[data-theme="golden"] .btn-primary {
+  background: linear-gradient(135deg, #b8860b, #dcb450, #f0a030);
+  box-shadow: 0 4px 20px rgba(220, 180, 80, .42);
+}
+
+[data-theme="golden"] .seek-fill {
+  background: linear-gradient(90deg, #b8860b, #dcb450, #f0a030, #ffd700);
+  box-shadow: 0 0 14px rgba(220, 180, 80, .58);
+}
+
+[data-theme="golden"] .welcome-screen::before {
+  background: 
+    radial-gradient(circle at 50% 50%, rgba(220, 180, 80, .12) 0%, transparent 55%),
+    radial-gradient(circle at 20% 80%, rgba(240, 160, 48, .08) 0%, transparent 45%);
+}
+
+/* Gold shimmer effect on active elements */
+[data-theme="golden"] .sidebar-btn.active {
+  box-shadow: 
+    0 0 20px rgba(220, 180, 80, .4),
+    inset 0 0 15px rgba(220, 180, 80, .12);
+}
+
+[data-theme="golden"] .ctrl-btn.play-btn {
+  background: linear-gradient(135deg, #dcb450, #f0a030, #ffd700);
+  box-shadow: 0 0 30px rgba(220, 180, 80, .55);
+}

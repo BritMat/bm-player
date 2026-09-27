@@ -1,0 +1,30 @@
+/*
+ * A BM Player theme is a set of colour tokens under your theme key.
+ * "themeKey" in plugin.json must match the data-theme value below.
+ * Every part of the player (titlebar, panels, seek bar, buttons, menus)
+ * reads these same tokens, so setting them is all a theme needs.
+ *
+ * Keep text readable: --text on --bg, --text-muted on --bg and --surface,
+ * and --on-accent on --accent should each have a contrast ratio of at least
+ * 4.5 to 1. The built-in themes are all checked for this.
+ *
+ * url() and @import are removed when the theme loads, so use colours and
+ * gradients only (data: URLs still work).
+ */
+:root[data-theme="my-theme"] {
+  --bg:          #0f1a16;   /* the window background */
+  --bg2:         #13211b;   /* titlebar and side panels */
+  --surface:     #182a22;   /* cards, lists, inputs */
+  --surface2:    #1e3329;   /* raised surfaces, hover rows */
+  --border:      rgba(120, 220, 170, .16);
+  --text:        #e6f7ee;   /* main text */
+  --text-muted:  #9cc4b0;   /* secondary text */
+  --accent:      #3ddc97;   /* buttons, progress, highlights */
+  --accent2:     #7fe7c4;   /* the second colour in accent gradients */
+  --on-accent:   #06140e;   /* text drawn on top of --accent */
+  --accent-glow: rgba(61, 220, 151, .35);
+  --bar-bg:      rgba(120, 220, 170, .09);   /* seek bar track */
+  --hover:       rgba(120, 220, 170, .12);
+  --menu-bg:     #13211b;
+  --danger:      #ff6b6b;
+}

@@ -1,0 +1,122 @@
+# ─────────────────────────────────────────────────────────────────────
+# BM Player Lite — v1.9.0
+# ─────────────────────────────────────────────────────────────────────
+# Separate installer product ("BM Player Lite") that:
+#   - has a different appId so it can be installed ALONGSIDE the full
+#     version (for users who want both, or for side-by-side testing)
+#   - includes the lite.flag file in buildResources so main.js auto-
+#     detects "this is a Lite build" at boot and forces lite mode
+#   - excludes heavy assets that aren't used in lite mode:
+#       * plugins/ folder (lite mode disables plugin loading anyway
+#         since plugins run in the same renderer context and could
+#         re-introduce GPU-heavy rendering that defeats the purpose)
+#       * scripts/generate-icon.js dev tooling
+#       * assets/icon-source.png (the 200KB source PSD, only needed at
+#         build time, never at runtime)
+#   - ships 32-bit (ia32) Windows builds for older hardware that can't
+#     even run 64-bit Electron
+#
+# CI workflow uses this config when triggered by a `vX.Y.Z-lite` tag.
+# ─────────────────────────────────────────────────────────────────────
+
+appId: "com.bmplayer.lite"
+productName: "BM Player Lite"
+copyright: "Copyright © 2026 BM Player"
+
+directories:
+  output: "dist-lite"
+  buildResources: "buildResources"
+
+files:
+  - "main.js"
+  - "preload.js"
+  - "src/**/*"
+  - "node_modules/**/*"
+  - "!node_modules/*/{CHANGELOG.md,README.md,readme.md}"
+  - "!node_modules/**/*.d.ts"
+  - "!node_modules/.bin"
+  - "!dist"
+  - "!dist-lite"
+  # Exclude heavy dev assets not needed at runtime in lite mode
+  - "!assets/**"
+  - "!scripts/**"
+  - "!plugins/**"
+  - "!electron-builder.yml"
+  - "!electron-builder.lite.yml"
+
+extraResources:
+  - from: "vendor/mpv"
+    to: "mpv"
+    filter: ["**/*", "!*.md", "!.keep"]
+  # The lite.flag file is the build-time marker that main.js looks for
+  # to flip into Lite window setup (single opaque window, no bgWin).
+  - from: "buildResources/lite.flag"
+    to: "lite.flag"
+
+fileAssociations:
+  - ext: ["mp4", "m4v", "mkv", "avi", "mov", "wmv", "flv", "webm", "ts",
+          "m2ts", "mpg", "mpeg", "ogv", "3gp", "vob"]
+    name: "Video File"
+    description: "Video file (BM Player Lite)"
+    role: "Viewer"
+    icon: "buildResources/icon.png"
+  - ext: ["mp3", "flac", "aac", "ogg", "wav", "m4a", "wma", "opus", "ape", "mka"]
+    name: "Audio File"
+    description: "Audio file (BM Player Lite)"
+    role: "Viewer"
+    icon: "buildResources/icon.png"
+
+# ── Windows ─────────────────────────────────────────────────────────
+win:
+  icon: "buildResources/icon.png"
+  target:
+    - target: "nsis"
+      arch: ["ia32", "x64"]     # explicit 32-bit + 64-bit for older hardware
+  artifactName: "BM-Player-Lite-Setup-${version}-${arch}.exe"
+  requestedExecutionLevel: "asInvoker"
+
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  shortcutName: "BM Player Lite"
+  installerIcon: "buildResources/icon.png"
+  uninstallerIcon: "buildResources/icon.png"
+  installerHeaderIcon: "buildResources/icon.png"
+  deleteAppDataOnUninstall: false
+  # Use the Lite-specific .nsh so file associations register under
+  # "BM Player Lite" (not "BM Player") — lets both installers coexist
+  # on the same machine without stomping each other's registry entries.
+  include: "buildResources/installer.lite.nsh"
+
+# ── macOS ────────────────────────────────────────────────────────────
+mac:
+  icon: "buildResources/icon.png"
+  category: "public.app-category.video"
+  target:
+    - target: "dmg"
+      arch: ["x64"]            # arm64 machines are all capable-enough
+    - target: "zip"
+      arch: ["x64"]
+  artifactName: "BM-Player-Lite-${version}-${arch}.${ext}"
+  hardenedRuntime: true
+  gatekeeperAssess: false
+
+dmg:
+  title: "BM Player Lite ${version}"
+
+# ── Linux ────────────────────────────────────────────────────────────
+linux:
+  icon: "buildResources/icon.png"
+  category: "AudioVideo"
+  target:
+    - target: "AppImage"
+      arch: ["x64"]
+    - target: "deb"
+      arch: ["x64", "ia32"]    # ia32 deb for older 32-bit Linux distros
+  artifactName: "BM-Player-Lite-${version}-${arch}.${ext}"
+
+deb:
+  depends: ["mpv"]

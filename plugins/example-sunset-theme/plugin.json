@@ -1,0 +1,9 @@
+{
+  "name": "Sunset Theme",
+  "version": "1.0.0",
+  "type": "theme",
+  "description": "Example theme plugin — warm sunset palette. Use this as a template for building your own theme plugins (CSS-only, no JS required).",
+  "css": "theme.css",
+  "themeKey": "sunset",
+  "icon": "🌇"
+}

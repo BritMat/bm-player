@@ -1,0 +1,97 @@
+/**
+ * Cyberpunk Theme — BM Player Plugin
+ * 
+ * Neon-drenched cyberpunk aesthetic with hot pink (#ff0080) and cyan (#00ffff)
+ * Features: Glowing borders, scanline effects, neon text shadows
+ */
+:root[data-theme="cyberpunk"] {
+  --bg:          #0a0a12;
+  --bg2:         #12101e;
+  --surface:     #1a1628;
+  --surface2:    #221c38;
+  --border:      rgba(255, 0, 128, .18);
+  --text:        #e8e0ff;
+  --text-muted:  #8878aa;
+  --accent:      #ff0080;
+  --accent2:     #00ffff;
+  --accent-glow: rgba(255, 0, 128, .45);
+  --bar-bg:      rgba(255, 0, 128, .1);
+  --hover:       rgba(255, 0, 128, .15);
+  --menu-bg:     #141020;
+  --danger:      #ff3366;
+}
+
+/* Cyberpunk-specific enhancements */
+[data-theme="cyberpunk"] .titlebar {
+  background: linear-gradient(90deg, 
+    rgba(255, 0, 128, .15) 0%, 
+    transparent 50%, 
+    rgba(0, 255, 255, .1) 100%
+  );
+  border-bottom-color: rgba(255, 0, 128, .3);
+}
+
+[data-theme="cyberpunk"] .tb-title {
+  text-shadow: 0 0 10px rgba(255, 0, 128, .5), 0 0 20px rgba(0, 255, 255, .3);
+  animation: cyber-glow 2s ease-in-out infinite alternate;
+}
+
+@keyframes cyber-glow {
+  from { filter: drop-shadow(0 0 5px rgba(255, 0, 128, .5)); }
+  to   { filter: drop-shadow(0 0 15px rgba(0, 255, 255, .5)); }
+}
+
+[data-theme="cyberpunk"] .sidebar {
+  border-right: 1px solid rgba(255, 0, 128, .25);
+  box-shadow: 2px 0 20px rgba(255, 0, 128, .15);
+}
+
+[data-theme="cyberpunk"] .sidebar-btn.active {
+  box-shadow: 
+    0 0 20px rgba(255, 0, 128, .4),
+    inset 0 0 20px rgba(255, 0, 128, .15),
+    0 0 40px rgba(0, 255, 255, .2);
+}
+
+[data-theme="cyberpunk"] .btn-primary {
+  background: linear-gradient(135deg, #ff0080, #ff00aa, #00ffff);
+  background-size: 200% 200%;
+  animation: gradientShift 3s ease infinite;
+  box-shadow: 
+    0 0 20px rgba(255, 0, 128, .5),
+    0 0 40px rgba(0, 255, 255, .3);
+}
+
+[data-theme="cyberpunk"] .seek-fill {
+  background: linear-gradient(90deg, #ff0080, #ff00cc, #00ffff);
+  box-shadow: 0 0 15px rgba(255, 0, 128, .6), 0 0 30px rgba(0, 255, 255, .3);
+}
+
+[data-theme="cyberpunk"] .ctrl-btn.play-btn {
+  background: linear-gradient(135deg, #ff0080, #00ffff);
+  box-shadow: 
+    0 0 25px rgba(255, 0, 128, .6),
+    0 0 50px rgba(0, 255, 255, .3);
+  animation: pulse-glow 2s ease-in-out infinite;
+}
+
+@keyframes pulse-glow {
+  0%, 100% { box-shadow: 0 0 25px rgba(255, 0, 128, .6), 0 0 50px rgba(0, 255, 255, .3); }
+  50%      { box-shadow: 0 0 35px rgba(255, 0, 128, .8), 0 0 70px rgba(0, 255, 255, .5); }
+}
+
+/* Scanline overlay effect */
+[data-theme="cyberpunk"] .main::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: repeating-linear-gradient(
+    0deg,
+    transparent,
+    transparent 2px,
+    rgba(0, 255, 255, .02) 2px,
+    rgba(0, 255, 255, .02) 4px
+  );
+  pointer-events: none;
+  z-index: 9999;
+}

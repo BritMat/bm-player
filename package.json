@@ -1,15 +1,39 @@
 {
   "name": "bm-player",
   "productName": "BM Player",
-  "version": "1.4.3",
-  "description": "A professional media player powered by mpv",
+  "version": "3.22.0",
+  "description": "A professional media player powered by mpv \u2014 TV/IPTV, gallery, music library with tag reading, and a PDF suite",
   "main": "main.js",
   "scripts": {
-    "start": "electron .",
-    "dev": "NODE_ENV=development electron .",
-    "build:win64": "npm run gen-icon && electron-builder --win --x64",
-    "build:win32": "npm run gen-icon && electron-builder --win --ia32",
-    "gen-icon": "node scripts/generate-icon.js"
+    "start": "electron . --no-sandbox",
+    "dev": "electron . --no-sandbox",
+    "start:lite": "electron . --no-sandbox --lite",
+    "start:safe": "electron . --disable-gpu --no-sandbox --disable-software-rasterizer",
+    "build:win64": "npm test && npm run gen-icon && electron-builder --win --x64",
+    "build:win32": "npm test && npm run gen-icon && electron-builder --win --ia32",
+    "build:mac": "npm test && npm run gen-icon && electron-builder --mac",
+    "build:linux": "npm test && npm run gen-icon && electron-builder --linux",
+    "build:lite-win64": "npm test && npm run gen-icon && electron-builder --config electron-builder.lite.yml --win --x64",
+    "build:lite-win32": "npm test && npm run gen-icon && electron-builder --config electron-builder.lite.yml --win --ia32",
+    "build:lite-mac": "npm test && npm run gen-icon && electron-builder --config electron-builder.lite.yml --mac",
+    "build:lite-linux": "npm test && npm run gen-icon && electron-builder --config electron-builder.lite.yml --linux",
+    "gen-icon": "node scripts/generate-icon.js",
+    "lint:syntax": "node scripts/check-syntax.js",
+    "lint:contracts": "node scripts/check-contracts.js",
+    "test:smoke": "node scripts/smoke-renderer.mjs",
+    "test": "npm run lint:syntax && npm run lint:contracts && npm run lint:electron && npm run lint:powershell && npm run test:plugins && npm run test:main && npm run test:modules && npm run test:smoke && npm run test:mpv",
+    "pretest": "echo \"BM Player verification pipeline\"",
+    "test:main": "node scripts/smoke-main.cjs && node scripts/smoke-main.cjs --compat-run && node scripts/smoke-main.cjs --lite-run",
+    "lint:electron": "node scripts/check-electron-api.js",
+    "diag:sample": "node scripts/print-diag-sample.mjs",
+    "test:modules": "node scripts/smoke-modules.mjs",
+    "start:compat": "electron . --no-sandbox --compat",
+    "test:mpv": "node scripts/integration-mpv.cjs",
+    "test:e2e": "node scripts/e2e.mjs --part=a && node scripts/e2e.mjs --part=b && node scripts/e2e.mjs --part=c",
+    "check:field": "node scripts/field-check.mjs",
+    "build:check-bat": "node scripts/build-check-bat.mjs",
+    "lint:powershell": "node scripts/check-powershell.mjs",
+    "test:plugins": "node scripts/smoke-plugins.cjs"
   },
   "author": "BM Player",
   "license": "MIT",
@@ -18,13 +42,17 @@
     "url": "https://github.com/BritMat/bm-player.git"
   },
   "dependencies": {
-    "adm-zip": "^0.5.10",
     "electron-updater": "^6.1.7",
-    "jimp": "^1.6.1",
-    "three": "^0.160.0"
+    "music-metadata": "^7.14.0"
   },
   "devDependencies": {
-    "electron": "^28.2.0",
-    "electron-builder": "^24.9.1"
+    "electron": "^44.3.0",
+    "electron-builder": "^26.0.12",
+    "jimp": "^1.6.0",
+    "jsdom": "^24.1.3",
+    "playwright-core": "^1.63.0"
+  },
+  "engines": {
+    "node": ">=22.12.0"
   }
 }

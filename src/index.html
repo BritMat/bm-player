@@ -2,9 +2,481 @@
 <html lang="en" data-theme="dark">
 <head>
   <meta charset="UTF-8">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self' 'unsafe-inline' 'unsafe-eval' file: https://cdnjs.cloudflare.com https://cdn.jsdelivr.net blob: data:; img-src * file: blob: data:;">
+  <!-- Remote script/style/font origins removed: everything is vendored under
+       src/vendor now, so the page has no reason to fetch executable code off
+       the network. Narrowing script-src is the point of the change. -->
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self' 'unsafe-inline' bmfile: blob: data:; script-src 'self' 'unsafe-inline' bmfile:; style-src 'self' 'unsafe-inline'; img-src 'self' bmfile: file: blob: data: https:; media-src 'self' bmfile: file: blob: data:; connect-src 'self' bmfile: file: http: https: ws: wss:; font-src 'self' data:;">
   <title>BM Player</title>
+  <!-- Load external CSS FIRST so inline styles override it -->
+  <script>
+    // Runs before first paint. app.js reads window.__BM_LITE__ for its fast
+    // path; the async perfInfo() call later confirms or corrects it.
+    (function(){
+      var q;
+      try { q = new URLSearchParams(location.search); } catch(_) { q = { get: function(){ return null; } }; }
+
+      // Flags first, in their own block. Compatibility mode is the escape
+      // hatch for when other things are broken, so it must not sit behind
+      // anything that can throw. It used to be inside the lite-mode try
+      // below, so a localStorage failure silently turned compat mode off.
+      // Video drawn in the window behind this one: see main.js videoLayer.
+      if (q.get('vl') === 'back') document.documentElement.classList.add('bm-layered');
+      window.__BM_FLAGS__ = {
+        fileScheme:  q.get('fs') === 'file' ? 'file' : 'bmfile',
+        audioEngine: q.get('ae') !== '0',
+        gpuFluid:    q.get('gf') !== '0',
+        compat:      q.get('compat') === '1',
+      };
+
+      try{
+        // Same order as modules/lite-mode.js: the main process's flag wins,
+        // then the Preferences override ('1' lite, '0' full), and only then
+        // auto-detection.
+        var user = localStorage.getItem('bm_lite_user');
+        var lite = q.get('lite') === '1' ? true
+                 : user === '1' ? true
+                 : user === '0' ? false
+                 : !!((navigator.deviceMemory && navigator.deviceMemory <= 4)
+                   || (navigator.hardwareConcurrency && navigator.hardwareConcurrency <= 2));
+        window.__BM_LITE__ = !!lite;
+        if (lite) document.documentElement.classList.add('lite-mode');
+      }catch(_){ window.__BM_LITE__ = false; }
+    })();
+  </script>
   <link rel="stylesheet" href="css/style.css">
+  <!-- Critical inline styles - MUST override external style.css -->
+  <style>
+    /* CRITICAL: this reset used to carry !important, which beats specificity.
+       It was therefore stripping padding/margin from EVERY component in the app
+       (.dash-header, .pdf-main, .gallery-grid, .music-lib-header, .welcome-title,
+       .fox-stage, .np-* ...). That is why the dashboards looked crushed together.
+       Plain reset — component rules must be able to win. */
+    *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+
+    /* SINGLE SOURCE OF TRUTH FOR CHROME GEOMETRY.
+       The sidebar stopped at 62px while every view started at 64px (2px seam),
+       and the sidebar was 48px wide here but 52px in style.css. That mismatch
+       is the panel-switch misalignment. */
+    :root{--on-accent:#0B0D14;--titlebar-h:32px;--menubar-h:32px;--chrome-h:64px;--sidebar-w:52px;--mini-h:56px}
+    html,body{height:100%;width:100%;overflow:hidden;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;font-size:14px}
+    
+    /* ═══ TITLEBAR - 32px height ═══ */
+    .titlebar{
+      position:fixed!important;top:0!important;left:0!important;right:0!important;height:32px!important;
+      z-index:9999!important;display:flex!important;align-items:center!important;justify-content:space-between!important;
+      background:var(--bg2);border-bottom:1px solid var(--border);
+      -webkit-app-region:drag;padding:0 8px 0 12px!important;gap:12px!important;margin:0!important;
+      line-height:1!important;font-size:0!important
+    }
+    .titlebar::before,.titlebar::after{content:none!important;display:none!important}
+    .tb-left,.tb-right{display:flex!important;align-items:center!important;height:100%!important}
+    .tb-logo svg{width:16px!important;height:16px!important;opacity:0.85}
+    .tb-title{font-size:13px!important;font-weight:500;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:200px}
+    
+    /* Window Control Buttons */
+    .tb-btn{
+      width:34px!important;height:36px!important;display:flex!important;align-items:center!important;justify-content:center!important;
+      color:#9ca3af;font-size:14px;border:none!important;background:none!important;cursor:pointer;
+      border-radius:6px;-webkit-app-region:no-drag;transition:all 0.15s ease;
+      padding:0!important;margin:0!important
+    }
+    .tb-btn:hover{background:rgba(255,255,255,0.1)!important;color:var(--text)!important}
+    .tb-btn#btn-minimize:hover{background:rgba(255,255,255,0.08)!important}
+    .tb-btn#btn-maximize:hover{background:rgba(255,255,255,0.08)!important}
+    .tb-btn#btn-close:hover{background:#e81123!important;color:white!important}
+    .tb-btn svg{width:14px!important;height:14px!important;flex-shrink:0}
+    
+    /* ═══ MENU TOOLBAR - Fixed position right after titlebar (32px) ═══ */
+    .menu-toolbar{
+      position:fixed!important;top:32px!important;left:48px!important;right:0!important;height:30px!important;
+      display:flex!important;align-items:center!important;background:#0f131f;
+      border-bottom:1px solid var(--border);padding:0 8px!important;
+      z-index:8900!important;-webkit-app-region:no-drag;gap:1px;margin:0!important;box-sizing:border-box!important;
+      line-height:1!important;font-size:0!important
+    }
+    .menu-toolbar::before,.menu-toolbar::after{content:none!important;display:none!important}
+    .mi{position:relative!important;height:100%!important;display:flex!important;align-items:center!important}
+    .mi-label{
+      padding:0 10px!important;font-size:12.5px;color:#8b95a5;height:100%;
+      display:flex!important;align-items:center;border-radius:5px;cursor:pointer;
+      transition:all 0.12s ease;font-weight:500
+    }
+    .mi-label:hover{background:color-mix(in srgb, var(--accent) 12%, transparent)!important;color:var(--text)!important}
+    
+    /* Dropdown Menus */
+    .mi-drop{
+      position:absolute;top:100%;left:0;min-width:230px;
+      background:#151a28;border:1px solid var(--border);
+      border-radius:10px;padding:6px;display:none;flex-direction:column;
+      z-index:99999;box-shadow:0 16px 48px rgba(0,0,0,.6),0 0 1px rgba(255,255,255,.05)
+    }
+    .mi:hover>.mi-drop{display:flex!important}
+    .mr{
+      padding:8px 12px;font-size:12.5px;border-radius:6px;
+      display:flex;justify-content:space-between;align-items:center;
+      color:var(--text);cursor:pointer;transition:all 0.1s
+    }
+    .mr:hover{background:linear-gradient(135deg,var(--accent),#4757e3);color:var(--on-accent)}
+    .ms{border:none;border-top:1px solid var(--border);margin:4px 6px}
+    kbd{
+      background:rgba(255,255,255,0.08);padding:2px 6px;border-radius:4px;
+      font-size:10.5px;margin-left:auto;color:var(--text-muted);font-family:inherit
+    }
+    
+    /* Theme Selector Pills */
+    .theme-selector{display:flex;gap:3px;align-items:center;padding:0 6px;margin-left:6px}
+    .tp{
+      width:26px;height:26px;border-radius:7px;font-size:13px;opacity:.45;
+      cursor:pointer;display:flex;align-items:center;justify-content:center;
+      background:none;border:none;transition:all 0.15s
+    }
+    .tp:hover{opacity:.75;transform:scale(1.1)}
+    .tp.active{opacity:1;background:rgba(255,255,255,0.1)}
+    
+    /* Always-on-top toggle */
+    .tb-tool-btn{
+      width:28px;height:28px;border-radius:6px;font-size:13px;
+      color:var(--text-muted);opacity:.5;cursor:pointer;display:flex;
+      align-items:center;justify-content:center;background:none;border:none;
+      transition:all 0.15s
+    }
+    .tb-tool-btn:hover,.tb-tool-btn.active{opacity:1;color:var(--accent)}
+    
+    /* ═══ SIDEBAR - Starts after titlebar(32)+menu(30)=62px ═══ */
+    .sidebar{
+      position:fixed;left:0;top:var(--chrome-h);bottom:0;width:var(--sidebar-w);
+      background:var(--surface);border-right:1px solid var(--border);
+      z-index:8800;display:flex!important;flex-direction:column;
+      align-items:center;padding:10px 0;gap:4px;margin:0!important
+    }
+    .sidebar-btn{
+      width:40px!important;height:40px!important;border-radius:10px;border:none!important;background:none!important;
+      color:var(--text-muted);cursor:pointer;display:flex!important;align-items:center;
+      justify-content:center;font-size:18px;transition:all 0.15s ease
+    }
+    .sidebar-btn:hover{background:color-mix(in srgb, var(--accent) 12%, transparent)!important;color:var(--accent)!important;transform:scale(1.05)}
+    .sidebar-btn.active{background:color-mix(in srgb, var(--accent) 18%, transparent)!important;color:var(--accent)!important}
+    .sidebar-spacer{flex:1}
+    .sidebar-mini{font-size:11px}
+    
+    /* ═══ WELCOME SCREEN - top:64px ═══ */
+    #welcome-screen{
+      position:fixed;top:var(--chrome-h);left:var(--sidebar-w);right:0;bottom:0;
+      display:none;z-index:10;overflow:hidden;background:var(--bg)
+    }
+    #welcome-screen.active{display:flex!important}
+    #welcome-screen:not(.active){display:none!important}
+    .welcome-center{
+      position:relative;z-index:5;display:flex;width:100%;height:100%;
+      flex-direction:column;align-items:center;justify-content:center;padding:40px
+    }
+    .fox-stage{width:300px;height:300px;margin-bottom:24px;position:relative;display:block;visibility:visible!important;opacity:1!important}
+    #fox-canvas{width:300px!important;height:300px!important;border-radius:20px;display:block!important;background:transparent!important;visibility:visible!important;opacity:1!important}
+    .welcome-title{
+      font-size:52px;font-weight:800;margin-bottom:10px;
+      background:linear-gradient(135deg,var(--accent) 0%,var(--accent2) 50%,var(--accent2) 100%);
+      -webkit-background-clip:text;-webkit-text-fill-color:transparent;
+      letter-spacing:-0.5px
+    }
+    .welcome-sub{color:var(--text-muted);margin-bottom:32px;font-size:15.5px;font-weight:400}
+    .welcome-actions{display:flex;gap:14px;margin-bottom:32px}
+    .btn-open{
+      padding:14px 32px;background:linear-gradient(135deg,var(--accent),#4757e3);
+      color:var(--on-accent);border:none;border-radius:10px;font-size:14.5px;
+      font-weight:600;cursor:pointer;transition:all 0.2s;
+      box-shadow:0 4px 20px color-mix(in srgb, var(--accent) 35%, transparent)
+    }
+    .btn-open:hover{transform:translateY(-2px);box-shadow:0 6px 25px color-mix(in srgb, var(--accent) 45%, transparent)}
+    .btn-open-ghost{
+      padding:14px 32px;background:transparent;color:var(--text);
+      border:1px solid var(--border);border-radius:10px;
+      font-size:14.5px;cursor:pointer;transition:all 0.2s
+    }
+    .btn-open-ghost:hover{border-color:var(--accent);color:var(--accent);background:color-mix(in srgb, var(--accent) 5%, transparent)}
+    
+    /* Recent Files Section */
+    .welcome-recent-section{margin-top:20px;width:100%;max-width:600px;padding:0 30px}
+    .recent-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:16px}
+    .recent-header h3{font-size:16px;font-weight:600;color:var(--text)}
+    .recent-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:12px}
+    .recent-item{
+      background:rgba(255,255,255,0.03);border:1px solid var(--border);
+      border-radius:12px;padding:12px;cursor:pointer;transition:all 0.2s
+    }
+    .recent-item:hover{background:color-mix(in srgb, var(--accent) 10%, transparent);border-color:color-mix(in srgb, var(--accent) 30%, transparent)}
+    .recent-thumb{height:90px;border-radius:8px;margin-bottom:8px;display:flex;align-items:center;justify-content:center;font-size:28px}
+    .recent-name{font-size:12px;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    .recent-meta{font-size:11px;color:var(--text-muted);margin-top:2px}
+    
+    /* ═══ PLAYER VIEW - top:64px ═══ */
+    #player-view{
+      position:fixed;top:var(--chrome-h);left:var(--sidebar-w);right:0;bottom:0;
+      display:none;z-index:25;background:#000
+    }
+    #player-view.active{display:block!important}
+    body.playing #player-view{top:0!important;left:0!important}
+    
+    /* Visualizer canvas - should NOT block video */
+    .visualizer-canvas{
+      position:absolute;top:0;left:0;width:100%;height:100%;
+      pointer-events:none;z-index:5;opacity:0.6
+    }
+    
+    /* Controls bar */
+    .controls-bar{
+      position:absolute;left:0;right:0;bottom:0;
+      background:linear-gradient(to top,rgba(0,0,0,.92) 0%,rgba(0,0,0,.65) 55%,transparent 100%);
+      padding:35px 20px 14px;z-index:9999;
+      transition:transform .28s ease,opacity .28s ease
+    }
+    
+    /* ═══ DASHBOARD VIEWS - top:64px ═══ */
+    .dashboard-view{
+      position:fixed;top:var(--chrome-h);left:var(--sidebar-w);right:0;bottom:0;
+      background:var(--bg);display:none;flex-direction:column;z-index:22;overflow:hidden
+    }
+    .dashboard-view.active{display:flex}
+    /* bottom:0!important used to sit on top of this, so the mini player
+       covered the bottom 56px of whatever dashboard was open. */
+    .dashboard-view.has-mini{bottom:var(--mini-h)}
+    
+    /* Dashboard Header (shared by Gallery/TV) */
+    .dash-header{
+      display:flex;align-items:center;padding:12px 16px;
+      gap:10px;border-bottom:1px solid var(--border);
+      background:var(--surface);flex-shrink:0
+    }
+    .dash-title{font-size:15px;font-weight:600;color:var(--text);margin:0}
+    .dash-action-btn{
+      padding:7px 14px;background:linear-gradient(135deg,var(--accent),#4757e3);
+      color:var(--on-accent);border:none;border-radius:6px;font-size:12px;
+      font-weight:500;cursor:pointer;transition:all 0.15s
+    }
+    .dash-action-btn:hover{transform:translateY(-1px);box-shadow:0 4px 12px color-mix(in srgb, var(--accent) 30%, transparent)}
+    .dash-count{font-size:11px;color:var(--text-muted);margin-left:auto}
+    .dash-select{
+      padding:5px 10px;background:#151a28;color:var(--text);
+      border:1px solid var(--border);border-radius:5px;font-size:12px
+    }
+    
+    /* Gallery View */
+    .gallery-toolbar{display:flex;align-items:center;gap:8px;margin-left:auto}
+    .view-mode-group{display:flex;background:#151a28;border-radius:5px;padding:2px}
+    .vm-btn{
+      padding:4px 8px;border:none;background:none;color:var(--text-muted);
+      cursor:pointer;font-size:13px;border-radius:3px
+    }
+    .vm-btn.active{background:var(--accent);color:var(--on-accent)}
+    .gallery-grid{
+      flex:1;padding:16px;overflow-y:auto;display:grid;
+      grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:12px;
+      align-content:start
+    }
+    .gallery-grid.masonry-view{grid-template-columns:repeat(auto-fill,minmax(160px,1fr))}
+    
+    /* Music View */
+    .music-layout{display:flex;height:100%;overflow:hidden}
+    .music-lib{
+      width:200px;border-right:1px solid var(--border);
+      background:var(--surface);display:flex;flex-direction:column;flex-shrink:0
+    }
+    .music-lib-header{padding:12px;border-bottom:1px solid var(--border)}
+    .music-lib-sections{flex:1;overflow-y:auto;padding:8px}
+    .music-empty-lib,.music-empty-tracks{
+      display:flex;flex-direction:column;align-items:center;
+      justify-content:center;height:100%;color:var(--text-muted);font-size:13px
+    }
+    .music-center{
+      flex:1;display:flex;flex-direction:column;overflow:hidden;
+      min-width:0
+    }
+    .music-viz-wrap{
+      height:180px;position:relative;background:var(--surface);
+      border-bottom:1px solid var(--border);flex-shrink:0
+    }
+    .music-viz-canvas{width:100%;height:100%}
+    .music-viz-overlay{
+      position:absolute;bottom:0;left:0;right:0;padding:12px 16px;
+      background:linear-gradient(transparent,rgba(0,0,0,0.8))
+    }
+    .mv-title{font-size:14px;font-weight:600;color:var(--text)}
+    .mv-artist{font-size:12px;color:#8b95a5;margin-top:2px}
+    .music-center-header{
+      display:flex;align-items:center;padding:10px 16px;
+      border-bottom:1px solid var(--border);gap:10px
+    }
+    .music-path-title{font-size:13px;font-weight:500;color:var(--text)}
+    .music-tracks{flex:1;overflow-y:auto;padding:8px}
+    .music-now-playing{
+      width:220px;border-left:1px solid var(--border);
+      background:var(--surface);display:flex;flex-direction:column;padding:12px;
+      gap:10px;flex-shrink:0;overflow-y:auto
+    }
+    .np-art-wrap{position:relative;text-align:center}
+    .np-art{
+      width:140px;height:140px;margin:0 auto;border-radius:12px;
+      background:#151a28;display:flex;align-items:center;
+      justify-content:center;font-size:40px;color:var(--accent)
+    }
+    .np-meta{text-align:center}
+    .np-title{font-size:14px;font-weight:600;color:var(--text)}
+    .np-artist{font-size:12px;color:#8b95a5}
+    .np-format{font-size:10px;color:var(--text-muted);margin-top:4px}
+    .np-seek-wrap{display:flex;align-items:center;gap:6px}
+    .np-time{font-size:10px;color:var(--text-muted);width:30px}
+    .np-seek-track{flex:1;height:4px;background:#1a2035;border-radius:2px;position:relative}
+    .np-seek-fill{height:100%;background:var(--accent);border-radius:2px;width:0%}
+    .np-controls{display:flex;justify-content:center;gap:8px}
+    .np-ctrl-btn{
+      width:32px;height:32px;border-radius:50%;border:none;
+      background:#151a28;color:var(--text);cursor:pointer;font-size:13px
+    }
+    .np-ctrl-btn:hover{background:var(--accent);color:var(--on-accent)}
+    .np-vol-row{display:flex;align-items:center;gap:6px;font-size:12px}
+    .np-vol-slider{flex:1;height:4px}
+    .np-vol-label{font-size:10px;color:var(--text-muted);width:24px}
+    .np-queue-label{font-size:11px;font-weight:600;color:#8b95a5;margin-top:8px}
+    .np-queue{font-size:11px;color:var(--text-muted)}
+    
+    /* PDF View */
+    .pdf-toolbar{
+      display:flex;align-items:center;padding:10px 16px;
+      gap:8px;border-bottom:1px solid var(--border);
+      background:var(--surface);flex-wrap:wrap;flex-shrink:0
+    }
+    .pdf-ctrl-group{display:flex;align-items:center;gap:4px}
+    .pdf-ctrl-btn{
+      width:28px;height:28px;border-radius:5px;border:1px solid var(--border);
+      background:#151a28;color:var(--text);cursor:pointer;font-size:14px
+    }
+    .pdf-ctrl-btn:hover{border-color:var(--accent);color:var(--accent)}
+    .pdf-ctrl-btn:disabled{opacity:.35;cursor:not-allowed}
+    .pdf-page-field{display:flex;align-items:center;gap:4px;font-size:12px;color:var(--text)}
+    .pdf-page-field input{
+      width:45px;padding:4px;background:#151a28;border:1px solid var(--border);
+      border-radius:4px;color:var(--text);text-align:center;font-size:12px
+    }
+    .pdf-page-sep{color:var(--text-muted)}
+    .pdf-zoom-label{font-size:11px;color:#8b95a5;min-width:36px;text-align:center}
+    .pdf-search-wrap{display:flex;align-items:center;gap:4px;margin-left:auto}
+    .pdf-search-input{
+      padding:5px 10px;background:#151a28;border:1px solid var(--border);
+      border-radius:5px;color:var(--text);font-size:12px;width:160px
+    }
+    .pdf-search-count{font-size:10px;color:var(--text-muted)}
+    .pdf-filename{font-size:12px;color:#8b95a5;margin-left:8px}
+    .pdf-edit-toolbar{
+      padding:8px 16px;border-bottom:1px solid var(--border);
+      background:#0a0e17
+    }
+    .pdf-edit-label{font-size:11px;font-weight:600;color:var(--text-muted);margin-right:8px}
+    .pdf-edit-hint{font-size:10px;color:#4a5568;margin-left:auto}
+    .pdf-save-btn{margin-left:auto}
+    .pdf-body{display:flex;height:calc(100% - 120px);overflow:hidden}
+    .pdf-thumbs-panel{
+      width:120px;border-right:1px solid var(--border);
+      background:var(--surface);overflow-y:auto;flex-shrink:0
+    }
+    .pdf-thumbs-list{padding:8px;display:flex;flex-direction:column;gap:8px}
+    .pdf-main{flex:1;overflow:auto;display:flex;justify-content:center;padding:16px;background:var(--bg)}
+    .pdf-canvas-scroller{display:inline-block}
+    .pdf-canvas-wrap{position:relative;display:inline-block;box-shadow:0 4px 20px rgba(0,0,0,0.5)}
+    #pdf-canvas{display:block;background:white}
+    .pdf-annotate-canvas{
+      position:absolute;top:0;left:0;pointer-events:none
+    }
+    .pdf-empty{
+      flex:1;display:flex;flex-direction:column;align-items:center;
+      justify-content:center;color:var(--text-muted)
+    }
+    .pdf-stamp-input{
+      position:fixed;z-index:99999;display:flex;gap:6px;
+      padding:8px;background:#1a2035;border:1px solid var(--border);
+      border-radius:8px
+    }
+    .pdf-stamp-input input{
+      padding:6px 10px;background:var(--bg2);border:1px solid var(--border);
+      border-radius:4px;color:var(--text);font-size:12px;width:200px
+    }
+    .pdf-stamp-confirm,.pdf-stamp-cancel{
+      padding:6px 12px;border:none;border-radius:4px;font-size:12px;cursor:pointer
+    }
+    .pdf-stamp-confirm{background:var(--accent);color:var(--on-accent)}
+    .pdf-stamp-cancel{background:#2d3748;color:var(--text)}
+    
+    /* ═══ UTILITY ═══ */
+    .hidden{display:none!important}
+    .toolbar-sep{width:1px;height:18px;background:rgba(255,255,255,0.08);margin:0 8px}
+    
+    /* Scrollbar styling */
+    ::-webkit-scrollbar{width:6px;height:6px}
+    ::-webkit-scrollbar-track{background:transparent}
+    ::-webkit-scrollbar-thumb{background:rgba(255,255,255,0.12);border-radius:3px}
+    ::-webkit-scrollbar-thumb:hover{background:rgba(255,255,255,0.2)}
+
+    /* ═══ v2.2.1 — VIVIDNESS PASS ═══════════════════════════════════
+       Everything below reads from the live theme tokens, so all 15
+       themes now visibly transform the app instead of only recolouring
+       the welcome screen. */
+    body{background:var(--bg);color:var(--text);transition:background .35s ease,color .25s ease}
+
+    .sidebar-btn{position:relative}
+    .sidebar-btn.active::before{
+      content:'';position:absolute;left:-6px;top:50%;transform:translateY(-50%);
+      width:3px;height:22px;border-radius:0 3px 3px 0;background:var(--accent);
+      box-shadow:0 0 12px var(--accent-glow)
+    }
+
+    .gallery-grid{padding:16px;gap:14px}
+    .g-card{
+      position:relative;border-radius:12px;overflow:hidden;cursor:pointer;
+      background:var(--surface);border:1px solid var(--border);
+      transition:transform .22s cubic-bezier(.2,.8,.2,1),box-shadow .22s,border-color .22s
+    }
+    .g-card img{width:100%;height:100%;object-fit:cover;display:block;transition:transform .4s ease}
+    .g-card:hover{
+      transform:translateY(-4px);border-color:var(--accent);
+      box-shadow:0 12px 34px rgba(0,0,0,.5),0 0 0 1px var(--accent-glow),0 0 26px var(--accent-glow)
+    }
+    .g-card:hover img{transform:scale(1.06)}
+    .g-card-overlay{
+      position:absolute;left:0;right:0;bottom:0;padding:22px 10px 8px;
+      background:linear-gradient(to top,rgba(0,0,0,.88),transparent);
+      opacity:0;transition:opacity .22s
+    }
+    .g-card:hover .g-card-overlay{opacity:1}
+    .g-card-name{font-size:11.5px;color:#fff;display:block;
+      white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+
+    .pdf-main{padding:20px}
+    .pdf-canvas-wrap{
+      border-radius:4px;overflow:hidden;
+      box-shadow:0 10px 40px rgba(0,0,0,.6),0 0 0 1px var(--border)
+    }
+    .pdf-thumb-item{border:2px solid transparent;border-radius:6px;transition:border-color .18s,box-shadow .18s}
+    .pdf-thumb-item.active{border-color:var(--accent);box-shadow:0 0 16px var(--accent-glow)}
+
+    .np-art{transition:box-shadow .4s ease}
+    .np-art.has-track{box-shadow:0 14px 44px var(--accent-glow)}
+    .track-row{border-radius:8px;transition:background .16s,transform .16s}
+    .track-row:hover{background:var(--hover);transform:translateX(3px)}
+    .track-row.playing{
+      background:color-mix(in srgb, var(--accent) 14%, transparent);
+      box-shadow:inset 3px 0 0 var(--accent)
+    }
+
+    .dash-action-btn{
+      background:linear-gradient(135deg,var(--accent),var(--accent2));
+      color:var(--on-accent);border:none;border-radius:8px;padding:8px 16px;
+      font-size:12.5px;font-weight:600;cursor:pointer;
+      box-shadow:0 3px 14px var(--accent-glow);transition:transform .18s,box-shadow .18s
+    }
+    .dash-action-btn:hover{transform:translateY(-1px);box-shadow:0 6px 22px var(--accent-glow)}
+
+  </style>
+  <link rel="stylesheet" href="css/themes.css">
+  <link rel="stylesheet" href="css/enhance.css">
+  <link rel="stylesheet" href="css/components.css">
 </head>
 <body>
 
@@ -21,10 +493,23 @@
     <span class="tb-status" id="tb-status"></span>
   </div>
   <div class="tb-right">
-    <button id="btn-minimize"  class="tb-btn" title="Minimise">─</button>
-    <button id="btn-theatre"   class="tb-btn" title="Theatre mode (T)">⊡</button>
-    <button id="btn-maximize"  class="tb-btn" title="Maximise">□</button>
-    <button id="btn-close"     class="tb-btn danger" title="Close">✕</button>
+    <span id="lite-badge" class="lite-badge hidden" title="Lite Mode active — visual effects reduced for low-spec hardware">LITE</span>
+    <button id="btn-minimize"  class="tb-btn" title="Minimise" aria-label="Minimise">
+      <svg width="12" height="2" viewBox="0 0 12 2" fill="currentColor"><rect width="12" height="2" rx="1"/></svg>
+    </button>
+    <button id="btn-pip"        class="tb-btn" title="Picture-in-Picture (Alt+P)" aria-label="Picture-in-Picture (Alt+P)">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 9h6v6H9z"/></svg>
+    </button>
+    <button id="btn-theatre"   class="tb-btn" title="Theatre mode (T)" aria-label="Theatre mode (T)">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="M8 4V2M16 4V2M2 10h20"/></svg>
+    </button>
+    <button id="btn-maximize"  class="tb-btn" title="Maximise" aria-label="Maximise">
+      <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><rect x="1.5" y="1.5" width="9" height="9" rx="1"/></svg>
+    </button>
+    <button id="btn-close"     class="tb-btn danger" title="Close" aria-label="Close">
+      <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M2 2l8 8M10 2l-8 8"/></svg>
+    </button>
+    <div class="tb-progress-bar" id="tb-progress-bar"></div>
   </div>
 </div>
 
@@ -51,7 +536,16 @@
       <div class="ms"></div>
       <div class="mr" data-a="speed-dec">Speed − <kbd>[</kbd></div>
       <div class="mr" data-a="speed-inc">Speed + <kbd>]</kbd></div>
+      <div class="mr" data-a="speed-presets">Speed Presets…</div>
       <div class="mr" data-a="speed-reset">Reset Speed <kbd>Backspace</kbd></div>
+      <div class="ms"></div>
+      <div class="mr" data-a="ab-set-a">A-B Repeat: Set A <kbd>B</kbd></div>
+      <div class="mr" data-a="ab-set-b">A-B Repeat: Set B <kbd>Shift+B</kbd></div>
+      <div class="mr" data-a="ab-clear">A-B Repeat: Clear <kbd>C</kbd></div>
+      <div class="mr" data-a="ab-toggle">A-B Repeat: Pause/Resume <kbd>G</kbd></div>
+      <div class="ms"></div>
+      <div class="mr" data-a="frame-back">Step Back Frame <kbd>,</kbd></div>
+      <div class="mr" data-a="frame-fwd">Step Forward Frame <kbd>.</kbd></div>
       <div class="ms"></div>
       <div class="mr" data-a="loop-file">Loop File</div>
       <div class="mr" data-a="screenshot">Screenshot <kbd>Ctrl+T</kbd></div>
@@ -97,6 +591,7 @@
     <div class="mi-drop">
       <div class="mr" data-a="cycle-sub">Cycle Subtitles <kbd>V</kbd></div>
       <div class="mr" data-a="open-sub">Load Subtitle…</div>
+      <div class="mr" data-a="search-subs">Search Online…</div>
       <div class="ms"></div>
       <div id="sub-track-sub"></div>
       <div class="ms"></div>
@@ -114,10 +609,18 @@
       <div class="mr" data-a="open-eq">Equalizer…</div>
       <div class="mr" data-a="open-info">Media Info… <kbd>Ctrl+I</kbd></div>
       <div class="mr" data-a="open-playlist">Playlist… <kbd>Ctrl+L</kbd></div>
+      <div class="mr" data-a="open-bookmarks">Bookmarks… <kbd>Ctrl+B</kbd></div>
+      <div class="mr" data-a="open-history">Watch History… <kbd>Ctrl+H</kbd></div>
+      <div class="mr" data-a="import-m3u">Import .m3u Playlist…</div>
+      <div class="mr" data-a="export-m3u">Export Playlist as .m3u…</div>
+      <div class="mr" data-a="open-plugins">Plugins…</div>
+      <div class="mr" data-a="open-fluid">Fluid Settings…</div>
+      <div class="mr" data-a="open-theme-customizer">Theme Customizer…</div>
       <div class="ms"></div>
-      <div class="mr" data-a="check-update">Check for Updates</div>
       <div class="mr" data-a="preferences">Preferences…</div>
+      <div class="mr" data-a="check-update">Check for Updates</div>
       <div class="ms"></div>
+      <div class="mr" data-a="diagnostics">Diagnostics…</div>
       <div class="mr" data-a="about">About BM Player</div>
     </div>
   </div>
@@ -125,58 +628,67 @@
   <span class="toolbar-sep"></span>
 
   <!-- Theme pills -->
-  <div class="theme-selector">
-    <button class="tp active" data-theme="dark"     title="Dark">🌙</button>
-    <button class="tp"        data-theme="light"    title="Light">☀️</button>
-    <button class="tp"        data-theme="glass"    title="Glass">🔮</button>
-    <button class="tp"        data-theme="dracula"  title="Dracula">🧛</button>
-    <button class="tp"        data-theme="northern" title="Aurora">🌌</button>
+  <div class="theme-selector" id="theme-selector">
+    <button class="tp active" data-theme="dark"     title="Dark" aria-label="Dark">🌙</button>
+    <button class="tp"        data-theme="light"    title="Light" aria-label="Light">☀️</button>
+    <button class="tp"        data-theme="glass"    title="Glass" aria-label="Glass">🔮</button>
+    <button class="tp"        data-theme="dracula"  title="Dracula" aria-label="Dracula">🧛</button>
+    <button class="tp"        data-theme="northern" title="Aurora" aria-label="Aurora">🌌</button>
+    <button class="tp" data-theme="ocean"    title="Ocean" aria-label="Ocean">🌊</button>
+    <button class="tp" data-theme="sunset"   title="Sunset" aria-label="Sunset">🌅</button>
+    <button class="tp" data-theme="sakura"   title="Sakura" aria-label="Sakura">🌸</button>
+    <button class="tp" data-theme="midnight" title="Midnight" aria-label="Midnight">🌙</button>
+    <button class="tp" data-theme="cyberpunk" title="Cyberpunk" aria-label="Cyberpunk">🌆</button>
+    <button class="tp" data-theme="forest"    title="Forest" aria-label="Forest">🌲</button>
+    <button class="tp" data-theme="lavender"  title="Lavender" aria-label="Lavender">💜</button>
+    <button class="tp" data-theme="golden"    title="Golden" aria-label="Golden">🏆</button>
+    <button class="tp" data-theme="snow"     title="Snow" aria-label="Snow">❄️</button>
   </div>
 
   <!-- Always on top -->
-  <button class="tb-tool-btn" id="mi-always-top" title="Always on top">📌</button>
+  <button class="tb-tool-btn" id="mi-always-top" title="Always on top" aria-label="Always on top">📌</button>
 </div>
 
 <!-- ══ SIDEBAR ════════════════════════════════════════════════════ -->
 <nav class="sidebar" id="sidebar">
-  <button class="sidebar-btn active" data-dest="video"  title="Video"></button>
-  <button class="sidebar-btn"        data-dest="music"  title="Music"></button>
-  <button class="sidebar-btn"        data-dest="images" title="Images"></button>
-  <button class="sidebar-btn"        data-dest="pdf"    title="PDF"></button>
+  <button class="sidebar-btn active" data-dest="video"  title="Video" aria-label="Video">
+    <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="5" width="15" height="14" rx="2"/><path d="M17 9l5-3v12l-5-3V9z" fill="currentColor"/></svg>
+  </button>
+  <button class="sidebar-btn"        data-dest="music"  title="Music" aria-label="Music">
+    <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18V5l12-2v13" stroke="currentColor" fill="none"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>
+  </button>
+  <button class="sidebar-btn"        data-dest="images" title="Images" aria-label="Images">
+    <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5" fill="currentColor"/><path d="M21 15l-5-5L5 21"/></svg>
+  </button>
+  <button class="sidebar-btn"        data-dest="pdf"    title="PDF" aria-label="PDF">
+    <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="9" y1="13" x2="15" y2="13"/><line x1="9" y1="17" x2="15" y2="17"/></svg>
+  </button>
+  <button class="sidebar-btn"        data-dest="tv"     title="TV" aria-label="TV">
+    <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="4" width="15" height="12" rx="2"/><path d="M17 7l5-2.5v11L17 13V7z" fill="currentColor" opacity=".7"/><line x1="7" y1="18" x2="17" y2="18"/><line x1="12" y1="16" x2="12" y2="18"/></svg>
+  </button>
   <div class="sidebar-spacer"></div>
-  <button class="sidebar-btn sidebar-mini" id="sidebar-mini-btn" title="Mini Player">⊞</button>
+  <button class="sidebar-btn sidebar-mini" id="sidebar-mini-btn" title="Mini Player" aria-label="Mini Player">⊞</button>
 </nav>
 
 <!-- ══ WELCOME SCREEN ════════════════════════════════════════════ -->
 <div id="welcome-screen" class="active">
   <canvas id="theme-fx-canvas" class="theme-fx-canvas"></canvas>
   <canvas id="aurora-canvas"   class="aurora-canvas"></canvas>
-
-  <div class="welcome-layout">
-    <!-- Left: Brand + fox -->
-    <div class="welcome-brand">
-      <div class="fox-stage"><canvas id="fox-canvas"></canvas></div>
-      <h1 class="welcome-title">BM Player</h1>
-      <p class="welcome-sub">Professional · Powered by mpv</p>
-      <div class="welcome-actions">
-        <button id="btn-open-welcome" class="btn-open">Open File</button>
-        <button id="btn-open-url-welcome" class="btn-open-ghost">Open URL</button>
-      </div>
-      <p class="drop-hint">or drag &amp; drop anywhere</p>
+  <div class="welcome-center">
+    <div class="fox-stage"><canvas id="fox-canvas"></canvas></div>
+    <h1 class="welcome-title">BM Player</h1>
+    <p class="welcome-sub">Professional media player · Powered by mpv</p>
+    <div class="welcome-actions">
+      <button id="btn-open-welcome" class="btn-open">▶  Open File</button>
+      <button id="btn-open-url-welcome" class="btn-open-ghost">Open URL</button>
     </div>
-
-    <!-- Right: Recent files -->
-    <div class="welcome-right">
+    <p class="drop-hint">or drag &amp; drop files anywhere</p>
+    <div class="welcome-recent-section">
       <div class="recent-header">
         <span class="recent-label">Recent Files</span>
-        <button class="recent-clear-btn" id="btn-clear-recent">Clear</button>
+        <button class="recent-clear-btn" id="btn-clear-recent">Clear all</button>
       </div>
-      <div id="recent-grid" class="recent-grid">
-        <div class="recent-empty">
-          <div style="font-size:40px;margin-bottom:8px;opacity:.3">🎬</div>
-          <p>No recent files</p>
-        </div>
-      </div>
+      <div id="recent-grid" class="recent-grid"></div>
     </div>
   </div>
 </div>
@@ -185,6 +697,20 @@
 <div id="player-view">
   <!-- mpv renders here (transparent window over bgWin) -->
   <canvas id="visualizer-canvas" class="visualizer-canvas"></canvas>
+  <!-- Full-screen audio visualiser overlay (Video tab while a track plays) -->
+  <div id="viz-overlay" class="viz-overlay">
+    <div class="viz-art" id="viz-art"><span>&#9834;</span></div>
+    <div class="viz-meta">
+      <div class="viz-meta-title"  id="viz-meta-title">Not Playing</div>
+      <div class="viz-meta-artist" id="viz-meta-artist"></div>
+    </div>
+    <div class="viz-transport">
+      <button class="viz-btn" id="viz-btn-prev" title="Previous" aria-label="Previous">&#9198;</button>
+      <button class="viz-btn viz-btn-main" id="viz-btn-play" title="Play/Pause" aria-label="Play/Pause">&#9199;</button>
+      <button class="viz-btn" id="viz-btn-next" title="Next" aria-label="Next">&#9197;</button>
+      <button class="viz-btn" id="viz-btn-music" title="Back to Music" aria-label="Back to Music">&#9835;</button>
+    </div>
+  </div>
 
   <!-- Controls bar (auto-hides during playback) -->
   <div class="controls-bar" id="controls-bar">
@@ -210,7 +736,7 @@
     <div class="controls-row">
       <!-- Left: Volume -->
       <div class="ctrl-group vol-group">
-        <button class="ctrl-btn" id="btn-mute" title="Mute (M)"></button>
+        <button class="ctrl-btn" id="btn-mute" title="Mute (M)" aria-label="Mute (M)"></button>
         <div class="volume-wrap">
           <input type="range" id="volume-slider" min="0" max="130" value="100">
           <span class="vol-label" id="vol-label">100</span>
@@ -219,21 +745,23 @@
 
       <!-- Centre: Transport -->
       <div class="ctrl-group center-transport">
-        <button class="ctrl-btn"  id="btn-rew"  title="Seek −30s">⏮</button>
-        <button class="ctrl-btn"  id="btn-prev" title="Previous (P)"></button>
-        <button class="ctrl-btn play-btn" id="btn-play" title="Play / Pause (Space)"></button>
-        <button class="ctrl-btn"  id="btn-next" title="Next (N)"></button>
-        <button class="ctrl-btn"  id="btn-fwd"  title="Seek +30s">⏭</button>
+        <button class="ctrl-btn"  id="btn-rew"  title="Seek −30s" aria-label="Seek −30s">⏮</button>
+        <button class="ctrl-btn"  id="btn-prev" title="Previous (P)" aria-label="Previous (P)"></button>
+        <button class="ctrl-btn play-btn" id="btn-play" title="Play / Pause (Space)" aria-label="Play / Pause (Space)"></button>
+        <button class="ctrl-btn"  id="btn-next" title="Next (N)" aria-label="Next (N)"></button>
+        <button class="ctrl-btn"  id="btn-fwd"  title="Seek +30s" aria-label="Seek +30s">⏭</button>
       </div>
 
       <!-- Right: Utilities -->
       <div class="ctrl-group right-group">
-        <button class="ctrl-btn" id="btn-stop"     title="Stop (S)"></button>
-        <button class="ctrl-btn" id="btn-playlist" title="Playlist (Ctrl+L)"></button>
-        <button class="ctrl-btn" id="btn-eq"       title="Equalizer"></button>
-        <button class="ctrl-btn" id="btn-info"     title="Media Info (Ctrl+I)"></button>
-        <button class="ctrl-btn" id="btn-theatre"  title="Theatre Mode (T)">⊡</button>
-        <button class="ctrl-btn" id="btn-fs"       title="Full Screen (F)"></button>
+        <button class="ctrl-btn" id="btn-stop"     title="Stop (S)" aria-label="Stop (S)"></button>
+        <button class="ctrl-btn" id="btn-playlist" title="Playlist (Ctrl+L)" aria-label="Playlist (Ctrl+L)"></button>
+        <button class="ctrl-btn" id="btn-bookmark" title="Add Bookmark (Ctrl+B)" aria-label="Add Bookmark (Ctrl+B)">🔖</button>
+        <button class="ctrl-btn" id="btn-history"  title="Watch History (Ctrl+H)" aria-label="Watch History (Ctrl+H)">◷</button>
+        <button class="ctrl-btn" id="btn-eq"       title="Equalizer" aria-label="Equalizer"></button>
+        <button class="ctrl-btn" id="btn-info"     title="Media Info (Ctrl+I)" aria-label="Media Info (Ctrl+I)"></button>
+        <button class="ctrl-btn" id="btn-theatre-player"  title="Theatre Mode (T)" aria-label="Theatre Mode (T)">⊡</button>
+        <button class="ctrl-btn" id="btn-fs"       title="Full Screen (F)" aria-label="Full Screen (F)"></button>
       </div>
     </div>
   </div>
@@ -246,13 +774,18 @@
     <button class="dash-action-btn" id="btn-gallery-open">+ Open Folder</button>
     <div class="gallery-toolbar">
       <div class="view-mode-group">
-        <button class="vm-btn active" data-mode="masonry" title="Masonry">⬛</button>
-        <button class="vm-btn" data-mode="grid" title="Grid">⊞</button>
-        <button class="vm-btn" data-mode="list" title="List">≡</button>
+        <button class="vm-btn active" data-mode="masonry" title="Masonry" aria-label="Masonry">⬛</button>
+        <button class="vm-btn" data-mode="grid" title="Grid" aria-label="Grid">⊞</button>
+        <button class="vm-btn" data-mode="list" title="List" aria-label="List">≡</button>
       </div>
+      <input type="search" class="dash-search" id="gallery-filter"
+             placeholder="Filter images…" autocomplete="off" spellcheck="false">
       <select class="dash-select" id="gallery-sort">
         <option value="name">Name</option>
+        <option value="name-desc">Name ↓</option>
         <option value="type">Type</option>
+        <option value="size">Size</option>
+        <option value="date">Newest</option>
       </select>
       <input type="range" id="thumb-size" min="120" max="340" value="190" title="Thumbnail size">
     </div>
@@ -264,32 +797,49 @@
 <!-- ══ MUSIC DASHBOARD ══════════════════════════════════════════ -->
 <div id="music-view" class="dashboard-view">
   <div class="music-layout">
+    <!-- Library sidebar -->
     <div class="music-lib">
       <div class="music-lib-header">
         <button class="dash-action-btn" id="btn-music-open">+ Add Folder</button>
       </div>
       <div class="music-lib-sections" id="music-lib-sections">
         <div class="music-empty-lib">
-          <div style="font-size:38px;margin-bottom:8px">🎵</div>
-          <p>Add a folder to scan</p>
+          <div style="font-size:36px;margin-bottom:8px">🎵</div>
+          <p>Add a music folder</p>
         </div>
       </div>
     </div>
+    <!-- Centre: big visualizer + track list -->
     <div class="music-center">
+      <div class="music-viz-wrap">
+        <canvas id="music-visualizer-canvas" class="music-viz-canvas"></canvas>
+        <div class="music-viz-overlay">
+          <div class="mv-title"  id="mv-current-title">No track selected</div>
+          <div class="mv-artist" id="mv-current-artist"></div>
+        </div>
+      </div>
       <div class="music-center-header">
         <div class="music-path-title" id="music-path-title">All Tracks</div>
+        <span class="dash-count" id="music-count"></span>
+        <input type="search" class="dash-search" id="music-filter"
+               placeholder="Filter tracks…" autocomplete="off" spellcheck="false">
         <select class="dash-select" id="music-sort">
           <option value="name">A–Z</option>
+          <option value="artist">Artist</option>
+          <option value="album">Album</option>
+          <option value="year">Year</option>
           <option value="type">Type</option>
         </select>
+        <button class="dash-icon-btn" id="music-group" title="Group by album" aria-label="Group by album">▤</button>
       </div>
       <div class="music-tracks" id="music-tracks">
         <div class="music-empty-tracks">
-          <div style="font-size:48px;margin-bottom:8px">🎧</div>
+          <div style="font-size:40px;margin-bottom:8px">🎧</div>
           <p>Select a folder from the library</p>
         </div>
       </div>
     </div>
+    <!-- Right: Now Playing + full transport controls -->
     <div class="music-now-playing">
       <div class="np-art-wrap">
         <div class="np-art" id="np-art">
@@ -313,30 +863,43 @@
         </div>
         <span class="np-time" id="np-time-tot">0:00</span>
       </div>
+      <div class="np-controls">
+        <button class="np-ctrl-btn np-toggle" id="np-btn-shuffle" title="Shuffle (off)" aria-label="Shuffle (off)">🔀</button>
+        <button class="np-ctrl-btn" id="np-btn-prev" title="Previous" aria-label="Previous">⏮</button>
+        <button class="np-ctrl-btn np-play-btn" id="np-btn-play" title="Play/Pause" aria-label="Play/Pause">▶</button>
+        <button class="np-ctrl-btn" id="np-btn-next" title="Next" aria-label="Next">⏭</button>
+        <button class="np-ctrl-btn" id="np-btn-stop" title="Stop" aria-label="Stop">⏹</button>
+        <button class="np-ctrl-btn np-toggle" id="np-btn-repeat" title="Repeat (off)" aria-label="Repeat (off)">🔁</button>
+      </div>
+      <div class="np-vol-row">
+        <span style="font-size:13px;opacity:.7">🔊</span>
+        <input type="range" class="np-vol-slider" id="np-volume" min="0" max="130" value="100">
+        <span class="np-vol-label" id="np-vol-label">100</span>
+      </div>
       <div class="np-queue-label">Up Next</div>
       <div class="np-queue" id="np-queue"></div>
     </div>
   </div>
 </div>
 
-<!-- ══ PDF VIEWER ════════════════════════════════════════════════ -->
 <div id="pdf-view" class="dashboard-view">
   <div class="pdf-toolbar">
     <button class="dash-action-btn" id="btn-pdf-open">+ Open PDF</button>
     <div class="pdf-ctrl-group">
-      <button class="pdf-ctrl-btn" id="pdf-prev" disabled>‹</button>
+      <button class="pdf-ctrl-btn" id="pdf-prev" disabled aria-label="Previous page">‹</button>
       <div class="pdf-page-field">
         <input type="number" id="pdf-page-num" value="1" min="1">
         <span class="pdf-page-sep">of</span>
         <span id="pdf-total">—</span>
       </div>
-      <button class="pdf-ctrl-btn" id="pdf-next" disabled>›</button>
+      <button class="pdf-ctrl-btn" id="pdf-next" disabled aria-label="Next page">›</button>
     </div>
     <div class="pdf-ctrl-group">
-      <button class="pdf-ctrl-btn" id="pdf-zoom-out">−</button>
+      <button class="pdf-ctrl-btn" id="pdf-zoom-out" aria-label="Zoom out">−</button>
       <span class="pdf-zoom-label" id="pdf-zoom-label">100%</span>
-      <button class="pdf-ctrl-btn" id="pdf-zoom-in">+</button>
-      <button class="pdf-ctrl-btn" id="pdf-fit" title="Fit width">⊡</button>
+      <button class="pdf-ctrl-btn" id="pdf-zoom-in" aria-label="Zoom in">+</button>
+      <button class="pdf-ctrl-btn" id="pdf-toggle-outline" title="Contents" aria-label="Contents">☰</button>
+      <button class="pdf-ctrl-btn" id="pdf-fit" title="Fit width" aria-label="Fit width">⊡</button>
     </div>
     <div class="pdf-search-wrap">
       <input type="text" class="pdf-search-input" id="pdf-search" placeholder="Search…">
@@ -344,40 +907,72 @@
     </div>
     <span class="pdf-filename" id="pdf-filename">No file open</span>
   </div>
+  <div class="pdf-toolbar pdf-edit-toolbar">
+    <span class="pdf-edit-label">Edit</span>
+    <div class="pdf-ctrl-group">
+      <button class="pdf-ctrl-btn" id="pdf-rotate-left"  title="Rotate page left" aria-label="Rotate page left">↺</button>
+      <button class="pdf-ctrl-btn" id="pdf-rotate-right" title="Rotate page right" aria-label="Rotate page right">↻</button>
+      <button class="pdf-ctrl-btn" id="pdf-delete-page"  title="Delete current page" aria-label="Delete current page">🗑</button>
+    </div>
+    <button class="dash-action-btn pdf-edit-btn" id="btn-pdf-merge">+ Merge PDF…</button>
+    <button class="dash-action-btn pdf-edit-btn" id="btn-pdf-annotate">✎ Add Text/Stamp</button>
+    <span class="pdf-edit-hint" id="pdf-edit-hint">Drag thumbnails to reorder pages</span>
+    <span class="toolbar-sep"></span>
+    <button class="dash-action-btn pdf-save-btn" id="btn-pdf-save">💾 Save As…</button>
+  </div>
   <div class="pdf-body">
     <div class="pdf-thumbs-panel" id="pdf-thumbs-panel">
       <div class="pdf-thumbs-list" id="pdf-thumbs-list"></div>
     </div>
-    <div class="pdf-main" id="pdf-main">
+    <div class="pdf-outline hidden" id="pdf-outline">
+    <div class="pdf-outline-head">Contents</div>
+    <div class="pdf-outline-body" id="pdf-outline-body"></div>
+  </div>
+  <div class="pdf-main" id="pdf-main">
       <div class="pdf-canvas-scroller" id="pdf-canvas-scroller">
-        <canvas id="pdf-canvas"></canvas>
+        <div class="pdf-canvas-wrap" id="pdf-canvas-wrap">
+          <canvas id="pdf-canvas"></canvas>
+          <!-- Positioned spans over the canvas: selection, copy, search hits -->
+          <div id="pdf-text-layer" class="pdf-text-layer"></div>
+          <canvas id="pdf-annotate-canvas" class="pdf-annotate-canvas"></canvas>
+        </div>
       </div>
       <div class="pdf-empty" id="pdf-empty">
         <div style="font-size:56px;margin-bottom:12px">📄</div>
         <p>Open a PDF to begin reading</p>
-        <p style="font-size:11px;margin-top:6px;opacity:.45">Supports text selection, zoom, page thumbnails, search</p>
+        <p style="font-size:11px;margin-top:6px;opacity:.45">Supports text selection, zoom, page thumbnails, search, and editing</p>
       </div>
     </div>
+  </div>
+  <!-- Floating stamp/text input, shown when annotate mode places a point -->
+  <div class="pdf-stamp-input hidden" id="pdf-stamp-input">
+    <input type="text" id="pdf-stamp-text" placeholder="Type text…" maxlength="80">
+    <button id="pdf-stamp-confirm">Add</button>
+    <button id="pdf-stamp-cancel" aria-label="Cancel stamp">✕</button>
   </div>
 </div>
 
 <!-- ══ LIGHTBOX ══════════════════════════════════════════════════ -->
 <div class="lightbox" id="lightbox">
   <div class="lb-backdrop" id="lb-backdrop"></div>
-  <button class="lb-close" id="lightbox-close">✕</button>
-  <button class="lb-nav lb-prev" id="lightbox-prev">‹</button>
-  <button class="lb-nav lb-next" id="lightbox-next">›</button>
+  <button class="lb-close" id="lightbox-close" aria-label="Close image viewer">✕</button>
+  <button class="lb-nav lb-prev" id="lightbox-prev" aria-label="Previous image">‹</button>
+  <button class="lb-nav lb-next" id="lightbox-next" aria-label="Next image">›</button>
   <div class="lb-frame">
     <img class="lb-img" id="lightbox-img" src="" alt="" draggable="false">
   </div>
   <div class="lb-bar">
     <span class="lb-name" id="lightbox-caption"></span>
     <span class="lb-counter" id="lb-counter"></span>
+    <div class="lb-info-drawer hidden" id="lb-info-drawer"></div>
+    <div class="lb-filmstrip" id="lb-filmstrip"></div>
     <div class="lb-zoom-group">
-      <button class="lb-ctrl" id="lb-zoom-out">−</button>
+      <button class="lb-ctrl" id="lb-zoom-out" aria-label="Zoom out">−</button>
       <span class="lb-ctrl-label" id="lb-zoom-label">100%</span>
-      <button class="lb-ctrl" id="lb-zoom-in">+</button>
-      <button class="lb-ctrl" id="lb-fit">⊡</button>
+      <button class="lb-ctrl" id="lb-zoom-in" aria-label="Zoom in">+</button>
+      <button class="lb-ctrl" id="lb-slideshow" title="Slideshow (S)" aria-label="Slideshow (S)">▶</button>
+      <button class="lb-ctrl" id="lb-info" title="Image info (I)" aria-label="Image info (I)">ⓘ</button>
+      <button class="lb-ctrl" id="lb-fit" aria-label="Fit to screen">⊡</button>
     </div>
   </div>
 </div>
@@ -386,7 +981,7 @@
 <div class="side-panel" id="panel-info">
   <div class="panel-hdr">
     <span>Media Info</span>
-    <button class="panel-close" data-panel="info">✕</button>
+    <button class="panel-close" data-panel="info" aria-label="Close media info panel">✕</button>
   </div>
   <div class="panel-body" id="info-body"></div>
 </div>
@@ -394,7 +989,7 @@
 <div class="side-panel" id="panel-eq">
   <div class="panel-hdr">
     <span>Equalizer</span>
-    <button class="panel-close" data-panel="eq">✕</button>
+    <button class="panel-close" data-panel="eq" aria-label="Close equalizer panel">✕</button>
   </div>
   <div class="panel-body">
     <div class="eq-presets" id="eq-presets">
@@ -417,7 +1012,7 @@
     <div style="display:flex;gap:6px">
       <button class="pl-act-btn" id="pl-add">+ Add</button>
       <button class="pl-act-btn" id="pl-clear">Clear</button>
-      <button class="panel-close" data-panel="playlist">✕</button>
+      <button class="panel-close" data-panel="playlist" aria-label="Close playlist panel">✕</button>
     </div>
   </div>
   <div class="panel-body">
@@ -425,90 +1020,363 @@
   </div>
 </div>
 
-<!-- ══ CONTEXT PANEL ═════════════════════════════════════════════ -->
-<div id="ctx-panel" class="ctx-panel hidden">
-  <div class="ctx-tabs">
-    <button class="ctx-tab active" data-tab="audio">Audio</button>
-    <button class="ctx-tab" data-tab="subs">Subs</button>
-    <button class="ctx-tab" data-tab="video">Video</button>
-    <button class="ctx-tab" data-tab="keys">Keys</button>
-    <button class="ctx-close" id="ctx-close">✕</button>
-  </div>
-  <div class="ctx-body active" id="ctx-tab-audio">
-    <div class="ctx-section-label">Audio Track</div>
-    <div class="ctx-track-list" id="ctx-audio-tracks"></div>
-    <div class="ctx-section-label">Volume</div>
-    <div class="ctx-row"><span class="ctx-row-label">Level</span><input type="range" class="ctx-slider" id="ctx-vol" min="0" max="130" value="100"><span class="ctx-val" id="ctx-vol-val">100%</span></div>
-    <div class="ctx-row"><span class="ctx-row-label">Mute</span><label class="ctx-toggle-wrap"><input type="checkbox" id="ctx-mute"><span class="ctx-toggle"></span></label></div>
-    <div class="ctx-section-label">Audio Delay</div>
-    <div class="ctx-row"><button class="ctx-adj-btn" data-cmd="audio-delay" data-v="-0.5">−0.5s</button><span class="ctx-val" id="ctx-audio-delay-val" style="flex:1;text-align:center">0.0s</span><button class="ctx-adj-btn" data-cmd="audio-delay" data-v="+0.5">+0.5s</button><button class="ctx-adj-btn" data-cmd="audio-delay" data-v="0">Reset</button></div>
-  </div>
-  <div class="ctx-body" id="ctx-tab-subs">
-    <div class="ctx-section-label">Subtitle Track</div>
-    <div class="ctx-track-list" id="ctx-sub-tracks"></div>
-    <div class="ctx-section-label">Delay</div>
-    <div class="ctx-row"><button class="ctx-adj-btn" data-cmd="sub-delay" data-v="-0.5">−0.5s</button><span class="ctx-val" id="ctx-sub-delay-val" style="flex:1;text-align:center">0.0s</span><button class="ctx-adj-btn" data-cmd="sub-delay" data-v="+0.5">+0.5s</button><button class="ctx-adj-btn" data-cmd="sub-delay" data-v="0">Reset</button></div>
-    <div class="ctx-section-label">Size &amp; Position</div>
-    <div class="ctx-row"><span class="ctx-row-label">Size</span><input type="range" class="ctx-slider" id="ctx-sub-size" min="16" max="72" value="44"><span class="ctx-val" id="ctx-sub-size-val">44</span></div>
-    <div class="ctx-row"><span class="ctx-row-label">Pos</span><input type="range" class="ctx-slider" id="ctx-sub-pos" min="50" max="150" value="100"><span class="ctx-val" id="ctx-sub-pos-val">100</span></div>
-    <button class="ctx-action-btn" id="ctx-add-sub">📂 Browse subtitle…</button>
-  </div>
-  <div class="ctx-body" id="ctx-tab-video">
-    <div class="ctx-section-label">Video Track</div>
-    <div class="ctx-track-list" id="ctx-video-tracks"></div>
-    <div class="ctx-section-label">Aspect Ratio</div>
-    <div class="ctx-chip-row"><button class="ctx-chip active" data-cmd="aspect" data-v="-1">Auto</button><button class="ctx-chip" data-cmd="aspect" data-v="4/3">4:3</button><button class="ctx-chip" data-cmd="aspect" data-v="16/9">16:9</button><button class="ctx-chip" data-cmd="aspect" data-v="21/9">21:9</button><button class="ctx-chip" data-cmd="aspect" data-v="2.39/1">Cinema</button></div>
-    <div class="ctx-section-label">Hardware Decoder</div>
-    <div class="ctx-chip-row"><button class="ctx-chip active" data-cmd="hwdec" data-v="auto-safe">Auto</button><button class="ctx-chip" data-cmd="hwdec" data-v="nvdec">NVDEC</button><button class="ctx-chip" data-cmd="hwdec" data-v="d3d11va">D3D11</button><button class="ctx-chip" data-cmd="hwdec" data-v="no">CPU</button></div>
-    <div class="ctx-section-label">Tools</div>
-    <div class="ctx-row" style="gap:8px">
-      <label class="ctx-toggle-wrap" title="Deinterlace"><input type="checkbox" id="ctx-deinterlace"><span class="ctx-toggle"></span></label><span class="ctx-row-label">Deinterlace</span>
+<!-- ══ PLUGINS PANEL ══════════════════════════════════════════════ -->
+<div class="side-panel" id="panel-plugins">
+  <div class="panel-hdr">
+    <span>Plugins</span>
+    <div style="display:flex;gap:6px">
+      <button class="pl-act-btn" id="plugins-open-folder">📂 Folder</button>
+      <button class="pl-act-btn" id="plugins-reload">↻ Reload</button>
+      <button class="panel-close" data-panel="plugins" aria-label="Close plugins panel">✕</button>
     </div>
-    <button class="ctx-action-btn" id="ctx-screenshot">📸 Screenshot</button>
   </div>
-  <div class="ctx-body" id="ctx-tab-keys">
-    <div class="ctx-keymap">
-      <div class="ctx-km-row"><kbd>Space</kbd><span>Play / Pause</span></div>
-      <div class="ctx-km-row"><kbd>S</kbd><span>Stop</span></div>
-      <div class="ctx-km-row"><kbd>F / F11</kbd><span>Full Screen</span></div>
-      <div class="ctx-km-row"><kbd>T</kbd><span>Theatre Mode</span></div>
-      <div class="ctx-km-row"><kbd>M</kbd><span>Mute</span></div>
-      <div class="ctx-km-row"><kbd>← →</kbd><span>Seek ±5s</span></div>
-      <div class="ctx-km-row"><kbd>Shift+← →</kbd><span>Seek ±30s</span></div>
-      <div class="ctx-km-row"><kbd>↑ ↓</kbd><span>Volume ±5%</span></div>
-      <div class="ctx-km-row"><kbd>[ ]</kbd><span>Speed −/+</span></div>
-      <div class="ctx-km-row"><kbd>Backspace</kbd><span>Reset Speed</span></div>
-      <div class="ctx-km-row"><kbd>Z / X</kbd><span>Sub Delay ±0.5s</span></div>
-      <div class="ctx-km-row"><kbd>Shift+K/J</kbd><span>Audio Delay ±0.5s</span></div>
-      <div class="ctx-km-row"><kbd>V / A</kbd><span>Cycle Sub / Audio</span></div>
-      <div class="ctx-km-row"><kbd>P / N</kbd><span>Prev / Next</span></div>
-      <div class="ctx-km-row"><kbd>1–9</kbd><span>Jump 10–90%</span></div>
-      <div class="ctx-km-row"><kbd>Ctrl+O</kbd><span>Open File</span></div>
-      <div class="ctx-km-row"><kbd>Ctrl+I</kbd><span>Media Info</span></div>
-      <div class="ctx-km-row"><kbd>Ctrl+L</kbd><span>Playlist</span></div>
-      <div class="ctx-km-row"><kbd>Ctrl+T</kbd><span>Screenshot</span></div>
+  <div class="panel-body">
+    <p style="font-size:11px;color:var(--text-muted);margin-bottom:12px;line-height:1.5">
+      Plugins run with the same privileges as the app itself — only install plugins from sources you trust.
+    </p>
+    <div id="plugins-list" class="plugins-list">
+      <div class="plugins-empty">No plugins found. Click "Folder" to add some.</div>
+    </div>
+  </div>
+</div>
+<!-- Container where plugin-created custom panels get dynamically appended -->
+<div id="plugin-panels-root"></div>
+
+<!-- ══ FLUID SETTINGS PANEL ═══════════════════════════════════════ -->
+<div class="side-panel" id="panel-fluid">
+  <div class="panel-hdr">
+    <span>Fluid Settings</span>
+    <button class="panel-close" data-panel="fluid" aria-label="Close effects panel">✕</button>
+  </div>
+  <div class="panel-body">
+    <p style="font-size:11px;color:var(--text-muted);margin-bottom:12px;line-height:1.5">
+      Controls the Northern Lights aurora and Dracula blood-rain effects. Lower quality uses fewer particles — recommended on integrated graphics or systems with 4GB RAM or less.
+    </p>
+    <div class="ctx-section-label">Quality Preset</div>
+    <div class="eq-presets" id="fluid-presets" style="margin:8px 0 16px">
+      <button class="eq-preset-btn" data-tier="low">Low</button>
+      <button class="eq-preset-btn" data-tier="medium">Medium</button>
+      <button class="eq-preset-btn" data-tier="high">High</button>
+    </div>
+    <div class="ctx-section-label">Fine-Tune</div>
+    <div class="ctx-row" style="margin-top:10px">
+      <span class="ctx-row-label">Density</span>
+      <input type="range" class="ctx-slider" id="fluid-density" min="30" max="500" step="10">
+      <span class="ctx-val" id="fluid-density-val">—</span>
+    </div>
+    <div class="ctx-row" style="margin-top:10px">
+      <span class="ctx-row-label">Speed</span>
+      <input type="range" class="ctx-slider" id="fluid-speed" min="40" max="180" step="5">
+      <span class="ctx-val" id="fluid-speed-val">—</span>
+    </div>
+    <div class="ctx-row" style="margin-top:10px">
+      <span class="ctx-row-label">Glow</span>
+      <input type="range" class="ctx-slider" id="fluid-glow" min="0" max="100" step="5">
+      <span class="ctx-val" id="fluid-glow-val">—</span>
+    </div>
+    <div class="ctx-row" style="margin-top:10px">
+      <span class="ctx-row-label">Trail</span>
+      <input type="range" class="ctx-slider" id="fluid-trail" min="0" max="100" step="5">
+      <span class="ctx-val" id="fluid-trail-val">—</span>
+    </div>
+    <button class="btn-reset-eq" id="fluid-reset" style="margin-top:12px">Reset All</button>
+  </div>
+</div>
+
+<!-- ══ SETTINGS PANEL ════════════════════════════════════════════ -->
+<div class="side-panel" id="panel-diagnostics">
+  <div class="panel-hdr">
+    <span>Diagnostics</span>
+    <button class="panel-close" data-panel="diagnostics" aria-label="Close diagnostics panel">&#10005;</button>
+  </div>
+  <div class="panel-body">
+    <div class="panel-actions">
+      <button class="pl-act-btn" id="diag-refresh">Refresh</button>
+      <button class="pl-act-btn" id="diag-copy">Copy report</button>
+    </div>
+    <pre class="diag-output" id="diag-output">Loading…</pre>
+  </div>
+</div>
+
+<div class="side-panel" id="panel-settings">
+  <div class="panel-hdr">
+    <span>Preferences</span>
+    <button class="panel-close" data-panel="settings" aria-label="Close settings panel">✕</button>
+  </div>
+  <div class="panel-body">
+    <div class="ctx-section-label">Performance Mode</div>
+    <div class="ctx-row" style="margin-top:8px">
+      <span class="ctx-row-label">Mode</span>
+      <select class="dash-select" id="set-perf-mode" style="flex:1">
+        <option value="auto">Auto-detect</option>
+        <option value="full">Full (all effects)</option>
+        <option value="lite">Lite (reduced effects)</option>
+      </select>
+    </div>
+    <div id="perf-info" style="margin-top:12px;padding:10px;background:var(--surface);border-radius:8px;font-size:11px;">
+      <div style="display:flex;justify-content:space-between;margin-bottom:4px"><span>Current:</span><span id="perf-info-mode">—</span></div>
+      <div style="display:flex;justify-content:space-between;margin-bottom:4px"><span>Reason:</span><span id="perf-info-reason">—</span></div>
+      <div style="display:flex;justify-content:space-between;margin-bottom:4px"><span>CPU Cores:</span><span id="perf-info-cores">—</span></div>
+      <div style="display:flex;justify-content:space-between"><span>RAM:</span><span id="perf-info-ram">—</span></div>
+      <div style="display:flex;justify-content:space-between"><span>GPU:</span><span id="perf-info-gpu">—</span></div>
+    </div>
+    <div class="ctx-section-label" style="margin-top:16px">Behaviour</div>
+    <div class="ctx-row" style="margin-top:8px">
+      <span class="ctx-row-label">Volume Step</span>
+      <input type="range" class="ctx-slider" id="set-vol-step" min="1" max="20" value="5">
+      <span class="ctx-val" id="set-vol-step-val">5</span>
+    </div>
+    <div class="ctx-row" style="margin-top:10px">
+      <span class="ctx-row-label">Seek Large</span>
+      <input type="range" class="ctx-slider" id="set-seek-large" min="10" value="30">
+      <span class="ctx-val" id="set-seek-large-val">30s</span>
+    </div>
+    <div class="ctx-checkbox-row" style="margin-top:12px">
+      <label class="ctx-checkbox"><input type="checkbox" id="set-auto-resume"> Auto-resume playback</label>
+      <label class="ctx-checkbox"><input type="checkbox" id="set-audio-engine" checked> In-app audio engine <span class="set-val">(real spectrum + EQ)</span></label>
+      <label class="set-row"><span>Subtitle colour</span>
+        <input type="color" id="set-sub-color" value="#ffffff">
+        <span class="set-val" id="set-sub-color-val">#ffffff</span>
+      </label>
+      <div class="panel-actions">
+        <button class="pl-act-btn" id="settings-export">Export</button>
+        <button class="pl-act-btn" id="settings-import">Import</button>
+        <button class="pl-act-btn danger" id="settings-reset">Reset</button>
+      </div>
     </div>
   </div>
 </div>
 
-<!-- ══ DIALOGS ════════════════════════════════════════════════════ -->
-<!-- Jump to time -->
-<div class="dialog-overlay hidden" id="dlg-jump">
+<!-- ══ BOOKMARKS PANEL ══════════════════════════════════════════ -->
+<div class="side-panel" id="panel-bookmarks">
+  <div class="panel-hdr">
+    <span>Bookmarks</span>
+    <button class="panel-close" data-panel="bookmarks" aria-label="Close bookmarks panel">✕</button>
+  </div>
+  <div class="panel-body">
+    <div class="panel-actions">
+      <button class="pl-act-btn" id="bm-add-now">+ Add at current time</button>
+      <button class="pl-act-btn" id="bm-clear-file">Clear</button>
+    </div>
+    <div id="bm-hint" class="bookmarks-empty">No bookmarks yet. Press Ctrl+B during playback to add one.</div>
+    <div id="bm-list" class="bookmarks-list"></div>
+  </div>
+</div>
+
+<!-- ══ HISTORY PANEL ════════════════════════════════════════════ -->
+<div class="side-panel" id="panel-history">
+  <div class="panel-hdr">
+    <span>Watch History</span>
+    <div style="display:flex;gap:6px">
+      <button class="pl-act-btn" id="hist-clear">Clear</button>
+      <button class="panel-close" data-panel="history" aria-label="Close history panel">✕</button>
+    </div>
+  </div>
+  <div class="panel-body">
+    <div id="hist-summary" class="history-summary"></div>
+    <div id="hist-list" class="history-list">
+      <div class="history-empty">No history yet.</div>
+    </div>
+  </div>
+</div>
+
+<!-- ══ SUBTITLE SEARCH PANEL ═════════════════════════════════════ -->
+<div class="side-panel" id="panel-subsearch">
+  <div class="panel-hdr">
+    <span>Search Subtitles</span>
+    <button class="panel-close" data-panel="subsearch" aria-label="Close subtitle search panel">✕</button>
+  </div>
+  <div class="panel-body">
+    <p style="font-size:11px;color:var(--text-muted);margin-bottom:12px;">Search OpenSubtitles.org for subtitles.</p>
+    <select class="dash-select" id="subs-lang">
+      <option value="en">English</option><option value="es">Spanish</option>
+      <option value="fr">French</option><option value="de">German</option>
+      <option value="hi">Hindi</option><option value="ml">Malayalam</option>
+      <option value="ta">Tamil</option><option value="ar">Arabic</option>
+    </select>
+    <input type="text" class="dlg-input" id="subsearch-query" placeholder="Search by name or hash…" style="width:100%;box-sizing:border-box;margin-bottom:8px;">
+    <button class="dash-action-btn" id="subs-search-btn" style="width:100%">Search</button>
+    <div id="subs-results" style="margin-top:12px;"></div>
+  </div>
+</div>
+
+<!-- ══ THEME CUSTOMIZER ═══════════════════════════════════════════ -->
+<div class="theme-customizer hidden" id="theme-customizer">
+  <div class="tc-title">Theme Customizer</div>
+  
+  <div class="tc-section">
+    <div class="tc-section-label">Presets</div>
+    <div class="tc-preset-grid" id="tc-preset-grid">
+      <!-- Filled dynamically by app.js -->
+    </div>
+  </div>
+
+  <div class="tc-section">
+    <div class="tc-section-label">Colors</div>
+    <div class="tc-color-row">
+      <span class="tc-color-label">Background</span>
+      <input type="color" class="tc-color-input" id="tc-bg" value="#080b14">
+    </div>
+    <div class="tc-color-row">
+      <span class="tc-color-label">Surface</span>
+      <input type="color" class="tc-color-input" id="tc-surface" value="#111624">
+    </div>
+    <div class="tc-color-row">
+      <span class="tc-color-label">Text</span>
+      <input type="color" class="tc-color-input" id="tc-text" value="#e4eaf6">
+    </div>
+    <div class="tc-color-row">
+      <span class="tc-color-label">Accent</span>
+      <input type="color" class="tc-color-input" id="tc-accent" value="#5B6FF8">
+    </div>
+    <div class="tc-color-row">
+      <span class="tc-color-label">Accent 2</span>
+      <input type="color" class="tc-color-input" id="tc-accent2" value="#00D4FF">
+    </div>
+  </div>
+
+  <div class="tc-section">
+    <div class="tc-section-label">Effects</div>
+    <div class="tc-toggle-row">
+      <span class="tc-toggle-label">Fluid Background</span>
+      <div class="tc-toggle active" id="tc-fluid-toggle"></div>
+    </div>
+    <div class="tc-toggle-row">
+      <span class="tc-toggle-label">Particle Connections</span>
+      <div class="tc-toggle" id="tc-connections-toggle"></div>
+    </div>
+  </div>
+
+  <div class="tc-actions">
+    <button class="tc-btn tc-btn-ghost" id="tc-cancel">Cancel</button>
+    <button class="tc-btn tc-btn-ghost" id="tc-reset">Reset</button>
+    <button class="tc-btn tc-btn-primary" id="tc-apply">Apply</button>
+  </div>
+</div>
+
+<!-- ══ TV DASHBOARD ══════════════════════════════════════════════ -->
+<div id="tv-view" class="dashboard-view">
+  <div class="dash-header">
+    <h2 class="dash-title">TV / IPTV</h2>
+    <div class="tv-toolbar">
+      <button class="dash-action-btn" id="btn-tv-open-m3u">+ Load M3U</button>
+      <button class="dash-action-btn" id="btn-tv-open-url">+ From URL</button>
+      <div class="tv-search-wrap">
+        <input type="text" class="tv-search-input" id="tv-search" placeholder="Search channels…">
+      </div>
+      <select class="dash-select" id="tv-group-filter">
+        <option value="all">All Groups</option>
+      </select>
+      <select class="dash-select" id="tv-sort">
+        <option value="name">Name A–Z</option>
+        <option value="group">Group</option>
+      </select>
+      <span class="dash-count" id="tv-count"></span>
+    </div>
+  </div>
+  <div class="tv-status-bar" id="tv-status-bar">
+    <span class="tv-status-text" id="tv-status-text">No playlist loaded</span>
+    <div class="tv-status-spinner hidden" id="tv-status-spinner"></div>
+  </div>
+  <!-- Eco warning dialog (inline, not a modal — non-blocking) -->
+  <div class="tv-eco-warning hidden" id="tv-eco-warning">
+    <span class="tv-eco-icon">⚠</span>
+    <span id="tv-eco-msg">Large playlist detected. Loading progressively to keep the app responsive…</span>
+    <button class="tv-eco-dismiss" id="tv-eco-dismiss" aria-label="Dismiss warning">✕</button>
+  </div>
+  <!-- Reconnect banner -->
+  <div class="tv-reconnect-bar hidden" id="tv-reconnect-bar">
+    <span id="tv-reconnect-text">Reconnecting…</span>
+    <button class="dash-action-btn" id="tv-reconnect-stop" style="padding:4px 10px;font-size:11px">Stop</button>
+  </div>
+  <div class="tv-body">
+    <div class="tv-channels" id="tv-channels">
+      <div class="tv-empty">
+        <div style="font-size:52px;margin-bottom:12px">📺</div>
+        <p>Load an M3U playlist to browse TV channels</p>
+        <p style="font-size:11px;margin-top:6px;opacity:.45">Supports M3U/M3U8 files and URLs (IPTV lists).<br>Large playlists are loaded progressively to keep the app responsive.</p>
+        <div style="margin-top:16px;display:flex;gap:10px;justify-content:center;flex-wrap:wrap">
+          <div class="tv-recent-section" id="tv-recent-section" style="display:none">
+            <div class="recent-header">
+              <span class="recent-label">Recent Channels</span>
+            </div>
+            <div id="tv-recent-list" class="recent-grid"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ══ TV URL DIALOG ══════════════════════════════════════════════ -->
+<div class="dialog-overlay hidden" id="dlg-tv-url">
   <div class="dlg-box">
-    <div class="dlg-title">Jump to Time</div>
-    <input type="text" class="dlg-input" id="jump-input" placeholder="1:23  or  1:23:45">
+    <div class="dlg-title">Load M3U from URL</div>
+    <input type="text" class="dlg-input" id="tv-url-input" placeholder="https://example.com/playlist.m3u">
+    <p style="font-size:11px;color:var(--text-muted);margin:8px 0 4px">Timeout: 15s · Large lists (&gt;500 channels) load progressively</p>
     <div class="dlg-btns">
-      <button class="btn-ghost" id="jump-cancel">Cancel</button>
-      <button class="btn-accent" id="jump-go">Go</button>
+      <button class="btn-ghost" id="tv-url-cancel">Cancel</button>
+      <button class="btn-accent" id="tv-url-go">Load</button>
     </div>
   </div>
 </div>
 
-<!-- URL open -->
+<!-- ══ MUSIC MINI PLAYER BAR (shown in video tab while music plays) ══ -->
+<div id="music-mini-player" class="music-mini-player hidden">
+  
+  <div class="mmp-progress" id="mmp-progress"><div class="mmp-progress-fill" id="mmp-progress-fill"></div></div>
+  <div class="mmp-art" id="mmp-art">♪</div>
+  <div class="mmp-info">
+    <div class="mmp-title" id="mmp-title">Not Playing</div>
+    <div class="mmp-artist" id="mmp-artist"></div>
+  </div>
+  <div class="mmp-controls">
+    <button class="mmp-ctrl" id="mmp-prev" title="Previous" aria-label="Previous">⏮</button>
+    <button class="mmp-ctrl mmp-play" id="mmp-play" title="Play/Pause" aria-label="Play/Pause">▶</button>
+    <button class="mmp-ctrl" id="mmp-next" title="Next" aria-label="Next">⏭</button>
+    <button class="mmp-ctrl" id="mmp-stop" title="Stop" aria-label="Stop">⏹</button>
+  </div>
+  <span class="mmp-goto" id="mmp-goto" title="Go to Music">♪ Open Music</span>
+</div>
+
+<!-- ══ PIP OVERLAY (shown when PiP mode active) ══ -->
+<div id="about-dialog" class="about-dialog hidden" role="dialog" aria-modal="true" aria-labelledby="about-title">
+  <div class="about-card">
+    <button class="about-close" id="about-close" aria-label="Close About BM Player" title="Close">&#10005;</button>
+    <div class="about-fox" id="about-fox" aria-hidden="true"></div>
+    <h2 class="about-title" id="about-title">BM Player</h2>
+    <div class="about-version" id="about-version">version</div>
+    <p class="about-tagline">A media player for video, music, pictures, PDFs and live TV, built on Electron and powered by mpv.</p>
+    <div class="about-author">
+      <div class="about-label">Made by</div>
+      <div class="about-name">Bristo</div>
+      <div class="about-links">
+        <button class="about-link" data-url="https://github.com/BritMat" aria-label="Bristo on GitHub (opens in your browser)">GitHub: BritMat</button>
+        <button class="about-link" data-url="mailto:reach.bristo@gmail.com" aria-label="Email reach.bristo@gmail.com (opens your email app)">reach.bristo@gmail.com</button>
+      </div>
+    </div>
+    <div class="about-links about-project">
+      <button class="about-link" data-url="https://github.com/BritMat/bm-player" aria-label="The BM Player project on GitHub (opens in your browser)">Project page</button>
+      <button class="about-link" data-url="https://github.com/BritMat/bm-player/issues" aria-label="Report a problem on GitHub (opens in your browser)">Report a problem</button>
+    </div>
+    <div class="about-built" id="about-built">Built with Electron, mpv and pdf.js</div>
+  </div>
+</div>
+<div id="pip-overlay" class="pip-overlay hidden">
+  <div class="pip-bar">
+    <span class="pip-title" id="pip-title">BM Player</span>
+    <button class="pip-btn" id="pip-play" title="Play/Pause" aria-label="Play/Pause">&#9199;</button>
+    <button class="pip-btn" id="pip-size" title="Change size" aria-label="Change picture-in-picture size">&#9634;</button>
+    <button class="pip-btn" id="pip-exit" title="Back to the full window" aria-label="Back to the full window">⤢ Expand</button>
+    <button class="pip-btn pip-close" id="pip-close" title="Stop and close" aria-label="Stop playback and close picture-in-picture">&#10005;</button>
+  </div>
+</div>
+
+<!-- ══ DIALOGS ══════════════════════════════════════════════════ -->
 <div class="dialog-overlay hidden" id="dlg-url">
   <div class="dlg-box">
-    <div class="dlg-title">Open URL / Stream</div>
-    <input type="text" class="dlg-input" id="url-input" placeholder="https://… or rtmp://…">
+    <div class="dlg-title">Open URL</div>
+    <input type="text" class="dlg-input" id="url-input" placeholder="https://example.com/video.mp4">
     <div class="dlg-btns">
       <button class="btn-ghost" id="url-cancel">Cancel</button>
       <button class="btn-accent" id="url-go">Open</button>
@@ -516,43 +1384,178 @@
   </div>
 </div>
 
-<!-- ══ OSD & UTILITIES ════════════════════════════════════════════ -->
-<div class="osd" id="osd"></div>
-<div class="drop-overlay" id="drop-overlay">
-  <div class="drop-box">
-    <div style="font-size:52px;margin-bottom:8px">🎬</div>
-    <p>Drop to play</p>
-  </div>
-</div>
-
-<!-- ══ UPDATE BANNER ══════════════════════════════════════════════ -->
-<div id="update-banner" class="update-banner hidden">
-  <span class="update-icon">⬆</span>
-  <span id="update-msg">Update available</span>
-  <div class="update-progress-wrap hidden" id="update-progress-wrap">
-    <div class="update-progress-bar" id="update-progress-bar"></div>
-  </div>
-  <button class="update-btn" id="update-install-btn" style="display:none">Install &amp; Restart</button>
-  <button class="update-dismiss" id="update-dismiss">✕</button>
-</div>
-
-<!-- ══ DEFAULT PLAYER PROMPT ═════════════════════════════════════ -->
-<div id="default-player-prompt" class="default-prompt hidden">
-  <div class="default-prompt-box">
-    <div style="font-size:32px;margin-bottom:8px">🎬</div>
-    <h3>Set as default player?</h3>
-    <p>Open media files directly from Explorer</p>
-    <div class="default-prompt-btns">
-      <button class="btn-accent" id="btn-set-default">Yes, set default</button>
-      <button class="btn-ghost"  id="btn-skip-default">Not now</button>
+<div class="dialog-overlay hidden" id="dlg-jump">
+  <div class="dlg-box">
+    <div class="dlg-title">Jump to Time</div>
+    <div style="display:flex;gap:8px;align-items:center">
+      <input type="text" class="dlg-input" id="jump-input" placeholder="0:00:00" style="flex:1">
+      <button class="btn-ghost" id="jump-cancel">Cancel</button>\n      <button class="btn-accent" id="jump-go">Jump</button>
     </div>
   </div>
 </div>
 
-<!-- Scripts -->
-<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
-<script>if(window.pdfjsLib) pdfjsLib.GlobalWorkerOptions.workerSrc='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';</script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<div class="dialog-overlay hidden" id="dlg-speed">
+  <div class="dlg-box" style="min-width:280px">
+    <div class="dlg-title">Speed Presets</div>
+    <div id="speed-preset-grid" style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin:12px 0">
+      <!-- Filled dynamically -->
+    </div>
+  </div>
+</div>
+
+<!-- ══ CONTEXT MENU PANEL ════════════════════════════════════════ -->
+<!-- id MUST stay 'ctx-panel': app.js looks it up with el('ctx-panel').
+     It was 'ctx-menu', so _openCtxPanel() got null and bailed on every
+     right-click. -->
+<!-- showOSD() looks this up and returns early when it's absent. Without it
+     every transient message in the app is discarded silently. -->
+<div id="osd" class="osd"></div>
+
+<!-- One stack for every bottom-centre prompt. Each used to be fixed at
+     the same spot on its own, so any two visible together overlapped. -->
+<div id="toast-stack" class="toast-stack">
+<div id="resume-prompt" class="resume-prompt hidden">
+  <div class="resume-prompt-icon">⏪</div>
+  <div class="resume-prompt-body">
+    <div class="resume-prompt-title" id="resume-prompt-title">Resume from where you left off?</div>
+    <div class="resume-prompt-meta" id="resume-prompt-meta">Stopped at 0:00 of 1:30:00</div>
+  </div>
+  <button class="resume-prompt-btn resume-prompt-yes" id="resume-yes">Resume</button>
+  <button class="resume-prompt-btn resume-prompt-no"  id="resume-no">From start</button>
+  <button class="resume-prompt-dismiss"             id="resume-dismiss" aria-label="Dismiss">✕</button>
+</div>
+<div id="update-banner" class="update-banner hidden">
+  <span id="update-msg" class="update-msg">Update available</span>
+  <div id="update-progress-wrap" class="update-progress-wrap hidden">
+    <div id="update-progress-bar" class="update-progress-bar"></div>
+  </div>
+  <button id="update-install-btn" class="update-btn">Restart &amp; Install</button>
+  <button id="update-dismiss" class="update-dismiss" title="Dismiss" aria-label="Dismiss">&#10005;</button>
+</div>
+<div id="default-player-prompt" class="default-prompt hidden">
+  <span>Make BM Player the default for media files?</span>
+  <button id="btn-set-default"  class="update-btn">Set as default</button>
+  <button id="btn-skip-default" class="update-dismiss" title="Not now" aria-label="Not now">&#10005;</button>
+</div>
+</div>
+
+<!-- A-B loop indicator. It used to live inside the music mini player,
+     which is hidden during video, the one place A-B looping is used. -->
+<div id="ab-indicator" class="ab-indicator hidden">
+    <span id="ab-a" class="ab-mark">A</span>
+    <span id="ab-b" class="ab-mark">B</span>
+    <button id="ab-clear-btn" class="ab-clear" title="Clear A-B loop" aria-label="Clear A-B loop">&#10005;</button>
+  </div>
+
+
+
+
+
+
+<!-- Drag-and-drop target highlight -->
+<div id="drop-overlay" class="drop-overlay">
+  <div class="drop-inner"><div class="drop-icon">&#8681;</div><div>Drop to play</div></div>
+</div>
+
+<div class="ctx-panel hidden" id="ctx-panel">
+  <div class="ctx-section" id="ctx-sec-file">
+    <div class="ctx-section-label">File</div>
+    <div class="ctx-item" data-a="open">Open File…</div>
+    <div class="ctx-item" data-a="open-url">Open URL…</div>
+    <div class="ctx-sep"></div>
+    <div class="ctx-item" data-a="quit">Quit</div>
+  </div>
+  <div class="ctx-section" id="ctx-sec-playback">
+    <div class="ctx-section-label">Playback</div>
+    <div class="ctx-item" data-a="toggle-play">Play / Pause</div>
+    <div class="ctx-item" data-a="stop">Stop</div>
+    <div class="ctx-sep"></div>
+    <div class="ctx-item" data-a="prev">Previous</div>
+    <div class="ctx-item" data-a="next">Next</div>
+    <div class="ctx-sep"></div>
+    <div class="ctx-item" data-a="fullscreen">Fullscreen</div>
+    <div class="ctx-item" data-a="theatre">Theatre Mode</div>
+    <div class="ctx-item" data-a="pip">Picture-in-Picture</div>
+  </div>
+  <div class="ctx-section" id="ctx-sec-quick">
+    <div class="ctx-section-label">Quick Controls</div>
+    <div class="ctx-slider-row">
+      <span class="ctx-slider-label">Volume</span>
+      <input type="range" id="ctx-vol" min="0" max="130" value="100" class="ctx-range">
+      <span class="ctx-slider-val" id="ctx-vol-val">100%</span>
+    </div>
+    <label class="ctx-checkbox"><input type="checkbox" id="ctx-mute"> Mute</label>
+    <label class="ctx-checkbox"><input type="checkbox" id="ctx-deinterlace"> Deinterlace</label>
+    <div class="ctx-item" id="ctx-screenshot">Screenshot</div>
+    <div class="ctx-item" id="ctx-add-sub">Add Subtitle File…</div>
+    <button class="ctx-close-btn" id="ctx-close" title="Close" aria-label="Close">&#10005;</button>
+  </div>
+  <div class="ctx-section" id="ctx-sec-subtitle-style">
+    <div class="ctx-section-label">Subtitle Style</div>
+    <div class="ctx-slider-row">
+      <span class="ctx-slider-label">Size</span>
+      <input type="range" id="ctx-sub-size" min="20" max="120" value="55" class="ctx-range">
+      <span class="ctx-slider-val" id="ctx-sub-size-val">55</span>
+    </div>
+    <div class="ctx-slider-row">
+      <span class="ctx-slider-label">Position</span>
+      <input type="range" id="ctx-sub-pos" min="0" max="150" value="100" class="ctx-range">
+      <span class="ctx-slider-val" id="ctx-sub-pos-val">100</span>
+    </div>
+    <div class="ctx-slider-row">
+      <span class="ctx-slider-label">Sub delay</span>
+      <span class="ctx-slider-val" id="ctx-sub-delay-val">0.00s</span>
+      <span class="ctx-slider-label">Audio delay</span>
+      <span class="ctx-slider-val" id="ctx-audio-delay-val">0.00s</span>
+    </div>
+  </div>
+  <div class="ctx-section" id="ctx-sec-audio-tracks">
+    <div class="ctx-section-label">Audio Track</div>
+    <div class="ctx-track-list" id="ctx-audio-tracks"></div>
+    <div class="ctx-slider-row">
+      <span class="ctx-slider-label">Delay</span>
+      <button class="ctx-mini-btn" data-a="adelay-down" title="-50ms" aria-label="-50ms">−</button>
+      <span class="ctx-slider-val" id="ctx-adelay-val">0.00s</span>
+      <button class="ctx-mini-btn" data-a="adelay-up" title="+50ms" aria-label="+50ms">+</button>
+      <button class="ctx-mini-btn" data-a="adelay-reset" title="Reset" aria-label="Reset">⟲</button>
+    </div>
+  </div>
+  <div class="ctx-section" id="ctx-sec-sub-tracks">
+    <div class="ctx-section-label">Subtitles</div>
+    <div class="ctx-track-list" id="ctx-sub-tracks"></div>
+    <div class="ctx-item" data-a="load-sub">Load Subtitle File…</div>
+    <div class="ctx-slider-row">
+      <span class="ctx-slider-label">Delay</span>
+      <button class="ctx-mini-btn" data-a="sdelay-down" title="-100ms" aria-label="-100ms">−</button>
+      <span class="ctx-slider-val" id="ctx-sdelay-val">0.00s</span>
+      <button class="ctx-mini-btn" data-a="sdelay-up" title="+100ms" aria-label="+100ms">+</button>
+      <button class="ctx-mini-btn" data-a="sdelay-reset" title="Reset" aria-label="Reset">⟲</button>
+    </div>
+  </div>
+  <div class="ctx-section" id="ctx-sec-video">
+    <div class="ctx-section-label">Video</div>
+    <div class="ctx-track-list" id="ctx-video-tracks"></div>
+    <div class="ctx-item" data-a="open-eq">Equalizer…</div>
+    <div class="ctx-item" data-a="open-info">Media Info…</div>
+    <div class="ctx-sep"></div>
+    <div class="ctx-item" data-a="screenshot">Screenshot</div>
+    <div class="ctx-item" data-a="frame-fwd">Frame Forward</div>
+    <div class="ctx-item" data-a="frame-back">Frame Back</div>
+  </div>
+</div>
+
+<!-- ══ RESUME PROMPT (toast with action button) ═════════════════ -->
+
+
+<!-- Scripts - Simple loading (matching v1.6.0 working approach) -->
+<!-- VENDORED: these were cdnjs <script> tags, so the fox and the whole PDF
+     tab were dead without an internet connection. three is now r158, which
+     has CapsuleGeometry natively (r128 did not — that was the crash). -->
+<script src="vendor/pdf.min.js"></script>
+<script>if(window.pdfjsLib) pdfjsLib.GlobalWorkerOptions.workerSrc='vendor/pdf.worker.min.js';</script>
+<script src="vendor/pdf-lib.min.js"></script>
 <script type="module" src="js/app.js"></script>
+
+
 </body>
 </html>

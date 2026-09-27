@@ -1,0 +1,85 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master, develop]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  verify:
+    name: Verify (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        # The file:// three-slash bug, the OS thumbnailer fallback and the
+        # path handling in gallery:scan all behave differently per platform.
+        # Testing on one OS is how those shipped broken in the first place.
+        os: [ubuntu-latest, windows-latest, macos-latest]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      # electron's postinstall downloads a ~100MB binary that none of these
+      # checks need. The typings come from the package tarball either way.
+      - name: Install
+        run: npm ci --no-audit --no-fund
+        env:
+          # The end-to-end step fetches the binary itself on Linux only.
+          ELECTRON_SKIP_BINARY_DOWNLOAD: 1
+
+      - name: Syntax
+        run: npm run lint:syntax
+
+      - name: Contracts
+        run: npm run lint:contracts
+
+      - name: Electron API surface
+        run: npm run lint:electron
+
+      - name: Main process
+        run: npm run test:main
+
+      - name: Renderer
+        run: npm run test:smoke
+
+      # The only test that talks to the real mpv. Everything else stubs it,
+      # and a stub can only confirm what its author already believed.
+      - name: Install mpv (Linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq mpv
+
+      - name: Real mpv
+        run: npm run test:mpv
+
+      # The real app in real Electron under a virtual display, driven by
+      # Playwright. Its first run found five bugs every other layer missed.
+      - name: End-to-end (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get install -y -qq xvfb ffmpeg xcompmgr x11-utils imagemagick
+          node node_modules/electron/install.js
+          # +extension Composite: part C runs the two-window layout, whose
+          # transparent front window needs a compositor.
+          xvfb-run -a -s "-screen 0 1600x1000x24 +extension Composite" npm run test:e2e
+
+  build:
+    name: Build check
+    needs: verify
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 20, cache: npm }
+      - run: npm ci --no-audit --no-fund
+      # Proves the icon pipeline works and electron-builder can read the
+      # config, without producing (or signing) a real installer.
+      - run: npm run gen-icon
+      - run: npx electron-builder --linux --dir --publish never

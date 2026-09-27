@@ -13,12 +13,27 @@ contextBridge.exposeInMainWorld('api',{
     isFs:      ()=>inv('win:isFs'),
     snap:      zone=>inv('win:snap',zone),
     theatre:   ()=>inv('win:theatre'),
+    pipSize:()=>inv('win:pipSize'),
+    pip:       on=>inv('win:pip',on),
     onState:   cb=>on('win:state',cb),
+    onPipState:cb=>on('win:pipState',cb),
   },
   dialog:{
     open:    ()=>inv('dialog:open'),
     openSub: ()=>inv('dialog:openSub'),
     openPDF: ()=>inv('dialog:openPDF'),
+    savePDF: defaultName=>inv('dialog:savePDF',defaultName),
+    openM3u:  ()=>inv('dialog:openM3u'),
+    saveM3u:  defaultName=>inv('dialog:saveM3u',defaultName),
+  },
+  pdfFile:{
+    write:(path,data)=>inv('pdf:writeFile',path,data),
+  },
+  plugins:{
+    list:       ()=>inv('plugins:list'),
+    setEnabled: (id,en)=>inv('plugins:setEnabled',id,en),
+    openFolder: ()=>inv('plugins:openFolder'),
+    css:        (id)=>inv('plugins:css',id),
   },
   mpv:{
     cmd:         (c,...a)=>inv('mpv:cmd',c,...a),
@@ -49,10 +64,18 @@ contextBridge.exposeInMainWorld('api',{
     setDefault:   ()=>inv('app:setDefault'),
     onUpdater:    cb=>on('updater:status',cb),
     onFirstRun:   cb=>on('app:firstRun',cb),
+    // v1.9.0: Lite mode info from main process — build-time flag, platform,
+    // arch, real CPU/RAM counts (used by the renderer's auto-detect).
+    perfInfo:     ()=>inv('app:perfInfo'),
+    diagnostics:  ()=>inv('app:diagnostics'),
   },
   gallery:{
     browse:()=>inv('gallery:browse'),
     scan:  f=>inv('gallery:scan',f),
+    thumb: (f,size)=>inv('gallery:thumb',f,size),
+  },
+  music:{
+    tags: paths=>inv('music:tags',paths),
   },
   showContextMenu:()=>inv('show-context-menu'),
 });

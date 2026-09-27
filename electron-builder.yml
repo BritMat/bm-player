@@ -1,39 +1,61 @@
 appId: "com.bmplayer.app"
 productName: "BM Player"
 copyright: "Copyright © 2026 BM Player"
+
+# The updater reads app-update.yml from the packaged resources, and
+# electron-builder only writes that file when a publish target exists.
+# Point `owner`/`repo` at your GitHub repository before cutting a release;
+# until then setupUpdater() detects the missing feed and stays quiet.
+publish:
+  - provider: github
+    owner: BritMat
+    repo: bm-player
+
 directories:
   output: "dist"
   buildResources: "buildResources"
+
 files:
   - "main.js"
   - "preload.js"
   - "src/**/*"
+  - "plugins/**/*"
   - "node_modules/**/*"
   - "!node_modules/*/{CHANGELOG.md,README.md,readme.md}"
   - "!node_modules/**/*.d.ts"
   - "!node_modules/.bin"
   - "!dist"
+
 extraResources:
   - from: "vendor/mpv"
     to: "mpv"
     filter: ["**/*", "!*.md", "!.keep"]
+
+# File associations — electron-builder generates the right OS-native
+# mechanism from this single cross-platform block (Windows registry,
+# macOS Info.plist CFBundleDocumentTypes, Linux .desktop MIME entries).
+# icon.png is auto-converted to whatever format each platform needs.
 fileAssociations:
-  - ext: ["mp4","m4v","mkv","avi","mov","wmv","flv","webm","ts","m2ts","mpg","mpeg","ogv","3gp","vob"]
+  - ext: ["mp4", "m4v", "mkv", "avi", "mov", "wmv", "flv", "webm", "ts",
+          "m2ts", "mpg", "mpeg", "ogv", "3gp", "vob"]
     name: "Video File"
     description: "Video file (BM Player)"
     role: "Viewer"
-    icon: "buildResources/icon.ico"
-  - ext: ["mp3","flac","aac","ogg","wav","m4a","wma","opus","ape","mka"]
+    icon: "buildResources/icon.png"
+  - ext: ["mp3", "flac", "aac", "ogg", "wav", "m4a", "wma", "opus", "ape", "mka"]
     name: "Audio File"
     description: "Audio file (BM Player)"
     role: "Viewer"
-    icon: "buildResources/icon.ico"
+    icon: "buildResources/icon.png"
+
+# ── Windows ─────────────────────────────────────────────────────────
 win:
   icon: "buildResources/icon.ico"
   target:
     - target: "nsis"
   artifactName: "BM-Player-Setup-${version}-${arch}.exe"
   requestedExecutionLevel: "asInvoker"
+
 nsis:
   oneClick: false
   perMachine: false
@@ -46,3 +68,41 @@ nsis:
   installerHeaderIcon: "buildResources/icon.ico"
   deleteAppDataOnUninstall: false
   include: "buildResources/installer.nsh"
+
+# ── macOS ───────────────────────────────────────────────────────────
+# NOTE: mpv's --wid window-embedding is less mature on macOS than on
+# Windows/X11 per mpv's own docs. This config is believed correct but has
+# not been run on real Mac hardware — treat the first CI build as the
+# real test, not a confirmed-working release.
+mac:
+  icon: "buildResources/icon.png"
+  category: "public.app-category.video"
+  target:
+    - target: "dmg"
+      arch: ["x64", "arm64"]
+    - target: "zip"
+      arch: ["x64", "arm64"]
+  artifactName: "BM-Player-${version}-${arch}.${ext}"
+  hardenedRuntime: true
+  gatekeeperAssess: false
+
+dmg:
+  title: "BM Player ${version}"
+
+# ── Linux ───────────────────────────────────────────────────────────
+# AppImage is the most portable target (no install/root needed); .deb
+# covers Debian/Ubuntu directly. mpv is expected on the system PATH
+# (see release.yml — installed via apt in CI) rather than bundled, since
+# a statically-linked Linux mpv build isn't fetched by this pipeline yet.
+linux:
+  icon: "buildResources/icon.png"
+  category: "AudioVideo"
+  target:
+    - target: "AppImage"
+      arch: ["x64"]
+    - target: "deb"
+      arch: ["x64"]
+  artifactName: "BM-Player-${version}-${arch}.${ext}"
+
+deb:
+  depends: ["mpv"]

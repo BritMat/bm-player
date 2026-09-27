@@ -1,0 +1,7 @@
+{
+  "name": "Now Playing Stats",
+  "version": "1.0.0",
+  "type": "functional",
+  "description": "Example plugin — adds a small floating panel that tracks playback time and theme changes live. Use this as a template.",
+  "entry": "index.js"
+}

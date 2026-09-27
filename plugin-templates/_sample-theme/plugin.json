@@ -1,0 +1,9 @@
+{
+  "name": "Sample Theme",
+  "version": "1.0.0",
+  "type": "theme",
+  "description": "A template: copy this folder, drop the underscore from its name, and edit theme.css.",
+  "css": "theme.css",
+  "themeKey": "my-theme",
+  "icon": "🌿"
+}

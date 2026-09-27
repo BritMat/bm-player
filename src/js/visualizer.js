@@ -2,7 +2,13 @@
  * BM Player — Audio Visualizer
  * Modes: bars | radial | wave | particles | off
  * Falls back to beautiful synthetic animation when no audio stream is available.
- */
+  *
+ * NOTE: this class prefers a real AnalyserNode whenever one is attached, and
+ * only falls back to the synthetic path below when there isn't one. Since
+ * v3.1.0 audio-engine.js supplies a real analyser for any audio-only file the
+ * browser can decode, so the bars react to the actual signal. mpv-backed
+ * playback (video, and codecs Chromium can't decode) still gets the synth.
+*/
 
 export class Visualizer {
   constructor (canvas) {

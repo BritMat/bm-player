@@ -1,0 +1,6 @@
+# This file's presence in the packaged app signals to main.js that this
+# is a Lite build — main.js then sets BM_LITE=1, the renderer's lite-mode
+# module sees that as the env-flag (priority 1), and the app runs in lite
+# mode regardless of any other detection signal.
+#
+# Empty file by design — only its existence matters.

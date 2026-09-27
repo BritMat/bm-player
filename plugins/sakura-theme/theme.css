@@ -1,0 +1,63 @@
+/**
+ * Sakura Theme — BM Player Plugin
+ * 
+ * Cherry blossom pinks with delicate petal aesthetics
+ * Features: Petal-like gradients, soft pink glows, gentle animations
+ */
+:root[data-theme="sakura"] {
+  --bg:          #180f14;
+  --bg2:         #22141c;
+  --surface:     #2c1a24;
+  --surface2:    #382230;
+  --border:      rgba(245, 160, 192, .16);
+  --text:        #fff0f5;
+  --text-muted:  #b888a0;
+  --accent:      #f5a0c0;
+  --accent2:     #ffb0d0;
+  --accent-glow: rgba(245, 160, 192, .38);
+  --bar-bg:      rgba(245, 160, 192, .09);
+  --hover:       rgba(245, 160, 192, .13);
+  --menu-bg:     #1e1220;
+  --danger:      #ff6688;
+}
+
+/* Sakura-specific enhancements */
+[data-theme="sakura"] .titlebar {
+  background: linear-gradient(90deg, 
+    rgba(245, 160, 192, .1) 0%, 
+    transparent 50%, 
+    rgba(255, 176, 208, .08) 100%
+  );
+  border-bottom-color: rgba(245, 160, 192, .28);
+}
+
+[data-theme="sakura"] .sidebar {
+  border-right: 1px solid rgba(245, 160, 192, .22);
+  box-shadow: 2px 0 16px rgba(245, 160, 192, .12);
+}
+
+[data-theme="sakura"] .btn-primary {
+  background: linear-gradient(135deg, #e080a0, #f5a0c0, #ffb0d0, #ffd0e0);
+  box-shadow: 0 4px 20px rgba(245, 160, 192, .38);
+}
+
+[data-theme="sakura"] .seek-fill {
+  background: linear-gradient(90deg, #e080a0, #f5a0c0, #ffb0d0);
+  box-shadow: 0 0 12px rgba(245, 160, 192, .52);
+}
+
+[data-theme="sakura"] .welcome-screen::before {
+  background: 
+    radial-gradient(circle at 40% 60%, rgba(245, 160, 192, .15) 0%, transparent 55%),
+    radial-gradient(circle at 75% 25%, rgba(255, 176, 208, .1) 0%, transparent 45%);
+}
+
+/* Gentle floating for sakura */
+[data-theme="sakura"] .fox-container {
+  animation: float 6s ease-in-out infinite;
+}
+
+[data-theme="sakura"] .ctrl-btn.play-btn {
+  background: linear-gradient(135deg, #f5a0c0, #ffb0d0);
+  box-shadow: 0 0 28px rgba(245, 160, 192, .48);
+}

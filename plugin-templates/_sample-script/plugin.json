@@ -1,0 +1,7 @@
+{
+  "name": "Sample Script",
+  "version": "1.0.0",
+  "type": "functional",
+  "description": "A template script plugin. Script plugins start switched off; turning one on asks you to confirm.",
+  "entry": "index.js"
+}

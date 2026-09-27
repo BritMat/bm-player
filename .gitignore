@@ -1,3 +1,13 @@
 node_modules/
 dist/
-vendor/
+out/
+build/
+*.log
+npm-debug.log*
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+buildResources/icon.png
+vendor/mpv/*
+!vendor/mpv/README.md

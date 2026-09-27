@@ -1,0 +1,38 @@
+/**
+ * Example BM Player theme plugin — Sunset
+ *
+ * A theme plugin only needs a plugin.json (type:"theme", pointing at this
+ * file) and this CSS file — no JS entry required. Define the same set of
+ * CSS custom properties the built-in themes use, scoped under your own
+ * data-theme value (matching "themeKey" in plugin.json), and BM Player's
+ * theme switcher handles the rest automatically: the pill button, the
+ * localStorage persistence, and applying it everywhere the built-in themes
+ * already work (seekbar, panels, titlebar, etc all read these same tokens).
+ */
+:root[data-theme="sunset"] {
+  --bg:          #1a0f14;
+  --bg2:         #24141a;
+  --surface:     #2c1820;
+  --surface2:    #351d26;
+  --border:      rgba(255,150,100,.16);
+  --text:        #ffe8d8;
+  --text-muted:  #c99a80;
+  --accent:      #ff6b4a;
+  --accent2:     #ffb347;
+  --accent-glow: rgba(255,107,74,.4);
+  --bar-bg:      rgba(255,150,100,.09);
+  --hover:       rgba(255,150,100,.12);
+  --menu-bg:     #24141a;
+  --danger:      #ff5555;
+}
+
+/* Optional: give the seekbar its own gradient flair, matching the pattern
+   the Dracula/Northern built-in themes use for their seek-fill accent. */
+[data-theme="sunset"] .seek-fill {
+  background: linear-gradient(90deg, #ff6b4a, #ffb347);
+  box-shadow: 0 0 14px rgba(255,107,74,.6);
+}
+[data-theme="sunset"] .titlebar {
+  background: linear-gradient(90deg, #1a0f14 0%, #24141a 100%);
+  border-bottom-color: rgba(255,150,100,.2);
+}
