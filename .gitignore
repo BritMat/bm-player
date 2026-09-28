@@ -9,5 +9,6 @@ Thumbs.db
 .vscode/
 .idea/
 buildResources/icon.png
+buildResources/icon.ico
 vendor/mpv/*
 !vendor/mpv/README.md

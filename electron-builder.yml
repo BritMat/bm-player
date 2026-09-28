@@ -44,12 +44,12 @@ fileAssociations:
     name: "Video File"
     description: "Video file (BM Player)"
     role: "Viewer"
-    icon: "buildResources/icon.png"
+    icon: "buildResources/icon.ico"
   - ext: ["mp3", "flac", "aac", "ogg", "wav", "m4a", "wma", "opus", "ape", "mka"]
     name: "Audio File"
     description: "Audio file (BM Player)"
     role: "Viewer"
-    icon: "buildResources/icon.png"
+    icon: "buildResources/icon.ico"
 
 # ── Windows ─────────────────────────────────────────────────────────
 win:

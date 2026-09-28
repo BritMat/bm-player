@@ -4,7 +4,7 @@ A desktop media player built on Electron with [mpv](https://mpv.io) as the
 playback engine. Video, a music library with tag reading, an image gallery, a
 PDF suite, IPTV, 15 themes, and a plugin system.
 
-![version](https://img.shields.io/badge/version-3.22.4-5B6FF8)
+![version](https://img.shields.io/badge/version-3.22.5-5B6FF8)
 ![license](https://img.shields.io/badge/license-MIT-green)
 
 ## First launch
@@ -304,6 +304,16 @@ one on GitHub. For a version that is already tagged, run the workflow by hand
 
 The installer is not code-signed, so Windows SmartScreen warns before
 running it (More info, Run anyway).
+
+The first release run stopped building the installer: electron-builder.yml
+asked for `buildResources/icon.ico` for the app, the installer, the
+uninstaller and the installer header, and only `icon.png` was ever made.
+`npm run gen-icon` now also writes a multi-size `icon.ico` (16 to 128 as
+32-bit bitmaps, 256 as PNG), checked against its source for orientation and
+colour. Both icons are generated and kept out of Git. The Lite config and the
+file-type icons now use the `.ico` too, and a contract requires every icon
+path to exist or be made by the icon script, and to be an `.ico` wherever
+Windows reads it.
 
 ### Line endings on Windows (v3.22.3)
 

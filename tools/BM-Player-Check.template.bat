@@ -38,9 +38,9 @@ for /f "usebackq delims=" %%Z in (`%PS% -Command "$z = Get-ChildItem -LiteralPat
 if not defined ZIPNAME goto :nozip
 call :say "Using %ZIPNAME%"
 set "OLDZIP="
-%PS% -Command "$v = [regex]::Match($env:ZIPNAME, '\d+\.\d+\.\d+').Value; if (-not $v -or [version]$v -lt [version]'3.22.4') { exit 1 }" >nul 2>&1
+%PS% -Command "$v = [regex]::Match($env:ZIPNAME, '\d+\.\d+\.\d+').Value; if (-not $v -or [version]$v -lt [version]'3.22.5') { exit 1 }" >nul 2>&1
 if errorlevel 1 set "OLDZIP=1"
-if defined OLDZIP call :say "NOTE: this zip is older than v3.22.4, which has fixes for Windows. Put BM-Player-v3.22.4.zip here for the best results."
+if defined OLDZIP call :say "NOTE: this zip is older than v3.22.5, which has fixes for Windows. Put BM-Player-v3.22.5.zip here for the best results."
 
 rem ---------- 2. unpack it ----------
 call :say "Unpacking..."
@@ -195,7 +195,7 @@ popd
 >> "%RESULTS%\SUMMARY.txt" echo 3. real app, playback and PiP ...... %R3%
 >> "%RESULTS%\SUMMARY.txt" echo 4. video layer question ............ %R4%
 >> "%RESULTS%\SUMMARY.txt" echo 5. publish to GitHub ............... %R5%
-if defined OLDZIP >> "%RESULTS%\SUMMARY.txt" echo NOTE: run with %ZIPNAME%, older than v3.22.4
+if defined OLDZIP >> "%RESULTS%\SUMMARY.txt" echo NOTE: run with %ZIPNAME%, older than v3.22.5
 if defined NOELECTRON >> "%RESULTS%\SUMMARY.txt" echo NOTE: Electron could not be installed, see run-log.txt
 >> "%RESULTS%\SUMMARY.txt" echo.
 if exist "%RESULTS%\video-layer\summary.txt" type "%RESULTS%\video-layer\summary.txt" >> "%RESULTS%\SUMMARY.txt"
