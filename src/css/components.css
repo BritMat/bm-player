@@ -455,3 +455,27 @@ html.bm-layered.playing body:not(.audio-viz) #player-view { background: transpar
 .lite-window body.pip-mode .pip-bar { opacity: 1 !important; }
 .lite-window body.pip-mode #player-view.active .controls-bar { padding: 4px 8px !important; }
 .lite-window body.pip-mode #player-view.active .controls-bar .seek-row { display: none; }
+
+/* ── Wordmark and type (v3.24.0) ───────────────────────────────────────
+   "BM Player" in Unbounded: a heavy BM against a lighter Player, in a
+   gradient that flows slowly through the theme's two accents, with a soft
+   glow. Titles use Unbounded too, the rest of the interface Outfit
+   (fonts.css). The flow stops in Lite mode and for reduced motion. */
+.welcome-title, .about-title, .dash-title { font-family: var(--font-display); }
+.wm-bm { font-weight: 900; }
+.wm-player { font-weight: 400; }
+.welcome-title, .about-title {
+  background: linear-gradient(120deg, var(--accent) 0%, var(--accent2) 45%, var(--accent) 90%);
+  background-size: 220% 100%;
+  -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent;
+  filter: drop-shadow(0 0 18px color-mix(in srgb, var(--accent) 38%, transparent));
+  animation: bm-wordmark-flow 9s ease-in-out infinite alternate;
+}
+.welcome-title { font-size: 54px; line-height: 1.12; letter-spacing: -0.02em; margin-bottom: 14px; }
+.about-title { font-size: 26px; line-height: 1.15; letter-spacing: -0.02em; }
+@keyframes bm-wordmark-flow { from { background-position: 0% 50%; } to { background-position: 100% 50%; } }
+.lite-mode .welcome-title, .lite-mode .about-title { animation: none; }
+@media (prefers-reduced-motion: reduce) { .welcome-title, .about-title { animation: none; } }
+.welcome-sub { font-weight: 500; font-size: 12.5px; letter-spacing: .22em; text-transform: uppercase; }
+.dash-title { font-weight: 700; letter-spacing: -0.01em; }
+.recent-label { letter-spacing: .18em; font-weight: 600; }

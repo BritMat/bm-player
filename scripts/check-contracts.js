@@ -815,6 +815,19 @@ for (const cfg of ['electron-builder.yml', 'electron-builder.lite.yml']) {
   });
 }
 
+/* ── Bundled fonts (v3.24.0) ─────────────────────────────────────────
+   Every font file fonts.css names must exist, and each font family ships
+   with its license text: the SIL Open Font License requires it. */
+{
+  const dir = path.join(ROOT, 'src', 'fonts'), css = path.join(ROOT, 'src', 'css', 'fonts.css');
+  if (fs.existsSync(css)) {
+    for (const m of fs.readFileSync(css, 'utf8').matchAll(/url\('\.\.\/fonts\/([^']+)'\)/g))
+      if (!fs.existsSync(path.join(dir, m[1]))) err('fonts', `fonts.css names ${m[1]}, which is not in src/fonts`);
+    for (const fam of new Set([...fs.readFileSync(css, 'utf8').matchAll(/font-family:\s*'([^']+)'/g)].map(m => m[1])))
+      if (!fs.existsSync(path.join(dir, `OFL-${fam}.txt`))) err('fonts', `the ${fam} font has no license file (src/fonts/OFL-${fam}.txt)`);
+  }
+}
+
 /* ── CI uses a Node the app accepts ─────────────────────────────────
    The workflow still set up Node 20 after package.json moved to 22.12, so
    on GitHub every job stopped at npm ci with EBADENGINE, on all three

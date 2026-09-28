@@ -43,6 +43,7 @@
       }catch(_){ window.__BM_LITE__ = false; }
     })();
   </script>
+  <link rel="stylesheet" href="css/fonts.css">
   <link rel="stylesheet" href="css/style.css">
   <!-- Critical inline styles - MUST override external style.css -->
   <style>
@@ -58,7 +59,7 @@
        and the sidebar was 48px wide here but 52px in style.css. That mismatch
        is the panel-switch misalignment. */
     :root{--on-accent:#0B0D14;--titlebar-h:32px;--menubar-h:32px;--chrome-h:64px;--sidebar-w:52px;--mini-h:56px}
-    html,body{height:100%;width:100%;overflow:hidden;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;font-size:14px}
+    html,body{height:100%;width:100%;overflow:hidden;font-family:var(--font-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif);font-size:14px}
     
     /* ═══ TITLEBAR - 32px height ═══ */
     .titlebar{
@@ -676,7 +677,7 @@
   <canvas id="aurora-canvas"   class="aurora-canvas"></canvas>
   <div class="welcome-center">
     <div class="fox-stage"><canvas id="fox-canvas"></canvas></div>
-    <h1 class="welcome-title">BM Player</h1>
+    <h1 class="welcome-title"><span class="wm-bm">BM</span> <span class="wm-player">Player</span></h1>
     <p class="welcome-sub">Professional media player · Powered by mpv</p>
     <div class="welcome-actions">
       <button id="btn-open-welcome" class="btn-open">▶  Open File</button>
@@ -1346,7 +1347,7 @@
   <div class="about-card">
     <button class="about-close" id="about-close" aria-label="Close About BM Player" title="Close">&#10005;</button>
     <div class="about-fox" id="about-fox" aria-hidden="true"></div>
-    <h2 class="about-title" id="about-title">BM Player</h2>
+    <h2 class="about-title" id="about-title"><span class="wm-bm">BM</span> <span class="wm-player">Player</span></h2>
     <div class="about-version" id="about-version">version</div>
     <p class="about-tagline">A media player for video, music, pictures, PDFs and live TV, built on Electron and powered by mpv.</p>
     <div class="about-author">

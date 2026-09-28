@@ -10,7 +10,7 @@
 /* ── RESET ───────────────────────────────────────────────────── */
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
 html,body{width:100%;height:100%;overflow:hidden;background:transparent;}
-body{font-family:'Segoe UI',system-ui,sans-serif;font-size:13px;user-select:none;color:var(--text);background:var(--bg);transition:background .35s,color .25s;}
+body{font-family:var(--font-ui,'Segoe UI',system-ui,sans-serif);font-size:13px;user-select:none;color:var(--text);background:var(--bg);transition:background .35s,color .25s;}
 /* True Aero-glass: the whole app surface blurs whatever is actually behind
    the transparent Electron window (real desktop/other windows), not just a
    dark tinted panel look. Individual surfaces (titlebar, sidebar, menu,

@@ -89,6 +89,7 @@ approve it, and switches off again if its files change.
 
 ## License
 
-MIT, see [LICENSE](LICENSE). mpv is a separate project with its own license,
+MIT, see [LICENSE](LICENSE). The Unbounded and Outfit fonts in `src/fonts` are
+bundled under the SIL Open Font License 1.1. mpv is a separate project with its own license,
 downloaded from its Windows builds on GitHub or installed from your system's
 package manager.
