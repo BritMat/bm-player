@@ -4,7 +4,7 @@ A desktop media player built on Electron with [mpv](https://mpv.io) as the
 playback engine. Video, a music library with tag reading, an image gallery, a
 PDF suite, IPTV, 15 themes, and a plugin system.
 
-![version](https://img.shields.io/badge/version-3.22.5-5B6FF8)
+![version](https://img.shields.io/badge/version-3.22.6-5B6FF8)
 ![license](https://img.shields.io/badge/license-MIT-green)
 
 ## First launch
@@ -283,6 +283,22 @@ sidebar away and fades the title bar and menus. With it set, there was no
 way to leave the Music tab, so the mini player never appeared. The real-app
 test for this now clicks the sidebar with a real mouse click; it used to
 switch tabs in code, which is why it passed while the sidebar was hidden.
+
+### Linux packages in the Release (v3.22.6)
+
+After the Windows job creates a Release, the `release-linux` job adds an
+AppImage (any distribution) and a `.deb` (Ubuntu and Debian; it depends on
+mpv, so apt installs that too), plus `latest-linux.yml` for the updater. It
+starts both the unpacked build and the AppImage before uploading. The Linux
+config now names a maintainer, which Debian packages require (the first
+build stopped without it). Checked here: the `.deb` installs with dpkg, adds
+the `bm-player` command and a menu entry, the installed app starts, and it
+removes cleanly; the AppImage starts too.
+
+The Release notes say which file to download on each system. `latest.yml`,
+`latest-linux.yml` and the `.blockmap` are for the built-in updater: they
+tell an installed copy what the newest version is, and let it download only
+the parts that changed.
 
 ### Windows installer and GitHub Release (v3.22.4)
 

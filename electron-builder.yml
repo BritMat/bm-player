@@ -98,6 +98,8 @@ dmg:
 # (see release.yml — installed via apt in CI) rather than bundled, since
 # a statically-linked Linux mpv build isn't fetched by this pipeline yet.
 linux:
+  # Debian packages must name a maintainer with an email.
+  maintainer: "Bristo <reach.bristo@gmail.com>"
   icon: "buildResources/icon.png"
   category: "AudioVideo"
   target:

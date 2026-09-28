@@ -7,6 +7,7 @@
  * installer built then would have crashed on launch.
  *
  *   node scripts/smoke-packaged.mjs [dist folder]     (Linux: under xvfb-run)
+ *   node scripts/smoke-packaged.mjs BM-Player-x.y.z-x86_64.AppImage   (a single-file build)
  */
 import { _electron } from 'playwright-core';
 import fs from 'node:fs';
@@ -15,21 +16,27 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const dist = path.resolve(process.argv[2] || path.join(ROOT, 'dist'));
+const target = path.resolve(process.argv[2] || path.join(ROOT, 'dist'));
+const single = fs.existsSync(target) && fs.statSync(target).isFile();   // an AppImage, say
+const dist = single ? path.dirname(target) : target;
 const fail = msg => { console.error('\u2717 ' + msg); process.exit(1); };
 setTimeout(() => fail('the packaged app did not boot within 60 seconds'), 60000).unref();
 
-const unpacked = fs.existsSync(dist) && fs.readdirSync(dist).map(d => path.join(dist, d)).find(d => /-unpacked$/.test(d) && fs.statSync(d).isDirectory());
-if (!unpacked) fail('no *-unpacked build in ' + dist + ' (run: npx electron-builder --dir)');
 const pkg = JSON.parse(fs.readFileSync(path.join(ROOT, 'package.json'), 'utf8'));
-const exe = [path.join(unpacked, pkg.name), path.join(unpacked, `${pkg.productName}.exe`), path.join(unpacked, `${pkg.name}.exe`)].find(p => fs.existsSync(p));
-if (!exe) fail('no executable in ' + unpacked);
+let exe = single ? target : null;
+if (!exe) {
+  const unpacked = fs.existsSync(dist) && fs.readdirSync(dist).map(d => path.join(dist, d)).find(d => /-unpacked$/.test(d) && fs.statSync(d).isDirectory());
+  if (!unpacked) fail('no *-unpacked build in ' + dist + ' (run: npx electron-builder --dir)');
+  exe = [path.join(unpacked, pkg.name), path.join(unpacked, `${pkg.productName}.exe`), path.join(unpacked, `${pkg.name}.exe`)].find(p => fs.existsSync(p));
+  if (!exe) fail('no executable in ' + unpacked);
+}
 
 const profile = fs.mkdtempSync(path.join(os.tmpdir(), 'bm-packaged-'));
 const errors = [];
 let app;
 try {
-  app = await _electron.launch({ executablePath: exe, args: ['--no-sandbox', `--user-data-dir=${profile}`], timeout: 45000 });
+  const env = /\.AppImage$/i.test(exe) ? { ...process.env, APPIMAGE_EXTRACT_AND_RUN: '1' } : process.env;
+  app = await _electron.launch({ executablePath: exe, args: ['--no-sandbox', `--user-data-dir=${profile}`], env, timeout: 45000 });
   app.process().stderr?.on('data', d => { const s = String(d); if (/Cannot find module|Uncaught|Error:/.test(s)) errors.push(s.trim().split('\n')[0]); });
   let page;
   for (let i = 0; i < 160 && !page; i++) { page = app.windows().find(w => w.url().includes('index.html')); if (!page) await new Promise(r => setTimeout(r, 250)); }

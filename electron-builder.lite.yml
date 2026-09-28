@@ -115,6 +115,8 @@ dmg:
 
 # ── Linux ────────────────────────────────────────────────────────────
 linux:
+  # Debian packages must name a maintainer with an email.
+  maintainer: "Bristo <reach.bristo@gmail.com>"
   icon: "buildResources/icon.png"
   category: "AudioVideo"
   target:
