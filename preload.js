@@ -3,6 +3,11 @@ const { contextBridge, ipcRenderer } = require('electron');
 const inv=(ch,...a)=>ipcRenderer.invoke(ch,...a);
 const on=(ch,cb)=>ipcRenderer.on(ch,(_,d)=>cb(d));
 contextBridge.exposeInMainWorld('api',{
+  // Lite: where the page's video area is, so the video window can sit over it
+  // (null when no video is showing). Sent, not invoked: it follows resizes.
+  video:{
+    setRect: r=>ipcRenderer.send('video:rect', r ? { x:+r.x, y:+r.y, width:+r.width, height:+r.height } : null),
+  },
   win:{
     minimize:  ()=>inv('win:minimize'),
     maximize:  ()=>inv('win:maximize'),

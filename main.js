@@ -105,6 +105,10 @@ app.commandLine.appendSwitch('ignore-gpu-blocklist');
 app.commandLine.appendSwitch('enable-gpu-rasterization');
 
 let win=null,bgWin=null,mpvProc=null,mpvSock=null;
+// Lite (v3.23.0): mpv draws into its own opaque window laid over the page's
+// video area only, so the control bar below it stays visible. It used to draw
+// into the Lite window itself and covered the controls on Windows.
+let videoWin=null,liteVideoRect=null;
 let ipcOk=false,mpvBuf='',reqId=0;
 const cbs=new Map();
 // IPC transport path: Windows uses a named pipe; macOS/Linux use a Unix
@@ -148,7 +152,12 @@ if (coldStartFile) pendingOpenFile = coldStartFile;
 //   1. process.env.BM_LITE (set by --lite flag or by the Lite installer's wrapper)
 //   2. --lite CLI arg
 //   3. packaged Lite build: presence of buildResources/lite.flag file
-const LITE_FLAG_FILE = path.join(__dirname, 'buildResources', 'lite.flag');
+// The packaged Lite build carries lite.flag as an extraResource, next to
+// app.asar. It used to be looked for inside the package, under
+// buildResources, but electron-builder never packs that folder into an app, so
+// a packaged Lite build ran as the full version (found by smoke-packaged
+// --expect-lite in v3.23.0).
+const LITE_FLAG_FILE = path.join(process.resourcesPath || __dirname, 'lite.flag');
 // Chromium switches: on Windows, DirectComposition off, which is what made
 // the video visible on a real machine. The decision lives in switches.js so
 // it can be tested; see there for the order of defaults and overrides.
@@ -202,7 +211,20 @@ app.whenReady().then(()=>{
     const boot=makeBoot(()=>win.show());
     win.once('ready-to-show',boot);
     setTimeout(boot,4000);
-    win.on('closed',()=>{killMpv();app.exit(0);});
+    win.on('closed',()=>{killMpv();try{videoWin?.destroy();}catch(_){}app.exit(0);});
+    videoWin=new BaseWindow({parent:win,show:false,frame:false,transparent:false,backgroundColor:'#000000',
+      focusable:false,skipTaskbar:true,hasShadow:false,resizable:false,movable:false,minimizable:false,maximizable:false,
+      title:'BM Player Lite video'});
+    // Clicks and the pointer pass through to the page underneath, which owns
+    // every control, as bgWin does in the full layout.
+    try{videoWin.setIgnoreMouseEvents(true);}catch(_){}
+    for (const ev of ['move','resize','maximize','unmaximize','enter-full-screen','leave-full-screen','restore','show','focus'])
+      win.on(ev, syncLiteVideo);
+    // The pin and PiP make the Lite window always-on-top. The video window must
+    // follow, or it drops behind the page and the picture disappears.
+    win.on('always-on-top-changed',(_e,top)=>{try{videoWin?.setAlwaysOnTop(!!top);}catch(_){}syncLiteVideo();});
+    win.on('minimize',()=>{try{videoWin?.hide();}catch(_){}});
+    win.on('hide',()=>{try{videoWin?.hide();}catch(_){}});
     // bgWin stays null — code below uses bgWin?. so this is safe.
   } else {
     // ── Full / Professional window setup (unchanged from v1.8.0) ──
@@ -366,6 +388,13 @@ function makeBoot(showFn){
 }
 
 function registerIpc(){
+  // Lite: the page's video area, or null when no video is showing.
+  ipcMain.on('video:rect', (e, r) => {
+    if (e.sender !== win?.webContents) return;
+    const ok = r && ['x', 'y', 'width', 'height'].every(k => Number.isFinite(r[k]));
+    liteVideoRect = ok ? { x: r.x, y: r.y, width: Math.max(0, r.width), height: Math.max(0, r.height) } : null;
+    syncLiteVideo();
+  });
   // IDEMPOTENT: registerIpc() is now called up-front in whenReady() instead of
   // from ready-to-show. ready-to-show is unreliable for transparent windows,
   // and any renderer invoke that landed before it fired got "No handler
@@ -926,7 +955,30 @@ function initMpv(){const exe=getMpv();if(!exe){send('mpv:status',{state:'missing
 // mature than the Windows/X11 path — this is implemented per mpv's public
 // docs but has not been verified on real Mac hardware from this environment.
 function videoWindow() {
+  if (IS_LITE_BUILD && videoWin) return videoWin;
   return (FLAGS.videoLayer === 'back' && bgWin) ? bgWin : win;
+}
+// Fits the Lite video window over the rectangle the page reports (its video
+// area, in page pixels), or hides it when no video is showing.
+function syncLiteVideo() {
+  if (!videoWin || videoWin.isDestroyed() || !win || win.isDestroyed()) return;
+  try {
+    const r = liteVideoRect;
+    if (!r || win.isMinimized() || !win.isVisible() || r.width < 2 || r.height < 2) { videoWin.hide(); return; }
+    const cb = win.getContentBounds();
+    videoWin.setBounds({ x: Math.round(cb.x + r.x), y: Math.round(cb.y + r.y), width: Math.round(r.width), height: Math.round(r.height) });
+    if (!videoWin.isVisible()) {
+      videoWin.showInactive();
+      // A window manager may place a window as it first appears, ignoring the
+      // position asked for before: ask again once it is on screen.
+      videoWin.setBounds({ x: Math.round(cb.x + r.x), y: Math.round(cb.y + r.y), width: Math.round(r.width), height: Math.round(r.height) });
+    }
+    // Above the Lite window. Windows and macOS keep an owned window above its
+    // owner anyway; on Linux that is the window manager's job, and without
+    // one (or when the app raises its window on opening a file) the picture
+    // ended up underneath the page.
+    videoWin.moveTop();
+  } catch (_) {}
 }
 function getWid() {
   const buf = videoWindow().getNativeWindowHandle();

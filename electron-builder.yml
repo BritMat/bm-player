@@ -86,7 +86,15 @@ mac:
     - target: "zip"
       arch: ["x64", "arm64"]
   artifactName: "BM-Player-${version}-${arch}.${ext}"
-  hardenedRuntime: true
+  # No Apple Developer ID yet, so the app is ad-hoc signed ("-"): Apple
+  # Silicon refuses to run an app with no signature at all, and editing
+  # Electron's bundle breaks its original one. Hardened runtime stays off: with
+  # ad-hoc signing it makes the app fail to launch unless extra entitlements
+  # are added (electron-builder warns about this), and it only matters for
+  # Apple's notarization, which needs a Developer ID. Turn both on together
+  # with a certificate.
+  identity: "-"
+  hardenedRuntime: false
   gatekeeperAssess: false
 
 dmg:

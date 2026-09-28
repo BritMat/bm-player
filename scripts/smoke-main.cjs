@@ -334,7 +334,7 @@ async function main() {
   await step('registerIpc() is idempotent', async () => {
     // ready-to-show also calls it; the guard must stop a duplicate-handle throw.
     const before = rec.handlers.size;
-    const win = rec.windows[rec.windows.length - 1];
+    const win = rec.windows.find(w => w.opts && w.opts.webPreferences) || rec.windows[rec.windows.length - 1];
     win.emit('ready-to-show');
     if (rec.handlers.size !== before) throw new Error('handler count changed on second call');
   });
@@ -473,13 +473,17 @@ async function main() {
 /* ── 7. Picture-in-picture, driven through the real handler ─────── */
   const LAYER = (rec.windows.find(w => w.loaded)?.loaded.opts.query || {}).vl || 'front';
 
-  await step(`mpv is handed the ${LAYER === 'back' ? 'background' : 'front'} window`, () => {
+  const LITE_RUN = process.argv.includes('--lite-run');
+  await step(`mpv is handed the ${LITE_RUN ? 'Lite video' : LAYER === 'back' ? 'background' : 'front'} window`, () => {
     const spawned = rec.spawned[0];
-    if (!spawned) return;                                 // no mpv on this machine: nothing to check
+    if (!spawned) { console.log('      (no mpv on this machine: not checked)'); return; }
     const wid = (spawned.args.find(a => a.startsWith('--wid=')) || '').split('=')[1];
     const front = rec.windows.find(w => w.opts && w.opts.webPreferences);
-    const back = rec.windows.find(w => w !== front);
-    const expect = LAYER === 'back' ? back : front;
+    // Lite (v3.23.0): mpv draws into its own window over the page's video area.
+    const liteVideo = rec.windows.find(w => w.opts && /Lite video/.test(w.opts.title || ''));
+    if (LITE_RUN && !liteVideo) throw new Error('the Lite build created no video window');
+    const back = rec.windows.find(w => w !== front && w !== liteVideo);
+    const expect = LITE_RUN ? liteVideo : LAYER === 'back' ? back : front;
     const want = String(1000 + rec.windows.indexOf(expect));
     if (wid !== want) throw new Error(`--wid=${wid}, expected ${want} (${LAYER} layer)`);
   });
@@ -489,7 +493,9 @@ async function main() {
     const want = (lite || compat) ? 'front' : (['linux', 'win32'].includes(process.platform) ? 'back' : 'front');
     if (LAYER !== want) throw new Error(`layer is ${LAYER}, expected ${want}`);
   });
-  const W = rec.windows.find(w => w.opts && w.opts.parent) || rec.windows[rec.windows.length - 1];
+  // The page's window: the only one created with webPreferences. "The one with
+  // a parent" stopped meaning that when Lite got its own video window (v3.23.0).
+  const W = rec.windows.find(w => w.opts && w.opts.webPreferences) || rec.windows[rec.windows.length - 1];
   const BG = rec.windows.find(w => w !== W && !(w.opts && w.opts.parent));
   const NORMAL = { x: 200, y: 120, width: 1280, height: 780 };
   const pipSent = () => rec.sent.filter(([ch]) => ch === 'win:pipState').map(([, v]) => v);

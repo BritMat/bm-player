@@ -13,6 +13,7 @@ import SpeedMenu, { SPEED_PRESETS } from './modules/speed-menu.js';
 import SubtitleSearch from './modules/subtitle-search.js';
 import { parseM3u, serializeM3u, readM3uFile, writeM3uFile, isM3uPath } from './modules/playlist-io.js';
 import liteMode from './modules/lite-mode.js';
+import './lite-video.js';   // Lite: where the video window goes
 import { TVModule } from './modules/tv.js';
 import { el, fileURL, fmtSec, seedGrad,
          escapeHtml, escapeAttr, basenameOf, relativeTime } from './util.js';

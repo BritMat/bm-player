@@ -507,6 +507,35 @@ if (PART === 'b') {
       await shot('mpv-video');
     });
 
+    // Lite (v3.23.0): mpv draws into its own window laid over the page's video
+    // area only. It used to draw into the whole Lite window, and on Windows the
+    // controls disappeared behind the picture. The bar is now below the
+    // picture, solid, and the video window must sit exactly over the area.
+    await step('Lite: the picture sits above a solid control bar, in a window fitted to it', async () => {
+      await page.waitForTimeout(400);
+      const pg = await page.evaluate(async () => {
+        const { videoRect } = await import('./js/lite-video.js');
+        const bar = document.getElementById('controls-bar'), b = bar.getBoundingClientRect(), cs = getComputedStyle(bar);
+        return { lite: document.documentElement.classList.contains('lite-window'), rect: videoRect(),
+                 bar: { top: b.top, height: b.height, opacity: +cs.opacity, position: cs.position } };
+      });
+      if (!pg.lite) throw new Error('the page does not know it is the Lite build');
+      if (!pg.rect) throw new Error('no video area reported while a video plays');
+      if (pg.rect.y + pg.rect.height > pg.bar.top + 1) throw new Error(`the picture (to ${pg.rect.y + pg.rect.height}) runs over the control bar (from ${pg.bar.top})`);
+      if (pg.bar.opacity < 1 || pg.bar.position !== 'relative' || pg.bar.height < 40) throw new Error('the control bar is not a solid bar below the picture: ' + JSON.stringify(pg.bar));
+      const w = await app.evaluate(({ BaseWindow }) => {
+        const all = BaseWindow.getAllWindows();
+        const v = all.find(x => x.getTitle() === 'BM Player Lite video'), m = all.find(x => x !== v && x.getTitle() !== 'BM Player Lite video');
+        return v && m ? { visible: v.isVisible(), v: v.getBounds(), c: m.getContentBounds() } : null;
+      });
+      if (!w) throw new Error('the Lite build has no video window');
+      if (!w.visible) throw new Error('the video window is hidden while a video plays');
+      const want = { x: w.c.x + pg.rect.x, y: w.c.y + pg.rect.y, width: pg.rect.width, height: pg.rect.height };
+      const off = Math.max(...['x', 'y', 'width', 'height'].map(k => Math.abs(w.v[k] - want[k])));
+      if (off > 2) throw new Error(`the video window is at ${JSON.stringify(w.v)}, the video area at ${JSON.stringify(want)}`);
+      console.log(`      (picture ${pg.rect.width}x${pg.rect.height} above a ${Math.round(pg.bar.height)}px control bar)`);
+    });
+
     // On a real machine the "make BM Player the default" prompt sat right on a
     // subtitle line: during video, prompts were placed just above the controls,
     // which is where subtitles are drawn. They now go to the top.
@@ -526,12 +555,12 @@ if (PART === 'b') {
     });
 
     await step('PiP resizes the real window and restores it', async () => {
-      const before = await app.evaluate(({ BaseWindow }) => BaseWindow.getAllWindows()[0].getBounds());
+      const before = await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].getBounds());
       await page.evaluate(() => bmApp.togglePiP(true)); await page.waitForTimeout(900);
-      const inPip = await app.evaluate(({ BaseWindow }) => { const w = BaseWindow.getAllWindows()[0]; return { b: w.getBounds(), top: w.isAlwaysOnTop() }; });
+      const inPip = await app.evaluate(({ BrowserWindow }) => { const w = BrowserWindow.getAllWindows()[0]; return { b: w.getBounds(), top: w.isAlwaysOnTop() }; });
       await shot('pip');
       await page.evaluate(() => bmApp.togglePiP(false)); await page.waitForTimeout(900);
-      const after = await app.evaluate(({ BaseWindow }) => BaseWindow.getAllWindows()[0].getBounds());
+      const after = await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].getBounds());
       if (inPip.b.width > 700 || !inPip.top) throw new Error('did not enter PiP: ' + JSON.stringify(inPip));
       if (Math.abs(after.width - before.width) > 2 || Math.abs(after.height - before.height) > 2) {
         throw new Error(`restored to ${after.width}x${after.height}, was ${before.width}x${before.height}`);
@@ -567,7 +596,7 @@ if (PART === 'b') {
     // Also reported: PiP would not open while playback was paused.
     await step('PiP opens from a paused video', async () => {
       await page.evaluate(() => { if (bmApp.isPlaying) bmApp.togglePlay(); }); await page.waitForTimeout(600);
-      const width = () => app.evaluate(({ BaseWindow }) => BaseWindow.getAllWindows()[0].getBounds().width);
+      const width = () => app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].getBounds().width);
       if (await width() <= 700) throw new Error('the window was already small before this step: a previous step left PiP on');
       await page.evaluate(() => bmApp.togglePiP(true)); await page.waitForTimeout(900);
       const r = { w: await width() };

@@ -1,3 +1,4 @@
+!include "${BUILD_RESOURCES_DIR}\mpv-download.nsh"
 # NSIS custom installer macros for BM Player Lite (v1.9.0)
 #
 # Identical in structure to buildResources/installer.nsh but registers
@@ -21,6 +22,7 @@
   WriteRegStr HKCU "Software\Classes\BMPlayerLite.Audio\DefaultIcon" "" "$INSTDIR\BM Player Lite.exe,0"
   WriteRegStr HKCU "Software\Classes\BMPlayerLite.Audio\shell\open\command" "" '"$INSTDIR\BM Player Lite.exe" "%1"'
   System::Call 'Shell32::SHChangeNotify(i 0x8000000, i 0, i 0, i 0)'
+  !insertmacro bmGetMpv
 !macroend
 !macro customUninstall
   DeleteRegKey HKCU "Software\Clients\Media\BM Player Lite"

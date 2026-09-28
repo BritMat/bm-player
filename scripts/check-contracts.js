@@ -779,8 +779,13 @@ function filesList(text) {
     for (const d of runtimeDirs) { if (lite && d === 'plugins') continue; const f = firstFile(d); if (f && !covered(f)) err('packaging', `${cfg} does not package ${d}/, which main.js reads at runtime`); }
     // lite.flag is how a packaged build knows it is Lite: in the Lite build,
     // and never in the normal one, which would then run as Lite.
-    if (lite && !covered('buildResources/lite.flag')) err('packaging', `${cfg} does not package buildResources/lite.flag: the Lite build would run as the full version`);
-    if (!lite && covered('buildResources/lite.flag')) err('packaging', `${cfg} packages buildResources/lite.flag: the normal build would run as Lite`);
+    // electron-builder never packs buildResources into the app, so lite.flag
+    // reaches the Lite build as an extraResource (resources/lite.flag), where
+    // main.js looks. Only the Lite config may carry it.
+    const cfgText = fs.readFileSync(p, 'utf8');
+    const flagCopied = /-\s*from:\s*["']?buildResources\/lite\.flag["']?\s*\n\s*to:\s*["']?lite\.flag["']?/.test(cfgText);
+    if (lite && !flagCopied) err('packaging', `${cfg} does not copy buildResources/lite.flag to resources/lite.flag: the Lite build would run as the full version`);
+    if (!lite && flagCopied) err('packaging', `${cfg} copies lite.flag into resources: the normal build would run as Lite`);
   }
 }
 

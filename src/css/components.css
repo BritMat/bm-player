@@ -434,3 +434,24 @@ html.bm-layered.playing body:not(.audio-viz) #player-view { background: transpar
 /* The fox's Santa hat, only in the Snow theme (v3.21.0) */
 .geofox .gf-hat { display: none; }
 .geofox.gf-hat-on .gf-hat { display: inline; }
+
+/* ── Lite window (v3.23.0) ─────────────────────────────────────────────
+   In the Lite build mpv draws into its own window laid over #video-area only
+   (main.js syncLiteVideo), so nothing may be drawn over the video: the control
+   bar sits below the picture, solid and always visible, instead of fading in
+   over it. In the full build these rules never apply. */
+#video-area { display: none; }
+/* !important: index.html's own <style> sets #player-view.active to block !important. */
+.lite-window body.playing #player-view.active { display: flex !important; flex-direction: column; background: #000; }
+.lite-window body.playing #player-view.active #video-area { display: block; flex: 1 1 auto; min-height: 40px; }
+.lite-window body.playing #player-view.active .controls-bar {
+  position: relative; flex: 0 0 auto; background: var(--surface, #13151f);
+  border-top: 1px solid var(--border, rgba(255,255,255,.08)); padding: 8px 20px 12px;
+  opacity: 1 !important; visibility: visible !important; transform: none !important; pointer-events: auto !important;
+}
+/* PiP: the PiP bar stays visible, with the picture leaving room for it, and the
+   control bar shrinks to its play controls. With the seek row as well, a
+   340x192 PiP window left the picture 65px tall. */
+.lite-window body.pip-mode .pip-bar { opacity: 1 !important; }
+.lite-window body.pip-mode #player-view.active .controls-bar { padding: 4px 8px !important; }
+.lite-window body.pip-mode #player-view.active .controls-bar .seek-row { display: none; }

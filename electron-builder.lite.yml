@@ -13,13 +13,17 @@
 #       * scripts/generate-icon.js dev tooling
 #       * assets/icon-source.png (the 200KB source PSD, only needed at
 #         build time, never at runtime)
-#   - ships 32-bit (ia32) Windows builds for older hardware that can't
-#     even run 64-bit Electron
+#   - (it shipped 32-bit Windows builds too; current Electron has none)
 #
 # CI workflow uses this config when triggered by a `vX.Y.Z-lite` tag.
 # ─────────────────────────────────────────────────────────────────────
 
 appId: "com.bmplayer.lite"
+# No update feed. package.json names the GitHub repository, so without this
+# electron-builder would set one up by itself, pointing at the full version's
+# latest.yml: an installed Lite would "update" itself into BM Player, and a
+# Lite build would overwrite the full version's latest.yml in dist.
+publish: null
 productName: "BM Player Lite"
 copyright: "Copyright © 2026 BM Player"
 
@@ -33,9 +37,6 @@ files:
   - "switches.js"
   - "plugin-safety.js"
   - "plugin-templates/**/*"
-  # How the packaged app knows it is the Lite build (main.js LITE_FLAG_FILE).
-  # The comment above always said so; the file was never actually listed.
-  - "buildResources/lite.flag"
   - "src/**/*"
   - "node_modules/**/*"
   - "!node_modules/*/{CHANGELOG.md,README.md,readme.md}"
@@ -77,7 +78,9 @@ win:
   icon: "buildResources/icon.ico"
   target:
     - target: "nsis"
-      arch: ["ia32", "x64"]     # explicit 32-bit + 64-bit for older hardware
+      # 64-bit only: Electron stopped making 32-bit Windows builds (44.3.0 has
+      # win32-x64 and win32-arm64, no ia32; 30.x was the last checked with one).
+      arch: ["x64"]
   artifactName: "BM-Player-Lite-Setup-${version}-${arch}.exe"
   requestedExecutionLevel: "asInvoker"
 
@@ -107,7 +110,15 @@ mac:
     - target: "zip"
       arch: ["x64"]
   artifactName: "BM-Player-Lite-${version}-${arch}.${ext}"
-  hardenedRuntime: true
+  # No Apple Developer ID yet, so the app is ad-hoc signed ("-"): Apple
+  # Silicon refuses to run an app with no signature at all, and editing
+  # Electron's bundle breaks its original one. Hardened runtime stays off: with
+  # ad-hoc signing it makes the app fail to launch unless extra entitlements
+  # are added (electron-builder warns about this), and it only matters for
+  # Apple's notarization, which needs a Developer ID. Turn both on together
+  # with a certificate.
+  identity: "-"
+  hardenedRuntime: false
   gatekeeperAssess: false
 
 dmg:
@@ -123,7 +134,7 @@ linux:
     - target: "AppImage"
       arch: ["x64"]
     - target: "deb"
-      arch: ["x64", "ia32"]    # ia32 deb for older 32-bit Linux distros
+      arch: ["x64"]            # Electron has no 32-bit Linux builds either
   artifactName: "BM-Player-Lite-${version}-${arch}.${ext}"
 
 deb:
