@@ -71,7 +71,9 @@ export function fmtBytes(n){
   while(n>=1024&&i<u.length-1){n/=1024;i++;}
   return (i?n.toFixed(1):n)+' '+u[i];
 }
-export function fmtSec(s){if(!s||isNaN(s))return'0:00';s=Math.floor(s);const h=Math.floor(s/3600),m=Math.floor((s%3600)/60),ss=s%60;return h?h+':'+String(m).padStart(2,'0')+':'+String(ss).padStart(2,'0'):m+':'+String(ss).padStart(2,'0');}
+// A stream, or a file still being read, reports an unknown length as Infinity,
+// which came out as "Infinity:NaN" (v3.25.0).
+export function fmtSec(s){if(s===Infinity||s===-Infinity)return'--:--';if(!s||isNaN(s)||s<0)return'0:00';s=Math.floor(s);const h=Math.floor(s/3600),m=Math.floor((s%3600)/60),ss=s%60;return h?h+':'+String(m).padStart(2,'0')+':'+String(ss).padStart(2,'0'):m+':'+String(ss).padStart(2,'0');}
 export function el(id){return document.getElementById(id);}
 // fileURL lives in util.js so modules/ can use it without importing app.js.
 export function seedGrad(s){let h=5381;for(let i=0;i<s.length;i++)h=(h*33)^s.charCodeAt(i);h=Math.abs(h);return'linear-gradient(135deg,hsl('+(h%360)+',70%,45%),hsl('+((h+137)%360)+',75%,50%))';}

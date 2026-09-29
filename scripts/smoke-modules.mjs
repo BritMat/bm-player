@@ -250,6 +250,13 @@ async function main() {
     await load('src/js/modules/subtitle-search.js');
   });
 
+  // A stream's unknown length (Infinity) showed as "Infinity:NaN" (v3.25.0).
+  await step('fmtSec: minutes, hours, and an unknown length as --:--', async () => {
+    const { fmtSec } = await load('src/js/util.js');
+    const cases = [[0, '0:00'], [NaN, '0:00'], [-5, '0:00'], [75, '1:15'], [3725, '1:02:05'], [Infinity, '--:--']];
+    for (const [v, want] of cases) if (fmtSec(v) !== want) throw new Error(`fmtSec(${v}) is ${fmtSec(v)}, expected ${want}`);
+  });
+
   const bad = results.filter(r => !r).length;
   console.log(`\n${results.length - bad}/${results.length} checks passed.\n`);
   process.exit(bad ? 1 : 0);

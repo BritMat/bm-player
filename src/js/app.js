@@ -3,7 +3,7 @@ import { buildFoxSVG } from './geofox.js';
 import { Visualizer } from './visualizer.js';
 import { ThemeFX    } from './theme-fx.js';
 import { FluidFX    } from './fluid.js';
-import { applyIcons, setTogglePair } from './icons.js';
+import { applyIcons, setTogglePair, setIcon, setPlaying } from './icons.js';
 import { perf, QUALITY_TIERS } from './perf.js';
 import settings from './modules/settings.js';
 import history from './modules/history.js';
@@ -148,7 +148,7 @@ class BMPlayer {
     this.wireTV();
     if(this.alwaysOnTop){this.api?.win.alwaysTop(true);el('mi-always-top')?.classList.add('active-opt');}
     window.addEventListener('contextmenu',e=>{e.preventDefault();this._openCtxPanel(e.clientX,e.clientY);});
-    this.api?.win.onState?.(s=>{const b=el('btn-maximize');if(b)b.innerHTML=s==='maximized'?'&#10696;':'&#9633;';});
+    this.api?.win.onState?.(s=>{const b=el('btn-maximize');if(b)setIcon(b,s==='maximized'?'restore':'maximize');});
   }
   /**
    * v1.9.0 — Lite mode bootstrap.
@@ -373,7 +373,7 @@ class BMPlayer {
       // Mirror the Now Playing gradient so the bar doesn't look like a stub
       const srcArt=el('np-art-inner'),mArt=el('mmp-art');
       if(mArt&&srcArt&&srcArt.style.background){mArt.style.background=srcArt.style.background;mArt.textContent='';}
-      const mp=el('mmp-play');if(mp)mp.textContent=this.isPaused?'▶':'⏸';
+      const mp=el('mmp-play');if(mp)setPlaying(mp,!this.isPaused);
       if(this.duration>0){
         const pf=el('mmp-progress-fill');
         if(pf)pf.style.width=(this.currentTime/this.duration*100)+'%';
@@ -678,7 +678,7 @@ class BMPlayer {
     el('np-bars')?.classList.remove('playing');
     const gl=el('np-glow');if(gl)gl.style.opacity='0';
     const ai=el('np-art-inner');
-    if(ai){ai.style.background='';ai.innerHTML='<span class="np-art-placeholder">&#9834;</span>';}
+    if(ai){ai.style.background='';ai.innerHTML='<span class="np-art-placeholder"></span>';setIcon(ai.firstChild,'music');}
     if(window.bmMusic){window.bmMusic.currentPath=null;window.bmMusic._renderTracks?.(window.bmMusic.tracks||[]);}
   }
   playMedia(files){
@@ -1051,11 +1051,12 @@ class BMPlayer {
         this.isPlaying=!p.data && this._mpvIdle===false;this.updatePlayIcon();
         el('np-bars')?.classList.toggle('playing',this.isPlaying);
         // Sync mini player play button
-        const mmpPlay=el('mmp-play');if(mmpPlay)mmpPlay.textContent=p.data?'▶':'⏸';
+        const on=!p.data&&!!this.isPlaying;   // pause only while something is loaded and running
+        const mmpPlay=el('mmp-play');if(mmpPlay)setPlaying(mmpPlay,on);setPlaying(el('pip-play'),on);
         this.isPaused=!!p.data;
-        const vp=el('viz-btn-play');if(vp)vp.textContent=p.data?'▶':'⏸';
+        const vp=el('viz-btn-play');if(vp)setPlaying(vp,on);
         // Sync np transport play button
-        const npPlay=el('np-btn-play');if(npPlay)npPlay.textContent=p.data?'▶':'⏸';
+        const npPlay=el('np-btn-play');if(npPlay)setPlaying(npPlay,on);
         // Start/stop music visualizer
         if(this.currentDash==='music'){p.data?this.musicViz?.stop():this.musicViz?.start();}
         this.emitPlugin('pause-change',{paused:p.data});

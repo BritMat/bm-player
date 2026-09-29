@@ -10,6 +10,7 @@
  */
 
 import { el, fileURL, fmtSec, seedGrad, cleanTitle, pickFolder } from '../util.js';
+import { setIcon, setPlaying } from '../icons.js';
 import { Visualizer } from '../visualizer.js';
 import { AudioEngine } from '../audio-engine.js';
 
@@ -62,7 +63,7 @@ _wire(){
   if(this.shuffle){ const b=el('np-btn-shuffle'); if(b){b.classList.add('active');b.title='Shuffle (on)';} }
   if(this.repeat!=='off'){
     const b=el('np-btn-repeat');
-    if(b){ b.classList.add('active'); b.textContent=this.repeat==='one'?'\uD83D\uDD02':'\uD83D\uDD01'; b.title='Repeat ('+this.repeat+')'; }
+    if(b){ b.classList.add('active'); setIcon(b,this.repeat==='one'?'repeatOne':'repeat'); b.title='Repeat ('+this.repeat+')'; }
   }
   el('music-sort')?.addEventListener('change',e=>this._renderTracks(this._sorted(this.tracks,e.target.value)));
   // Seekbar click
@@ -95,7 +96,8 @@ _wire(){
   this.api?.mpv?.onProp(p=>{
     if(p.name==='duration'&&this.currentPath){this._dur[this.currentPath]=p.data;const t=el('np-time-tot');if(t)t.textContent=fmtSec(p.data);}
     if(p.name==='time-pos'&&this.currentPath){const dur=this._dur[this.currentPath];if(dur&&dur>0){const pct=(p.data/dur)*100;const f=el('np-seek-fill');if(f)f.style.width=pct+'%';const c=el('np-time-cur');if(c)c.textContent=fmtSec(p.data);}}
-    if(p.name==='pause'){el('np-bars')?.classList.toggle('playing',!p.data);const b=el('np-btn-play');if(b)b.textContent=p.data?'▶':'⏸';}
+    if(p.name==='pause'){const on=!p.data&&!!this.currentPath;   // idle mpv reports 'not paused'
+      el('np-bars')?.classList.toggle('playing',on);const b=el('np-btn-play');if(b)setPlaying(b,on);}
     if(p.name==='volume'){const s=el('np-volume');if(s)s.value=p.data;const l=el('np-vol-label');if(l)l.textContent=Math.round(p.data);}
   });
 }
@@ -230,7 +232,7 @@ _cycleRepeat(){
   const b=el('np-btn-repeat');
   if(b){
     b.classList.toggle('active',this.repeat!=='off');
-    b.textContent=this.repeat==='one'?'\uD83D\uDD02':'\uD83D\uDD01';
+    setIcon(b,this.repeat==='one'?'repeatOne':'repeat');
     b.title='Repeat ('+this.repeat+')';
   }
   localStorage.setItem('bm_music_repeat',this.repeat);
@@ -296,8 +298,8 @@ _renderTrackPage(){
     art.className='tr-art';
     if(m.cover) art.style.background='center/cover no-repeat url("'+fileURL(m.cover)+'")';
     else if(isP) art.style.background=g;
-    else art.innerHTML='<span style="opacity:.3">&#9834;</span>';
-    if(isP&&!m.cover) art.textContent='\u25B6';
+    else { art.innerHTML='<span style="opacity:.3"></span>'; setIcon(art.firstChild,'music'); }
+    if(isP&&!m.cover) setIcon(art,'play');
 
     const info=document.createElement('div');
     info.className='tr-info';
@@ -312,7 +314,7 @@ _renderTrackPage(){
     const d=document.createElement('span');
     d.className='tr-dur'; d.textContent=dur;
     const pb=document.createElement('div');
-    pb.className='tr-play-btn'; pb.textContent='\u25B6';
+    pb.className='tr-play-btn'; setIcon(pb,'play');
 
     if(this.groupByAlbum){
       const key=this._albumHeader(t);
@@ -412,10 +414,7 @@ _renderTrackPage(){
     // Music tab and the mini player never appeared (reported on a real
     // machine). app.js already clears it for audio mpv plays.
     el('np-bars')?.classList.toggle('playing',playing);
-    const set=(id,txt)=>{const b=el(id);if(b)b.textContent=txt;};
-    set('np-btn-play', playing?'\u23F8':'\u25B6');
-    set('mmp-play',    playing?'\u23F8':'\u25B6');
-    set('viz-btn-play',playing?'\u23F8':'\u25B6');
+    for (const id of ['np-btn-play', 'mmp-play', 'viz-btn-play']) setPlaying(el(id), playing);
     // The main controls bar's button too: it showed play while music played.
     if(!this._yielding) window.bmApp?.updatePlayIcon?.();
     window.bmApp?._updateMiniPlayer?.();
@@ -449,7 +448,7 @@ play(fp,idx){
       this.engine.stop();
       this.api.mpv.open([fp]);
     }
-    const _m=this.tags?.[fp]||{};const title=_m.title||cleanTitle(fp.split(/[\\/]/).pop());const folder=fp.split(/[\\/]/).slice(0,-1).pop()||'';const ext=fp.split('.').pop().toUpperCase();const g=seedGrad(folder);const ai=el('np-art-inner');if(ai){ai.style.background=g;ai.innerHTML='<span class="np-art-placeholder" style="opacity:.5">&#9834;</span>';}const gl=el('np-glow');if(gl){gl.style.background=g;gl.style.opacity='.5';}el('np-art')?.classList.add('has-track');const nt=el('np-title');if(nt)nt.textContent=title;const na=el('np-artist');if(na)na.textContent=_m.artist||folder;const nf=el('np-format');if(nf)nf.textContent=ext;el('np-bars')?.classList.add('playing');const mvt=el('mv-current-title');if(mvt)mvt.textContent=title;const mva=el('mv-current-artist');if(mva)mva.textContent=folder;this._viz?.setMode('bars');this._viz?.start();this._renderTracks(this._sorted(this.tracks,el('music-sort')?.value||'name'));this._renderQueue();this._applyTagsToNowPlaying(fp);}
+    const _m=this.tags?.[fp]||{};const title=_m.title||cleanTitle(fp.split(/[\\/]/).pop());const folder=fp.split(/[\\/]/).slice(0,-1).pop()||'';const ext=fp.split('.').pop().toUpperCase();const g=seedGrad(folder);const ai=el('np-art-inner');if(ai){ai.style.background=g;ai.innerHTML='<span class="np-art-placeholder" style="opacity:.5"></span>';setIcon(ai.firstChild,'music');}const gl=el('np-glow');if(gl){gl.style.background=g;gl.style.opacity='.5';}el('np-art')?.classList.add('has-track');const nt=el('np-title');if(nt)nt.textContent=title;const na=el('np-artist');if(na)na.textContent=_m.artist||folder;const nf=el('np-format');if(nf)nf.textContent=ext;el('np-bars')?.classList.add('playing');const mvt=el('mv-current-title');if(mvt)mvt.textContent=title;const mva=el('mv-current-artist');if(mva)mva.textContent=folder;this._viz?.setMode('bars');this._viz?.start();this._renderTracks(this._sorted(this.tracks,el('music-sort')?.value||'name'));this._renderQueue();this._applyTagsToNowPlaying(fp);}
 _renderQueue(){
   const q=el('np-queue');if(!q)return;
   const next=this.queue.slice(this.queueIdx+1,this.queueIdx+6);

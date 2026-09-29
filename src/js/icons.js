@@ -66,6 +66,19 @@ export const ICONS = {
   checkCirc: S(`<circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="1.8" fill="none"/><path d="M7 12.5l3.5 3.5L17 9" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" fill="none"/>`),
   errCirc:   S(`<circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="1.8" fill="none"/><line x1="12" y1="8" x2="12" y2="13" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><circle cx="12" cy="16" r="1" fill="currentColor"/>`),
   infoCirc:  S(`<circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="1.8" fill="none"/><line x1="12" y1="11" x2="12" y2="16" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><circle cx="12" cy="7.5" r="1" fill="currentColor"/>`),
+  // ── Player controls (v3.25.0): drawn for this app in the same style ──
+  shuffle:    S(`<path d="M3 7h3.2c1.8 0 3 .8 4 2.3l3.6 5.4c1 1.5 2.2 2.3 4 2.3H20" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" fill="none"/><path d="M3 17h3.2c1.2 0 2.1-.4 2.9-1.1" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" fill="none"/><path d="M14.9 8.1c.8-.7 1.7-1.1 2.9-1.1H20" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" fill="none"/><path d="M17.5 4.5L20 7l-2.5 2.5" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" fill="none"/><path d="M17.5 14.5L20 17l-2.5 2.5" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" fill="none"/>`),
+  repeat:     S(`<path d="M4 12V9.5A2.5 2.5 0 0 1 6.5 7H19" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" fill="none"/><path d="M16.5 4.5L19 7l-2.5 2.5" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" fill="none"/><path d="M20 12v2.5a2.5 2.5 0 0 1-2.5 2.5H5" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" fill="none"/><path d="M7.5 19.5L5 17l2.5-2.5" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" fill="none"/>`),
+  repeatOne:  S(`<path d="M4 12V9.5A2.5 2.5 0 0 1 6.5 7H19" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" fill="none"/><path d="M16.5 4.5L19 7l-2.5 2.5" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" fill="none"/><path d="M20 12v2.5a2.5 2.5 0 0 1-2.5 2.5H5" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" fill="none"/><path d="M7.5 19.5L5 17l2.5-2.5" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" fill="none"/><path d="M11 10.6l1.4-.9v4.8" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" fill="none" stroke-width="1.7"/>`),
+  pin:        S(`<path d="M9.5 3h5l-.8 5.2 3.3 3.3H7l3.3-3.3L9.5 3z" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" fill="none"/><path d="M12 11.5V21" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" fill="none"/>`),
+  miniPlayer: S(`<rect x="2.5" y="4" width="19" height="16" rx="2.2" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" fill="none"/><rect x="11.5" y="11.5" width="7.5" height="6" rx="1.2" fill="currentColor"/>`),
+  expand:     S(`<path d="M14 4h6v6" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" fill="none"/><path d="M20 4l-6.5 6.5" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" fill="none"/><path d="M10 20H4v-6" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" fill="none"/><path d="M4 20l6.5-6.5" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" fill="none"/>`),
+  pipSize:    S(`<rect x="3" y="3" width="18" height="18" rx="2.2" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" fill="none"/><rect x="5.5" y="12" width="7" height="6.5" rx="1.2" fill="currentColor"/><path d="M13.5 10.5L18 6" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" fill="none"/><path d="M14.5 6H18v3.5" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" fill="none"/>`),
+  masonry:    S(`<rect x="3" y="3" width="8" height="10" rx="1.6" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" fill="none"/><rect x="13" y="3" width="8" height="6" rx="1.6" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" fill="none"/><rect x="3" y="15" width="8" height="6" rx="1.6" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" fill="none"/><rect x="13" y="11" width="8" height="10" rx="1.6" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" fill="none"/>`),
+  grid:       S(`<rect x="3" y="3" width="8" height="8" rx="1.6" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" fill="none"/><rect x="13" y="3" width="8" height="8" rx="1.6" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" fill="none"/><rect x="3" y="13" width="8" height="8" rx="1.6" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" fill="none"/><rect x="13" y="13" width="8" height="8" rx="1.6" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" fill="none"/>`),
+  list:       S(`<path d="M9 6h11M9 12h11M9 18h11" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" fill="none"/><circle cx="4.5" cy="6" r="1.3" fill="currentColor"/><circle cx="4.5" cy="12" r="1.3" fill="currentColor"/><circle cx="4.5" cy="18" r="1.3" fill="currentColor"/>`),
+  group:      S(`<rect x="3" y="7.5" width="13.5" height="13.5" rx="2" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" fill="none"/><path d="M7.5 3.5H18.5a2 2 0 0 1 2 2V16" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" fill="none"/><circle cx="9.75" cy="14.25" r="2.4" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" fill="none" stroke-width="1.7"/>`),
+  resume:     S(`<path d="M4.5 12a7.5 7.5 0 1 0 2.2-5.3" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" fill="none"/><path d="M4 4v4.5h4.5" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" fill="none"/><path d="M10.5 9.3v5.4l4.3-2.7-4.3-2.7z" fill="currentColor"/>`),
 };
 
 const pair = (a, b, ca, cb) =>
@@ -77,7 +90,7 @@ export function applyIcons() {
     'btn-rew': ICONS.rew,   'btn-fwd': ICONS.fwd,   'btn-fs': ICONS.fullscreen,
     'btn-info': ICONS.info, 'btn-eq': ICONS.eq,     'btn-playlist': ICONS.playlist,
     'btn-minimize': ICONS.minimize, 'btn-maximize': ICONS.maximize, 'btn-close': ICONS.close,
-    'btn-pip': ICONS.pip,   'btn-theatre': ICONS.theatre,
+    'btn-pip': ICONS.pip,   'btn-theatre': ICONS.theatre, 'btn-theatre-player': ICONS.theatre,
   };
   for (const [id, svg] of Object.entries(byId)) {
     const el = document.getElementById(id); if (el) el.innerHTML = svg;
@@ -93,7 +106,22 @@ export function applyIcons() {
     if (ico) btn.innerHTML = ico;
   });
   document.querySelectorAll('.panel-close').forEach(b => { b.innerHTML = ICONS.close; });
+  // Anything else names its icon in the page: data-icon="name", with an
+  // optional label kept beside it (data-icon-label). v3.25.0: the music
+  // player, mini player, PiP bar, prompts and close buttons used emoji.
+  document.querySelectorAll('[data-icon]').forEach(e => setIcon(e, e.dataset.icon, e.dataset.iconLabel));
 }
+
+/** Sets an element's icon (and an optional text label beside it). */
+export function setIcon(el, name, label) {
+  if (typeof el === 'string') el = document.getElementById(el);
+  const svg = ICONS[name]; if (!el || !svg) return;
+  el.innerHTML = svg + (label ? `<span class="ico-lbl">${String(label).replace(/[<>&"]/g, '')}</span>` : '');
+  el.dataset.icon = name;
+}
+
+/** Play or pause on a button, following whether something is playing. */
+export function setPlaying(el, playing) { setIcon(el, playing ? 'pause' : 'play'); }
 
 export function setTogglePair(btnId, showFirst) {
   const btn = document.getElementById(btnId); if (!btn) return;

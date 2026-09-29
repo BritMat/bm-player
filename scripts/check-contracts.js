@@ -828,6 +828,29 @@ for (const cfg of ['electron-builder.yml', 'electron-builder.lite.yml']) {
   }
 }
 
+/* ── The release workflow looks where the builds put their files ──────
+   electron-builder.lite.yml builds into dist-lite, and the release job looked
+   for the Lite installer in dist (v3.25.1): it would have failed on GitHub,
+   after the full installer had passed. Every path the workflow gives a
+   package must start with the output folder of the config that builds it. */
+{
+  const outDir = cfg => ((fs.readFileSync(path.join(ROOT, cfg), 'utf8').match(/^directories:\s*\n(?:[ \t]+.*\n)*?[ \t]+output:\s*["']?([^"'\n]+)["']?/m) || [])[1] || 'dist').trim();
+  const wf = path.join(ROOT, '.github', 'workflows', 'ci.yml');
+  if (fs.existsSync(wf)) {
+    const y = fs.readFileSync(wf, 'utf8');
+    const full = outDir('electron-builder.yml'), lite = outDir('electron-builder.lite.yml');
+    // A path in the workflow: a run of non-space characters ending in a package name.
+    for (const m of y.matchAll(/([\w./-]+)\/(BM-Player-Lite-Setup-|BM Player Lite\.exe|win-unpacked\/BM Player Lite\.exe)/g)) {
+      const dir = m[1].split('/')[0];
+      if (dir !== lite) err('release', `ci.yml looks for a Lite package in ${m[1]}/, but electron-builder.lite.yml builds into ${lite}/`);
+    }
+    for (const m of y.matchAll(/([\w./-]+)\/(BM-Player-Setup-|latest\.yml)/g)) {
+      const dir = m[1].split('/')[0];
+      if (dir !== full && dir !== 'assets') err('release', `ci.yml looks for a package in ${m[1]}/, but electron-builder.yml builds into ${full}/`);
+    }
+  }
+}
+
 /* ── CI uses a Node the app accepts ─────────────────────────────────
    The workflow still set up Node 20 after package.json moved to 22.12, so
    on GitHub every job stopped at npm ci with EBADENGINE, on all three

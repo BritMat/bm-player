@@ -110,19 +110,22 @@ jobs:
           sudo apt-get update -qq && sudo apt-get install -y -qq xvfb
           xvfb-run -a node scripts/smoke-packaged.mjs
 
-  # The Windows installer, as a GitHub Release. Pushing a commit and a tag (what
-  # the checker does) creates neither: the Build check above only proves the
-  # build works and keeps nothing. Runs for each new version tag, or by hand
-  # for an existing one (Actions, CI, Run workflow, with a tag).
-  release:
-    name: Windows installer and Release
+  # The release, for each new version tag (the checker publishes them), or by
+  # hand for an existing one (Actions, CI, Run workflow, with a tag). Windows,
+  # Linux and Mac build in parallel, each checked as it will be used, and hand
+  # their packages to the publish job, which creates the Release with all of
+  # them at once. Windows (full and Lite) and Linux are required: if either
+  # fails, nothing is published. The Mac build is experimental and is included
+  # when it works. Until v3.25.1 the Windows job created the Release and the
+  # others waited for it, so one failed Windows step left the Release with
+  # nothing at all.
+  release-windows:
+    name: Windows installers (full and Lite)
     if: ${{ startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && inputs.tag != '') }}
     runs-on: windows-latest
-    permissions:
-      contents: write
     env:
       TAG: ${{ startsWith(github.ref, 'refs/tags/v') && github.ref_name || inputs.tag }}
-      # The mpv bundled with the installer: a shinchiro/mpv-winbuild-cmake
+      # The mpv the installers download: a shinchiro/mpv-winbuild-cmake
       # release, pinned so a bad nightly cannot slip in. Bump it on purpose.
       MPV_BUILD: '20260925'
       GH_TOKEN: ${{ github.token }}
@@ -162,8 +165,7 @@ jobs:
       - name: Build the installer
         run: npx electron-builder --win nsis --x64 --publish never
 
-      # The same check as the Build check: an installer whose app crashes on
-      # launch is never released.
+      # An installer whose app crashes on launch is never released.
       - name: The packaged app starts
         run: node scripts/smoke-packaged.mjs
 
@@ -175,7 +177,10 @@ jobs:
           $setup = Get-ChildItem dist -Filter 'BM-Player-Setup-*.exe' | Select-Object -First 1
           Start-Process -Wait -FilePath $setup.FullName -ArgumentList '/S'
           $exe = Get-ChildItem "$env:LOCALAPPDATA\Programs" -Recurse -Depth 2 -Filter 'BM Player.exe' -ErrorAction SilentlyContinue | Select-Object -First 1
-          if (-not $exe) { throw 'the installer did not install BM Player' }
+          if (-not $exe) { throw 'the installer did not install BM Player.exe' }
+          # What the installer's mpv step did, stage by stage.
+          $log = Join-Path $exe.DirectoryName 'resources\mpv-install.log'
+          if (Test-Path $log) { Get-Content $log } else { 'no mpv-install.log: the mpv step did not run' }
           $mpv = Join-Path $exe.DirectoryName 'resources\mpv\mpv.com'
           if (-not (Test-Path $mpv)) { throw "the installer did not fetch mpv: no $mpv" }
           & $mpv --version | Select-Object -First 1
@@ -183,69 +188,49 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       # BM Player Lite: its own installer, installed alongside the full version.
-      # No update feed (publish: null), so it writes no latest.yml of its own.
+      # No update feed (publish: null). It builds into dist-lite, not dist
+      # (electron-builder.lite.yml), so the full installer's files are untouched.
       - name: Build the Lite installer
         run: npx electron-builder --config electron-builder.lite.yml --win nsis --x64 --publish never
 
       - name: The packaged Lite app starts, in Lite mode
-        run: node scripts/smoke-packaged.mjs "dist/win-unpacked/BM Player Lite.exe" --expect-lite
+        run: node scripts/smoke-packaged.mjs "dist-lite/win-unpacked/BM Player Lite.exe" --expect-lite
 
       - name: The Lite installer installs and fetches mpv
         shell: pwsh
         run: |
-          $setup = Get-ChildItem dist -Filter 'BM-Player-Lite-Setup-*.exe' | Select-Object -First 1
+          $setup = Get-ChildItem dist-lite -Filter 'BM-Player-Lite-Setup-*.exe' | Select-Object -First 1
           Start-Process -Wait -FilePath $setup.FullName -ArgumentList '/S'
           $exe = Get-ChildItem "$env:LOCALAPPDATA\Programs" -Recurse -Depth 2 -Filter 'BM Player Lite.exe' -ErrorAction SilentlyContinue | Select-Object -First 1
-          if (-not $exe) { throw 'the Lite installer did not install BM Player Lite' }
+          if (-not $exe) { throw 'the installer did not install BM Player Lite.exe' }
+          # What the installer's mpv step did, stage by stage.
+          $log = Join-Path $exe.DirectoryName 'resources\mpv-install.log'
+          if (Test-Path $log) { Get-Content $log } else { 'no mpv-install.log: the mpv step did not run' }
           $mpv = Join-Path $exe.DirectoryName 'resources\mpv\mpv.com'
-          if (-not (Test-Path $mpv)) { throw "the Lite installer did not fetch mpv: no $mpv" }
+          if (-not (Test-Path $mpv)) { throw "the installer did not fetch mpv: no $mpv" }
+          & $mpv --version | Select-Object -First 1
           node scripts/smoke-packaged.mjs $exe.FullName --expect-lite
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
-      - name: Create the Release
-        shell: bash
-        run: |
-          ver="${TAG#v}"
-          # Only the installer and the updater's two files: electron-builder can leave
-          # other executables in dist (an uninstaller stub) that are not for release.
-          files=$(ls dist/BM-Player-Setup-*.exe dist/BM-Player-Setup-*.exe.blockmap dist/latest.yml dist/BM-Player-Lite-Setup-*.exe 2>/dev/null)
-          test -n "$files" || { echo "no installer in dist"; ls dist; exit 1; }
-          cat > notes.md <<EOF
-          BM Player $TAG
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows
+          path: |
+            dist/BM-Player-Setup-*.exe
+            dist/BM-Player-Setup-*.exe.blockmap
+            dist/latest.yml
+            dist-lite/BM-Player-Lite-Setup-*.exe
+          if-no-files-found: error
+          retention-days: 5
 
-          **Windows (64-bit):** download **BM-Player-Setup-$ver-x64.exe** and run it. It downloads mpv, the engine BM Player plays video with, from mpv's Windows builds on GitHub while it installs (so it needs an internet connection), and checks it against the build tested for this release. The installer is not code-signed, so Windows SmartScreen may warn: choose **More info**, then **Run anyway**.
-
-          **BM Player Lite (Windows, 64-bit):** **BM-Player-Lite-Setup-$ver-x64.exe** is a lighter version for older or low-spec PCs: simpler visuals, one window, and the picture above a fixed control bar. It installs alongside the full version.
-
-          **Linux (64-bit):** on Ubuntu or Debian, download **BM-Player-$ver-amd64.deb** and install it with \`sudo apt install ./BM-Player-$ver-amd64.deb\`, which installs mpv too. On other distributions, download **BM-Player-$ver-x86_64.AppImage**, make it executable and run it, after installing mpv from your package manager.
-
-          **macOS (experimental):** Apple Silicon (M1 and later): **BM-Player-$ver-arm64.dmg**. Intel: **BM-Player-$ver-x64.dmg**. Install mpv first with \`brew install mpv\`. The app is not notarized by Apple, so the first time macOS refuses to open it: open System Settings, Privacy & Security, and choose **Open Anyway**. If macOS says the app is damaged, run \`xattr -dr com.apple.quarantine "/Applications/BM Player.app"\` in Terminal. Video playback has not been tested on a Mac yet: please report what works.
-
-          You only need one of those files. \`latest.yml\`, \`latest-linux.yml\` and the \`.blockmap\` file are read by BM Player's built-in updater: they tell an installed copy what the newest version is and let it download only the parts that changed.
-
-          Built by GitHub Actions from tag $TAG, after every check passed on a real Windows machine and on GitHub, and each package was started to be sure it launches (on the Mac, the Apple Silicon one). The Windows installers download mpv from shinchiro/mpv-winbuild-cmake release $MPV_BUILD.
-
-          Marked as a pre-release: installed copies of BM Player do not update to it on their own.
-          EOF
-          if gh release view "$TAG" > /dev/null 2>&1; then
-            gh release upload "$TAG" $files --clobber
-          else
-            gh release create "$TAG" $files --title "BM Player $TAG" --notes-file notes.md --prerelease --verify-tag
-          fi
-
-  # Linux packages for the same Release: an AppImage for any distribution and
-  # a .deb for Ubuntu and Debian (it depends on mpv, so apt installs that too).
-  # Runs after the Windows job, which creates the Release.
+  # An AppImage for any distribution and a .deb for Ubuntu and Debian (it
+  # depends on mpv, so apt installs that too).
   release-linux:
     name: Linux packages
-    needs: release
     if: ${{ startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && inputs.tag != '') }}
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
     env:
       TAG: ${{ startsWith(github.ref, 'refs/tags/v') && github.ref_name || inputs.tag }}
-      GH_TOKEN: ${{ github.token }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -268,25 +253,25 @@ jobs:
           chmod +x dist/BM-Player-*.AppImage
           xvfb-run -a node scripts/smoke-packaged.mjs "$(ls dist/BM-Player-*.AppImage)"
 
-      - name: Add them to the Release
-        run: |
-          files=$(ls dist/BM-Player-*.AppImage dist/BM-Player-*.deb dist/latest-linux.yml 2>/dev/null)
-          test -n "$files" || { echo "no packages in dist"; ls dist; exit 1; }
-          gh release upload "$TAG" $files --clobber
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux
+          path: |
+            dist/BM-Player-*.AppImage
+            dist/BM-Player-*.deb
+            dist/latest-linux.yml
+          if-no-files-found: error
+          retention-days: 5
 
-  # macOS disk images for the same Release, Apple Silicon and Intel. Ad-hoc
-  # signed: there is no Apple Developer ID, so macOS asks before the first
-  # launch. Experimental: video playback has not been tested on a Mac yet.
+  # Disk images for Apple Silicon and Intel. Ad-hoc signed: there is no Apple
+  # Developer ID, so macOS asks before the first launch. Experimental: video
+  # playback has not been tested on a Mac yet.
   release-mac:
-    name: macOS disk images
-    needs: release
+    name: macOS disk images (experimental)
     if: ${{ startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && inputs.tag != '') }}
     runs-on: macos-latest
-    permissions:
-      contents: write
     env:
       TAG: ${{ startsWith(github.ref, 'refs/tags/v') && github.ref_name || inputs.tag }}
-      GH_TOKEN: ${{ github.token }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -309,8 +294,59 @@ jobs:
       - name: The packaged app starts
         run: node scripts/smoke-packaged.mjs
 
-      - name: Add them to the Release
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mac
+          path: dist/BM-Player-*.dmg
+          if-no-files-found: error
+          retention-days: 5
+
+  publish:
+    name: Publish the Release
+    needs: [release-windows, release-linux, release-mac]
+    # Windows and Linux are required. The Mac disk images go in when that job
+    # succeeded, and the notes mention them only then.
+    if: ${{ always() && needs.release-windows.result == 'success' && needs.release-linux.result == 'success' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      TAG: ${{ startsWith(github.ref, 'refs/tags/v') && github.ref_name || inputs.tag }}
+      MPV_BUILD: '20260925'
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: assets
+          merge-multiple: true
+
+      - name: Create the Release
         run: |
-          files=$(ls dist/BM-Player-*.dmg 2>/dev/null)
-          test -n "$files" || { echo "no disk images in dist"; ls dist; exit 1; }
-          gh release upload "$TAG" $files --clobber
+          ver="${TAG#v}"
+          ls -la assets
+          {
+            echo "BM Player $TAG"
+            echo
+            echo "**Windows (64-bit):** download **BM-Player-Setup-$ver-x64.exe** and run it. It downloads mpv, the engine BM Player plays video with, from mpv's Windows builds on GitHub while it installs (so it needs an internet connection), and checks it against the build tested for this release. The installer is not code-signed, so Windows SmartScreen may warn: choose **More info**, then **Run anyway**."
+            echo
+            echo "**BM Player Lite (Windows, 64-bit):** **BM-Player-Lite-Setup-$ver-x64.exe** is a lighter version for older or low-spec PCs: simpler visuals, one window, and the picture above a fixed control bar. It installs alongside the full version."
+            echo
+            echo "**Linux (64-bit):** on Ubuntu or Debian, download **BM-Player-$ver-amd64.deb** and install it with \`sudo apt install ./BM-Player-$ver-amd64.deb\`, which installs mpv too. On other distributions, download **BM-Player-$ver-x86_64.AppImage**, make it executable and run it, after installing mpv from your package manager."
+            echo
+            if ls assets/BM-Player-*.dmg > /dev/null 2>&1; then
+              echo "**macOS (experimental):** Apple Silicon (M1 and later): **BM-Player-$ver-arm64.dmg**. Intel: **BM-Player-$ver-x64.dmg**. Install mpv first with \`brew install mpv\`. The app is not notarized by Apple, so the first time macOS refuses to open it: open System Settings, Privacy & Security, and choose **Open Anyway**. If macOS says the app is damaged, run \`xattr -dr com.apple.quarantine \"/Applications/BM Player.app\"\` in Terminal. Video playback has not been tested on a Mac yet: please report what works."
+              echo
+            fi
+            echo "You only need one of those files. \`latest.yml\`, \`latest-linux.yml\` and the \`.blockmap\` file are read by BM Player's built-in updater: they tell an installed copy what the newest version is and let it download only the parts that changed."
+            echo
+            echo "Built by GitHub Actions from tag $TAG, after every check passed on a real Windows machine and on GitHub. Each installer was installed and started there, and the Windows installers were checked to fetch mpv (shinchiro/mpv-winbuild-cmake release $MPV_BUILD)."
+            echo
+            echo "Marked as a pre-release: installed copies of BM Player do not update to it on their own."
+          } > notes.md
+          files=$(ls assets/*)
+          if gh release view "$TAG" > /dev/null 2>&1; then
+            gh release upload "$TAG" $files --clobber
+          else
+            gh release create "$TAG" $files --title "BM Player $TAG" --notes-file notes.md --prerelease --verify-tag
+          fi

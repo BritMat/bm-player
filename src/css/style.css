@@ -168,7 +168,7 @@ body.playing #player-view{top:0;left:0;}
 
 /* ── NEON ICONS ──────────────────────────────────────────────── */
 .ico{width:16px;height:16px;display:block;overflow:visible;pointer-events:none;}
-.ctrl-btn .ico,.tb-btn .ico,.panel-close .ico{filter:drop-shadow(0 0 2px rgba(59,200,232,.3));transition:filter .18s,transform .12s;}
+.ctrl-btn .ico,.tb-btn .ico,.panel-close .ico,.np-ctrl-btn .ico,.viz-btn .ico,.pip-bar .ico,.mmp-ctrl .ico{filter:drop-shadow(0 0 2px color-mix(in srgb,var(--accent) 45%,transparent));transition:filter .18s,transform .12s;}
 .ctrl-btn:hover .ico,.tb-btn:hover .ico{filter:drop-shadow(0 0 4px rgba(59,200,232,.8)) drop-shadow(0 0 8px rgba(177,79,232,.5));transform:scale(1.08);}
 .ctrl-btn:active .ico{transform:scale(.94);}
 .play-btn .ico{filter:drop-shadow(0 0 3px rgba(255,255,255,.5));}

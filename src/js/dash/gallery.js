@@ -11,6 +11,7 @@
  */
 
 import { el, fileURL, fmtBytes, pickFolder } from '../util.js';
+import { setPlaying } from '../icons.js';
 
 export class GalleryDash{constructor(api){this.api=api;this.images=[];this.lbIdx=-1;this.lbScale=1;this.lbOffset={x:0,y:0};this.viewMode='masonry';this.thumbSize=190;this.sortMode='name';this._dragStart=null;this._filter='';this._wire();this._wireGalleryExtras();}
 _wire(){el('btn-gallery-open')?.addEventListener('click',()=>this._browse());el('gallery-sort')?.addEventListener('change',e=>{this.sortMode=e.target.value;this._render();});el('thumb-size')?.addEventListener('input',e=>{this.thumbSize=+e.target.value;const g=el('gallery-grid');if(g)g.style.setProperty('--thumb-size',this.thumbSize+'px');});document.querySelectorAll('.vm-btn').forEach(b=>b.addEventListener('click',()=>{document.querySelectorAll('.vm-btn').forEach(x=>x.classList.remove('active'));b.classList.add('active');this.viewMode=b.dataset.mode;this._render();}));el('lightbox-close')?.addEventListener('click',()=>this._closeLB());el('lb-backdrop')?.addEventListener('click',()=>this._closeLB());el('lightbox-prev')?.addEventListener('click',()=>this._nav(-1));el('lightbox-next')?.addEventListener('click',()=>this._nav(+1));el('lb-zoom-in')?.addEventListener('click',()=>this._zoom(.25));el('lb-zoom-out')?.addEventListener('click',()=>this._zoom(-.25));el('lb-fit')?.addEventListener('click',()=>this._resetZoom());el('lightbox')?.addEventListener('wheel',e=>{e.preventDefault();this._zoom(e.deltaY<0?.15:-.15);},{passive:false});document.addEventListener('keydown',e=>{if(!el('lightbox')?.classList.contains('open'))return;if(e.key==='Escape')this._closeLB();if(e.key==='ArrowLeft')this._nav(-1);if(e.key==='ArrowRight')this._nav(+1);if(e.key==='s'||e.key==='S')this._toggleSlideshow();if(e.key==='i'||e.key==='I')el('lb-info-drawer')?.classList.toggle('hidden');});const f=document.querySelector('.lb-frame');if(f){f.addEventListener('mousedown',e=>{this._dragStart={x:e.clientX-this.lbOffset.x,y:e.clientY-this.lbOffset.y};});f.addEventListener('mousemove',e=>{if(!this._dragStart)return;this.lbOffset={x:e.clientX-this._dragStart.x,y:e.clientY-this._dragStart.y};this._applyT();});f.addEventListener('mouseup',()=>{this._dragStart=null;});f.addEventListener('mouseleave',()=>{this._dragStart=null;});}}
@@ -52,7 +53,7 @@ async _browse(){
     const on=force!==undefined?force:!this._slideshow;
     this._slideshow=on;
     const b=el('lb-slideshow');
-    if(b){ b.textContent=on?'\u23F8':'\u25B6'; b.classList.toggle('active',on); }
+    if(b){ setPlaying(b,on); b.classList.toggle('active',on); }
     clearInterval(this._slideTimer);
     if(on){
       this._slideTimer=setInterval(()=>{

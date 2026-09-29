@@ -647,7 +647,7 @@
   </div>
 
   <!-- Always on top -->
-  <button class="tb-tool-btn" id="mi-always-top" title="Always on top" aria-label="Always on top">📌</button>
+  <button class="tb-tool-btn" id="mi-always-top" title="Always on top" aria-label="Always on top" data-icon="pin"></button>
 </div>
 
 <!-- ══ SIDEBAR ════════════════════════════════════════════════════ -->
@@ -668,7 +668,7 @@
     <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="4" width="15" height="12" rx="2"/><path d="M17 7l5-2.5v11L17 13V7z" fill="currentColor" opacity=".7"/><line x1="7" y1="18" x2="17" y2="18"/><line x1="12" y1="16" x2="12" y2="18"/></svg>
   </button>
   <div class="sidebar-spacer"></div>
-  <button class="sidebar-btn sidebar-mini" id="sidebar-mini-btn" title="Mini Player" aria-label="Mini Player">⊞</button>
+  <button class="sidebar-btn sidebar-mini" id="sidebar-mini-btn" title="Mini Player" aria-label="Mini Player" data-icon="miniPlayer"></button>
 </nav>
 
 <!-- ══ WELCOME SCREEN ════════════════════════════════════════════ -->
@@ -709,7 +709,7 @@
     </div>
     <div class="viz-transport">
       <button class="viz-btn" id="viz-btn-prev" title="Previous" aria-label="Previous">&#9198;</button>
-      <button class="viz-btn viz-btn-main" id="viz-btn-play" title="Play/Pause" aria-label="Play/Pause">&#9199;</button>
+      <button class="viz-btn viz-btn-main" id="viz-btn-play" title="Play/Pause" aria-label="Play/Pause" data-icon="play"></button>
       <button class="viz-btn" id="viz-btn-next" title="Next" aria-label="Next">&#9197;</button>
       <button class="viz-btn" id="viz-btn-music" title="Back to Music" aria-label="Back to Music">&#9835;</button>
     </div>
@@ -748,22 +748,22 @@
 
       <!-- Centre: Transport -->
       <div class="ctrl-group center-transport">
-        <button class="ctrl-btn"  id="btn-rew"  title="Seek −30s" aria-label="Seek −30s">⏮</button>
+        <button class="ctrl-btn"  id="btn-rew"  title="Seek −30s" aria-label="Seek −30s" data-icon="rew"></button>
         <button class="ctrl-btn"  id="btn-prev" title="Previous (P)" aria-label="Previous (P)"></button>
         <button class="ctrl-btn play-btn" id="btn-play" title="Play / Pause (Space)" aria-label="Play / Pause (Space)"></button>
         <button class="ctrl-btn"  id="btn-next" title="Next (N)" aria-label="Next (N)"></button>
-        <button class="ctrl-btn"  id="btn-fwd"  title="Seek +30s" aria-label="Seek +30s">⏭</button>
+        <button class="ctrl-btn"  id="btn-fwd"  title="Seek +30s" aria-label="Seek +30s" data-icon="fwd"></button>
       </div>
 
       <!-- Right: Utilities -->
       <div class="ctrl-group right-group">
         <button class="ctrl-btn" id="btn-stop"     title="Stop (S)" aria-label="Stop (S)"></button>
         <button class="ctrl-btn" id="btn-playlist" title="Playlist (Ctrl+L)" aria-label="Playlist (Ctrl+L)"></button>
-        <button class="ctrl-btn" id="btn-bookmark" title="Add Bookmark (Ctrl+B)" aria-label="Add Bookmark (Ctrl+B)">🔖</button>
-        <button class="ctrl-btn" id="btn-history"  title="Watch History (Ctrl+H)" aria-label="Watch History (Ctrl+H)">◷</button>
+        <button class="ctrl-btn" id="btn-bookmark" title="Add Bookmark (Ctrl+B)" aria-label="Add Bookmark (Ctrl+B)" data-icon="bookmark"></button>
+        <button class="ctrl-btn" id="btn-history"  title="Watch History (Ctrl+H)" aria-label="Watch History (Ctrl+H)" data-icon="clock"></button>
         <button class="ctrl-btn" id="btn-eq"       title="Equalizer" aria-label="Equalizer"></button>
         <button class="ctrl-btn" id="btn-info"     title="Media Info (Ctrl+I)" aria-label="Media Info (Ctrl+I)"></button>
-        <button class="ctrl-btn" id="btn-theatre-player"  title="Theatre Mode (T)" aria-label="Theatre Mode (T)">⊡</button>
+        <button class="ctrl-btn" id="btn-theatre-player"  title="Theatre Mode (T)" aria-label="Theatre Mode (T)" data-icon="theatre"></button>
         <button class="ctrl-btn" id="btn-fs"       title="Full Screen (F)" aria-label="Full Screen (F)"></button>
       </div>
     </div>
@@ -777,9 +777,9 @@
     <button class="dash-action-btn" id="btn-gallery-open">+ Open Folder</button>
     <div class="gallery-toolbar">
       <div class="view-mode-group">
-        <button class="vm-btn active" data-mode="masonry" title="Masonry" aria-label="Masonry">⬛</button>
-        <button class="vm-btn" data-mode="grid" title="Grid" aria-label="Grid">⊞</button>
-        <button class="vm-btn" data-mode="list" title="List" aria-label="List">≡</button>
+        <button class="vm-btn active" data-mode="masonry" title="Masonry" aria-label="Masonry" data-icon="masonry"></button>
+        <button class="vm-btn" data-mode="grid" title="Grid" aria-label="Grid" data-icon="grid"></button>
+        <button class="vm-btn" data-mode="list" title="List" aria-label="List" data-icon="list"></button>
       </div>
       <input type="search" class="dash-search" id="gallery-filter"
              placeholder="Filter images…" autocomplete="off" spellcheck="false">
@@ -833,7 +833,7 @@
           <option value="year">Year</option>
           <option value="type">Type</option>
         </select>
-        <button class="dash-icon-btn" id="music-group" title="Group by album" aria-label="Group by album">▤</button>
+        <button class="dash-icon-btn" id="music-group" title="Group by album" aria-label="Group by album" data-icon="group"></button>
       </div>
       <div class="music-tracks" id="music-tracks">
         <div class="music-empty-tracks">
@@ -846,7 +846,7 @@
     <div class="music-now-playing">
       <div class="np-art-wrap">
         <div class="np-art" id="np-art">
-          <div class="np-art-inner" id="np-art-inner"><span class="np-art-placeholder">♪</span></div>
+          <div class="np-art-inner" id="np-art-inner"><span class="np-art-placeholder" data-icon="music"></span></div>
           <div class="np-glow" id="np-glow"></div>
         </div>
         <div class="np-bars" id="np-bars">
@@ -867,15 +867,15 @@
         <span class="np-time" id="np-time-tot">0:00</span>
       </div>
       <div class="np-controls">
-        <button class="np-ctrl-btn np-toggle" id="np-btn-shuffle" title="Shuffle (off)" aria-label="Shuffle (off)">🔀</button>
-        <button class="np-ctrl-btn" id="np-btn-prev" title="Previous" aria-label="Previous">⏮</button>
-        <button class="np-ctrl-btn np-play-btn" id="np-btn-play" title="Play/Pause" aria-label="Play/Pause">▶</button>
-        <button class="np-ctrl-btn" id="np-btn-next" title="Next" aria-label="Next">⏭</button>
-        <button class="np-ctrl-btn" id="np-btn-stop" title="Stop" aria-label="Stop">⏹</button>
-        <button class="np-ctrl-btn np-toggle" id="np-btn-repeat" title="Repeat (off)" aria-label="Repeat (off)">🔁</button>
+        <button class="np-ctrl-btn np-toggle" id="np-btn-shuffle" title="Shuffle (off)" aria-label="Shuffle (off)" data-icon="shuffle"></button>
+        <button class="np-ctrl-btn" id="np-btn-prev" title="Previous" aria-label="Previous" data-icon="prev"></button>
+        <button class="np-ctrl-btn np-play-btn" id="np-btn-play" title="Play/Pause" aria-label="Play/Pause" data-icon="play"></button>
+        <button class="np-ctrl-btn" id="np-btn-next" title="Next" aria-label="Next" data-icon="next"></button>
+        <button class="np-ctrl-btn" id="np-btn-stop" title="Stop" aria-label="Stop" data-icon="stop"></button>
+        <button class="np-ctrl-btn np-toggle" id="np-btn-repeat" title="Repeat (off)" aria-label="Repeat (off)" data-icon="repeat"></button>
       </div>
       <div class="np-vol-row">
-        <span style="font-size:13px;opacity:.7">🔊</span>
+        <span class="np-vol-ico" data-icon="volLow" style="opacity:.7"></span>
         <input type="range" class="np-vol-slider" id="np-volume" min="0" max="130" value="100">
         <span class="np-vol-label" id="np-vol-label">100</span>
       </div>
@@ -951,14 +951,14 @@
   <div class="pdf-stamp-input hidden" id="pdf-stamp-input">
     <input type="text" id="pdf-stamp-text" placeholder="Type text…" maxlength="80">
     <button id="pdf-stamp-confirm">Add</button>
-    <button id="pdf-stamp-cancel" aria-label="Cancel stamp">✕</button>
+    <button id="pdf-stamp-cancel" aria-label="Cancel stamp" data-icon="close"></button>
   </div>
 </div>
 
 <!-- ══ LIGHTBOX ══════════════════════════════════════════════════ -->
 <div class="lightbox" id="lightbox">
   <div class="lb-backdrop" id="lb-backdrop"></div>
-  <button class="lb-close" id="lightbox-close" aria-label="Close image viewer">✕</button>
+  <button class="lb-close" id="lightbox-close" aria-label="Close image viewer" data-icon="close"></button>
   <button class="lb-nav lb-prev" id="lightbox-prev" aria-label="Previous image">‹</button>
   <button class="lb-nav lb-next" id="lightbox-next" aria-label="Next image">›</button>
   <div class="lb-frame">
@@ -973,7 +973,7 @@
       <button class="lb-ctrl" id="lb-zoom-out" aria-label="Zoom out">−</button>
       <span class="lb-ctrl-label" id="lb-zoom-label">100%</span>
       <button class="lb-ctrl" id="lb-zoom-in" aria-label="Zoom in">+</button>
-      <button class="lb-ctrl" id="lb-slideshow" title="Slideshow (S)" aria-label="Slideshow (S)">▶</button>
+      <button class="lb-ctrl" id="lb-slideshow" title="Slideshow (S)" aria-label="Slideshow (S)" data-icon="play"></button>
       <button class="lb-ctrl" id="lb-info" title="Image info (I)" aria-label="Image info (I)">ⓘ</button>
       <button class="lb-ctrl" id="lb-fit" aria-label="Fit to screen">⊡</button>
     </div>
@@ -1285,7 +1285,7 @@
   <div class="tv-eco-warning hidden" id="tv-eco-warning">
     <span class="tv-eco-icon">⚠</span>
     <span id="tv-eco-msg">Large playlist detected. Loading progressively to keep the app responsive…</span>
-    <button class="tv-eco-dismiss" id="tv-eco-dismiss" aria-label="Dismiss warning">✕</button>
+    <button class="tv-eco-dismiss" id="tv-eco-dismiss" aria-label="Dismiss warning" data-icon="close"></button>
   </div>
   <!-- Reconnect banner -->
   <div class="tv-reconnect-bar hidden" id="tv-reconnect-bar">
@@ -1328,24 +1328,24 @@
 <div id="music-mini-player" class="music-mini-player hidden">
   
   <div class="mmp-progress" id="mmp-progress"><div class="mmp-progress-fill" id="mmp-progress-fill"></div></div>
-  <div class="mmp-art" id="mmp-art">♪</div>
+  <div class="mmp-art" id="mmp-art" data-icon="music"></div>
   <div class="mmp-info">
     <div class="mmp-title" id="mmp-title">Not Playing</div>
     <div class="mmp-artist" id="mmp-artist"></div>
   </div>
   <div class="mmp-controls">
-    <button class="mmp-ctrl" id="mmp-prev" title="Previous" aria-label="Previous">⏮</button>
-    <button class="mmp-ctrl mmp-play" id="mmp-play" title="Play/Pause" aria-label="Play/Pause">▶</button>
-    <button class="mmp-ctrl" id="mmp-next" title="Next" aria-label="Next">⏭</button>
-    <button class="mmp-ctrl" id="mmp-stop" title="Stop" aria-label="Stop">⏹</button>
+    <button class="mmp-ctrl" id="mmp-prev" title="Previous" aria-label="Previous" data-icon="prev"></button>
+    <button class="mmp-ctrl mmp-play" id="mmp-play" title="Play/Pause" aria-label="Play/Pause" data-icon="play"></button>
+    <button class="mmp-ctrl" id="mmp-next" title="Next" aria-label="Next" data-icon="next"></button>
+    <button class="mmp-ctrl" id="mmp-stop" title="Stop" aria-label="Stop" data-icon="stop"></button>
   </div>
-  <span class="mmp-goto" id="mmp-goto" title="Go to Music">♪ Open Music</span>
+  <span class="mmp-goto" id="mmp-goto" title="Go to Music" data-icon="music" data-icon-label="Open Music"></span>
 </div>
 
 <!-- ══ PIP OVERLAY (shown when PiP mode active) ══ -->
 <div id="about-dialog" class="about-dialog hidden" role="dialog" aria-modal="true" aria-labelledby="about-title">
   <div class="about-card">
-    <button class="about-close" id="about-close" aria-label="Close About BM Player" title="Close">&#10005;</button>
+    <button class="about-close" id="about-close" aria-label="Close About BM Player" title="Close" data-icon="close"></button>
     <div class="about-fox" id="about-fox" aria-hidden="true"></div>
     <h2 class="about-title" id="about-title"><span class="wm-bm">BM</span> <span class="wm-player">Player</span></h2>
     <div class="about-version" id="about-version">version</div>
@@ -1368,10 +1368,10 @@
 <div id="pip-overlay" class="pip-overlay hidden">
   <div class="pip-bar">
     <span class="pip-title" id="pip-title">BM Player</span>
-    <button class="pip-btn" id="pip-play" title="Play/Pause" aria-label="Play/Pause">&#9199;</button>
-    <button class="pip-btn" id="pip-size" title="Change size" aria-label="Change picture-in-picture size">&#9634;</button>
-    <button class="pip-btn" id="pip-exit" title="Back to the full window" aria-label="Back to the full window">⤢ Expand</button>
-    <button class="pip-btn pip-close" id="pip-close" title="Stop and close" aria-label="Stop playback and close picture-in-picture">&#10005;</button>
+    <button class="pip-btn" id="pip-play" title="Play/Pause" aria-label="Play/Pause" data-icon="play"></button>
+    <button class="pip-btn" id="pip-size" title="Change size" aria-label="Change picture-in-picture size" data-icon="pipSize"></button>
+    <button class="pip-btn" id="pip-exit" title="Back to the full window" aria-label="Back to the full window" data-icon="expand" data-icon-label="Expand"></button>
+    <button class="pip-btn pip-close" id="pip-close" title="Stop and close" aria-label="Stop playback and close picture-in-picture" data-icon="close"></button>
   </div>
 </div>
 
@@ -1418,14 +1418,14 @@
      the same spot on its own, so any two visible together overlapped. -->
 <div id="toast-stack" class="toast-stack">
 <div id="resume-prompt" class="resume-prompt hidden">
-  <div class="resume-prompt-icon">⏪</div>
+  <div class="resume-prompt-icon" data-icon="resume"></div>
   <div class="resume-prompt-body">
     <div class="resume-prompt-title" id="resume-prompt-title">Resume from where you left off?</div>
     <div class="resume-prompt-meta" id="resume-prompt-meta">Stopped at 0:00 of 1:30:00</div>
   </div>
   <button class="resume-prompt-btn resume-prompt-yes" id="resume-yes">Resume</button>
   <button class="resume-prompt-btn resume-prompt-no"  id="resume-no">From start</button>
-  <button class="resume-prompt-dismiss"             id="resume-dismiss" aria-label="Dismiss">✕</button>
+  <button class="resume-prompt-dismiss"             id="resume-dismiss" aria-label="Dismiss" data-icon="close"></button>
 </div>
 <div id="update-banner" class="update-banner hidden">
   <span id="update-msg" class="update-msg">Update available</span>
@@ -1433,12 +1433,12 @@
     <div id="update-progress-bar" class="update-progress-bar"></div>
   </div>
   <button id="update-install-btn" class="update-btn">Restart &amp; Install</button>
-  <button id="update-dismiss" class="update-dismiss" title="Dismiss" aria-label="Dismiss">&#10005;</button>
+  <button id="update-dismiss" class="update-dismiss" title="Dismiss" aria-label="Dismiss" data-icon="close"></button>
 </div>
 <div id="default-player-prompt" class="default-prompt hidden">
   <span>Make BM Player the default for media files?</span>
   <button id="btn-set-default"  class="update-btn">Set as default</button>
-  <button id="btn-skip-default" class="update-dismiss" title="Not now" aria-label="Not now">&#10005;</button>
+  <button id="btn-skip-default" class="update-dismiss" title="Not now" aria-label="Not now" data-icon="close"></button>
 </div>
 </div>
 
@@ -1447,7 +1447,7 @@
 <div id="ab-indicator" class="ab-indicator hidden">
     <span id="ab-a" class="ab-mark">A</span>
     <span id="ab-b" class="ab-mark">B</span>
-    <button id="ab-clear-btn" class="ab-clear" title="Clear A-B loop" aria-label="Clear A-B loop">&#10005;</button>
+    <button id="ab-clear-btn" class="ab-clear" title="Clear A-B loop" aria-label="Clear A-B loop" data-icon="close"></button>
   </div>
 
 
@@ -1491,7 +1491,7 @@
     <label class="ctx-checkbox"><input type="checkbox" id="ctx-deinterlace"> Deinterlace</label>
     <div class="ctx-item" id="ctx-screenshot">Screenshot</div>
     <div class="ctx-item" id="ctx-add-sub">Add Subtitle File…</div>
-    <button class="ctx-close-btn" id="ctx-close" title="Close" aria-label="Close">&#10005;</button>
+    <button class="ctx-close-btn" id="ctx-close" title="Close" aria-label="Close" data-icon="close"></button>
   </div>
   <div class="ctx-section" id="ctx-sec-subtitle-style">
     <div class="ctx-section-label">Subtitle Style</div>

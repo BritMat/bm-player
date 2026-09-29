@@ -479,3 +479,26 @@ html.bm-layered.playing body:not(.audio-viz) #player-view { background: transpar
 .welcome-sub { font-weight: 500; font-size: 12.5px; letter-spacing: .22em; text-transform: uppercase; }
 .dash-title { font-weight: 700; letter-spacing: -0.01em; }
 .recent-label { letter-spacing: .18em; font-weight: 600; }
+
+/* ── Control icons (v3.25.0) ────────────────────────────────────────────
+   The music player, mini player, PiP bar, prompts and close buttons used
+   emoji and symbol characters, which looked different on every system (the
+   shuffle came out as an orange square). They are now drawn icons from
+   icons.js, named in the page with data-icon. */
+[data-icon] > .ico { margin: 0 auto; }
+[data-icon-label] { display: inline-flex; align-items: center; justify-content: center; gap: 6px; }
+[data-icon-label] > .ico { margin: 0; flex: 0 0 auto; }
+.np-ctrl-btn .ico { width: 18px; height: 18px; }
+#np-btn-play .ico { width: 20px; height: 20px; }
+.viz-btn .ico { width: 18px; height: 18px; }
+.viz-btn-main .ico { width: 22px; height: 22px; }
+.mmp-ctrl .ico { width: 15px; height: 15px; }
+.pip-bar .ico { width: 15px; height: 15px; }
+.np-vol-ico .ico { width: 14px; height: 14px; display: inline-block; vertical-align: middle; }
+.resume-prompt-icon .ico { width: 20px; height: 20px; }
+.lb-ctrl .ico { width: 18px; height: 18px; }
+/* Artwork placeholders: a large, faded note where the cover would be. */
+.np-art-placeholder .ico, #mmp-art .ico { width: 42%; height: 42%; min-width: 18px; min-height: 18px; opacity: .55; }
+.np-art-placeholder { display: flex; align-items: center; justify-content: center; width: 100%; height: 100%; }
+#mmp-art { display: flex; align-items: center; justify-content: center; }
+.ico-lbl { white-space: nowrap; }

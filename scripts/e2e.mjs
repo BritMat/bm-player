@@ -283,6 +283,25 @@ if (PART === 'a') {
     console.log(`      (${r.flakes} flakes; hat ${r.redSnow} red pixels in Snow, ${r.redDark} in Dark)`);
   });
 
+  // Control icons (v3.25.0): the music player, mini player, PiP bar, prompts
+  // and close buttons showed emoji, which every system draws differently (the
+  // shuffle was an orange square). Every control must now hold a drawn icon,
+  // and with nothing loaded the play buttons show play, not pause.
+  await step('every player control shows a drawn icon, not an emoji', async () => {
+    const r = await page.evaluate(() => {
+      const glyph = /[\u2190-\u21FF\u2300-\u23FF\u25A0-\u25FF\u2600-\u27BF\u2B00-\u2BFF]|[\uD83C-\uD83E][\uDC00-\uDFFF]/;
+      const sel = '#controls-bar button, [id^="np-btn"], .mmp-ctrl, #pip-overlay button, [data-icon]';
+      const els = [...document.querySelectorAll(sel)];
+      const bad = els.filter(e => glyph.test(e.textContent) || !e.querySelector('svg.ico')).map(e => e.id || e.className);
+      const idle = ['np-btn-play', 'mmp-play', 'pip-play'].map(id => document.getElementById(id)?.dataset.icon);
+      return { count: els.length, bad, idle };
+    });
+    if (r.count < 30) throw new Error('only ' + r.count + ' controls found');
+    if (r.bad.length) throw new Error('controls without a drawn icon or still showing a glyph: ' + r.bad.slice(0, 6).join(', '));
+    if (r.idle.some(i => i !== 'play')) throw new Error('with nothing loaded the play buttons show ' + r.idle.join('/'));
+    console.log(`      (${r.count} controls, all drawn icons)`);
+  });
+
   // About BM Player: an in-app window with the author and links (v3.20.0).
   await step('About opens from the menu, with the version, author and links', async () => {
     // Recorded where links really leave the app: shell.openExternal in the main
