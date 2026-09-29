@@ -1,4 +1,9 @@
 !include "${BUILD_RESOURCES_DIR}\mpv-download.nsh"
+; Before anything is changed: fetch and verify mpv, or stop.
+!macro customInit
+  !insertmacro bmFetchMpv
+!macroend
+
 !macro customInstall
   WriteRegStr HKCU "Software\RegisteredApplications" "BM Player" "Software\Clients\Media\BM Player\Capabilities"
   WriteRegStr HKCU "Software\Clients\Media\BM Player\Capabilities" "ApplicationName" "BM Player"
@@ -10,7 +15,7 @@
   WriteRegStr HKCU "Software\Classes\BMPlayer.Audio\DefaultIcon" "" "$INSTDIR\BM Player.exe,0"
   WriteRegStr HKCU "Software\Classes\BMPlayer.Audio\shell\open\command" "" '"$INSTDIR\BM Player.exe" "%1"'
   System::Call 'Shell32::SHChangeNotify(i 0x8000000, i 0, i 0, i 0)'
-  !insertmacro bmGetMpv
+  !insertmacro bmPlaceMpv
 !macroend
 !macro customUninstall
   DeleteRegKey HKCU "Software\Clients\Media\BM Player"

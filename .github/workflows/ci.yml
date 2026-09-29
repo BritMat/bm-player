@@ -175,12 +175,19 @@ jobs:
         shell: pwsh
         run: |
           $setup = Get-ChildItem dist -Filter 'BM-Player-Setup-*.exe' | Select-Object -First 1
-          Start-Process -Wait -FilePath $setup.FullName -ArgumentList '/S'
+          $p = Start-Process -Wait -PassThru -FilePath $setup.FullName -ArgumentList '/S'
+          if ($p.ExitCode -ne 0) {
+            # The installer stops before changing anything when it cannot get
+            # mpv (exit code 2): its log, in the temporary folder, says why.
+            $tl = Join-Path $env:TEMP 'BM-Player-mpv-install.log'
+            if (Test-Path $tl) { Get-Content $tl }
+            throw "the installer stopped with exit code $($p.ExitCode)"
+          }
           $exe = Get-ChildItem "$env:LOCALAPPDATA\Programs" -Recurse -Depth 2 -Filter 'BM Player.exe' -ErrorAction SilentlyContinue | Select-Object -First 1
           if (-not $exe) { throw 'the installer did not install BM Player.exe' }
           # What the installer's mpv step did, stage by stage.
           $log = Join-Path $exe.DirectoryName 'resources\mpv-install.log'
-          if (Test-Path $log) { Get-Content $log } else { 'no mpv-install.log: the mpv step did not run' }
+          if (Test-Path $log) { Get-Content $log } else { 'no mpv-install.log in the installed app' }
           $mpv = Join-Path $exe.DirectoryName 'resources\mpv\mpv.com'
           if (-not (Test-Path $mpv)) { throw "the installer did not fetch mpv: no $mpv" }
           & $mpv --version | Select-Object -First 1
@@ -200,12 +207,19 @@ jobs:
         shell: pwsh
         run: |
           $setup = Get-ChildItem dist-lite -Filter 'BM-Player-Lite-Setup-*.exe' | Select-Object -First 1
-          Start-Process -Wait -FilePath $setup.FullName -ArgumentList '/S'
+          $p = Start-Process -Wait -PassThru -FilePath $setup.FullName -ArgumentList '/S'
+          if ($p.ExitCode -ne 0) {
+            # The installer stops before changing anything when it cannot get
+            # mpv (exit code 2): its log, in the temporary folder, says why.
+            $tl = Join-Path $env:TEMP 'BM-Player-mpv-install.log'
+            if (Test-Path $tl) { Get-Content $tl }
+            throw "the installer stopped with exit code $($p.ExitCode)"
+          }
           $exe = Get-ChildItem "$env:LOCALAPPDATA\Programs" -Recurse -Depth 2 -Filter 'BM Player Lite.exe' -ErrorAction SilentlyContinue | Select-Object -First 1
           if (-not $exe) { throw 'the installer did not install BM Player Lite.exe' }
           # What the installer's mpv step did, stage by stage.
           $log = Join-Path $exe.DirectoryName 'resources\mpv-install.log'
-          if (Test-Path $log) { Get-Content $log } else { 'no mpv-install.log: the mpv step did not run' }
+          if (Test-Path $log) { Get-Content $log } else { 'no mpv-install.log in the installed app' }
           $mpv = Join-Path $exe.DirectoryName 'resources\mpv\mpv.com'
           if (-not (Test-Path $mpv)) { throw "the installer did not fetch mpv: no $mpv" }
           & $mpv --version | Select-Object -First 1

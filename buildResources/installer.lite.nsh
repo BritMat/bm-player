@@ -11,6 +11,11 @@
 #       the other.
 #
 # Reference: https://learn.microsoft.com/en-us/windows/win32/shell/default-programs
+; Before anything is changed: fetch and verify mpv, or stop.
+!macro customInit
+  !insertmacro bmFetchMpv
+!macroend
+
 !macro customInstall
   WriteRegStr HKCU "Software\RegisteredApplications" "BM Player Lite" "Software\Clients\Media\BM Player Lite\Capabilities"
   WriteRegStr HKCU "Software\Clients\Media\BM Player Lite\Capabilities" "ApplicationName" "BM Player Lite"
@@ -22,7 +27,7 @@
   WriteRegStr HKCU "Software\Classes\BMPlayerLite.Audio\DefaultIcon" "" "$INSTDIR\BM Player Lite.exe,0"
   WriteRegStr HKCU "Software\Classes\BMPlayerLite.Audio\shell\open\command" "" '"$INSTDIR\BM Player Lite.exe" "%1"'
   System::Call 'Shell32::SHChangeNotify(i 0x8000000, i 0, i 0, i 0)'
-  !insertmacro bmGetMpv
+  !insertmacro bmPlaceMpv
 !macroend
 !macro customUninstall
   DeleteRegKey HKCU "Software\Clients\Media\BM Player Lite"
