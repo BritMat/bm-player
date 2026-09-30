@@ -78,7 +78,8 @@ nsis:
 # not been run on real Mac hardware — treat the first CI build as the
 # real test, not a confirmed-working release.
 mac:
-  icon: "buildResources/icon.png"
+  # Made on macOS by scripts/generate-icon.js (sips and iconutil).
+  icon: "buildResources/icon.icns"
   category: "public.app-category.video"
   target:
     - target: "dmg"

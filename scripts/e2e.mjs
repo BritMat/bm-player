@@ -302,6 +302,30 @@ if (PART === 'a') {
     console.log(`      (${r.count} controls, all drawn icons)`);
   });
 
+  // Volume sliders (v3.25.3): filled with the theme's colours up to the thumb,
+  // whether the value comes from a drag or from code (keys, wheel, mpv).
+  await step('volume sliders fill with the theme up to the thumb', async () => {
+    const r = await page.evaluate(() => ['volume-slider', 'np-volume', 'ctx-vol'].map(id => {
+      const s = document.getElementById(id); if (!s) return { id, missing: true };
+      const was = s.value;
+      s.value = 75;                                     // set from code: no event fires
+      const fromCode = parseFloat(s.style.getPropertyValue('--fill'));
+      s.value = 26; s.dispatchEvent(new Event('input')); // a drag
+      const fromDrag = parseFloat(s.style.getPropertyValue('--fill'));
+      s.value = was;
+      const bg = getComputedStyle(s).backgroundImage;
+      return { id, fromCode, fromDrag, max: +s.max, gradient: bg.startsWith('linear-gradient') };
+    }));
+    for (const x of r) {
+      if (x.missing) throw new Error(x.id + ' is missing');
+      const want = v => (v / x.max) * 100;
+      if (Math.abs(x.fromCode - want(75)) > 0.1) throw new Error(`${x.id}: 75 of ${x.max} filled ${x.fromCode}%, expected ${want(75).toFixed(1)}%`);
+      if (Math.abs(x.fromDrag - want(26)) > 0.1) throw new Error(`${x.id}: a drag to 26 filled ${x.fromDrag}%`);
+      if (!x.gradient) throw new Error(x.id + ' has no theme fill');
+    }
+    console.log(`      (75 of ${r[0].max} fills ${r[0].fromCode.toFixed(1)}% of the track)`);
+  });
+
   // About BM Player: an in-app window with the author and links (v3.20.0).
   await step('About opens from the menu, with the version, author and links', async () => {
     // Recorded where links really leave the app: shell.openExternal in the main
@@ -555,6 +579,29 @@ if (PART === 'b') {
       console.log(`      (picture ${pg.rect.width}x${pg.rect.height} above a ${Math.round(pg.bar.height)}px control bar)`);
     });
 
+    // Lite (v3.25.3): the title bar and menus stay above the picture, and a
+    // prompt appears over the menu row. The picture used to shrink when the
+    // resume or "make default" prompt came up and grow back when it closed.
+    await step('Lite: prompts sit over the menu row and the picture does not move', async () => {
+      const r = await page.evaluate(async () => {
+        const { videoRect } = await import('./js/lite-video.js');
+        const settle = () => new Promise(res => requestAnimationFrame(() => requestAnimationFrame(res)));
+        const tb = document.querySelector('.titlebar'), mt = document.querySelector('.menu-toolbar');
+        const before = videoRect();
+        const p = document.getElementById('default-player-prompt'); const was = p.classList.contains('hidden');
+        p.classList.remove('hidden'); await settle();
+        const during = videoRect(), pr = p.getBoundingClientRect();
+        if (was) p.classList.add('hidden');
+        return { before, during, prompt: { top: pr.top, bottom: pr.bottom }, menuBottom: mt.getBoundingClientRect().bottom,
+                 titleOpacity: +getComputedStyle(tb).opacity };
+      });
+      if (!r.before) throw new Error('no video area while a video plays');
+      if (r.titleOpacity < 1) throw new Error('the title bar fades over the picture in Lite');
+      if (r.before.y < r.menuBottom - 1) throw new Error(`the picture (from ${r.before.y}) covers the menus (to ${r.menuBottom})`);
+      if (JSON.stringify(r.before) !== JSON.stringify(r.during)) throw new Error(`the picture moved when a prompt came up: ${JSON.stringify(r.before)} became ${JSON.stringify(r.during)}`);
+      if (r.prompt.top < 31 || r.prompt.bottom > r.before.y + 1) throw new Error(`the prompt is not over the menu row: ${r.prompt.top} to ${r.prompt.bottom}, the picture starts at ${r.before.y}`);
+    });
+
     // On a real machine the "make BM Player the default" prompt sat right on a
     // subtitle line: during video, prompts were placed just above the controls,
     // which is where subtitles are drawn. They now go to the top.
@@ -562,15 +609,20 @@ if (PART === 'b') {
       const r = await page.evaluate(async () => {
         const p = document.createElement('div');
         p.className = 'resume-prompt'; p.textContent = 'test prompt'; p.style.padding = '14px 20px';
-        document.getElementById('toast-stack').appendChild(p);
+        // First in the queue: Lite shows one prompt at a time (v3.25.3).
+        document.getElementById('toast-stack').prepend(p);
         await new Promise(res => setTimeout(res, 100));
         const b = p.getBoundingClientRect(), H = window.innerHeight;
         p.remove();
-        return { top: b.top, bottom: b.bottom, H, playing: document.body.classList.contains('playing') };
+        return { top: b.top, bottom: b.bottom, H, playing: document.body.classList.contains('playing'), lite: document.documentElement.classList.contains('lite-window') };
       });
       if (!r.playing) throw new Error('no video playing at this point');
       if (r.bottom > r.H * 0.6) throw new Error(`the prompt reaches ${Math.round(r.bottom)}px of ${r.H}: into the bottom of the picture, where subtitles go`);
-      if (r.top < 60) throw new Error(`the prompt is under the title bar and menus (top ${Math.round(r.top)}px)`);
+      // The full layout: below the title bar and menus, which fade over the
+      // picture. Lite (v3.25.3): over the menu row, which stays put, so the
+      // picture below never moves when a prompt comes or goes.
+      if (r.lite) { if (r.top < 31 || r.bottom > 66) throw new Error(`in Lite the prompt belongs over the menu row (32 to 64px), not at ${Math.round(r.top)} to ${Math.round(r.bottom)}`); }
+      else if (r.top < 60) throw new Error(`the prompt is under the title bar and menus (top ${Math.round(r.top)}px)`);
     });
 
     await step('PiP resizes the real window and restores it', async () => {

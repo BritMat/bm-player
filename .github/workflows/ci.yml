@@ -226,14 +226,20 @@ jobs:
           node scripts/smoke-packaged.mjs $exe.FullName --expect-lite
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
+      # One flat folder. An artifact keeps the folder structure of its files,
+      # and dist with dist-lite arrived as assets/dist/... and
+      # assets/dist-lite/..., which stopped the publish job (v3.25.2).
+      - name: Collect the release files
+        shell: bash
+        run: |
+          mkdir -p release
+          cp dist/BM-Player-Setup-*.exe dist/BM-Player-Setup-*.exe.blockmap dist/latest.yml dist-lite/BM-Player-Lite-Setup-*.exe release/
+          ls -la release
+
       - uses: actions/upload-artifact@v4
         with:
           name: windows
-          path: |
-            dist/BM-Player-Setup-*.exe
-            dist/BM-Player-Setup-*.exe.blockmap
-            dist/latest.yml
-            dist-lite/BM-Player-Lite-Setup-*.exe
+          path: release/
           if-no-files-found: error
           retention-days: 5
 
@@ -338,6 +344,10 @@ jobs:
       - name: Create the Release
         run: |
           ver="${TAG#v}"
+          # Artifacts keep their folder structure: flatten them, so every file
+          # is assets/<name> whatever folders a build job uploaded from.
+          find assets -mindepth 2 -type f -exec mv -f {} assets/ \;
+          find assets -mindepth 1 -type d -empty -delete
           ls -la assets
           {
             echo "BM Player $TAG"
@@ -358,7 +368,8 @@ jobs:
             echo
             echo "Marked as a pre-release: installed copies of BM Player do not update to it on their own."
           } > notes.md
-          files=$(ls assets/*)
+          files=$(find assets -maxdepth 1 -type f | sort)
+          test -n "$files" || { echo 'nothing to publish'; exit 1; }
           if gh release view "$TAG" > /dev/null 2>&1; then
             gh release upload "$TAG" $files --clobber
           else

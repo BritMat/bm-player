@@ -11,5 +11,7 @@ Thumbs.db
 .idea/
 buildResources/icon.png
 buildResources/icon.ico
+buildResources/icon.icns
+buildResources/icon.iconset/
 vendor/mpv/*
 !vendor/mpv/README.md

@@ -8,18 +8,25 @@
  * before electron-builder was ever invoked.
  *
  * Reads assets/icon-source.png and writes a square 1024x1024
- * buildResources/icon.png. electron-builder derives .ico / .icns / the Linux
- * png set from that one file, so there's nothing else to produce.
+ * buildResources/icon.png, the Windows buildResources/icon.ico, and on macOS
+ * buildResources/icon.icns. electron-builder does not derive those from the
+ * PNG in this configuration: the configs name them, and the first Windows and
+ * Mac builds on GitHub stopped because they did not exist.
  */
 
 const path = require('path');
 const fs   = require('fs');
+const { execFileSync } = require('child_process');
 
 const ROOT   = path.join(__dirname, '..');
 const SOURCE = path.join(ROOT, 'assets', 'icon-source.png');
 const OUTDIR = path.join(ROOT, 'buildResources');
 const OUT    = path.join(OUTDIR, 'icon.png');
 const ICO    = path.join(OUTDIR, 'icon.ico');
+const ICNS   = path.join(OUTDIR, 'icon.icns');
+const ICONSET = path.join(OUTDIR, 'icon.iconset');
+const FILL   = 0.88;   // the tile's share of the icon: between Windows' full tiles and macOS's smaller ones
+const INSET  = 3;      // source pixels trimmed off the tile's edge, where it blends into the black
 const SIZE   = 1024;   // electron-builder wants >=256; 1024 covers macOS retina
 
 function fail(msg) {
@@ -47,21 +54,22 @@ async function main() {
     fail('jimp is required to generate the icon: ' + e.message);
   }
 
+  // The artwork is a rounded tile inside a solid black square, with no
+  // transparency, and the tile fills only about 60% of it: the app icon was a
+  // small tile in a black box on every taskbar and dock (v3.25.3). Find the
+  // tile, cut it out with its own rounded corners, and let it fill the icon
+  // with a small transparent margin. A plain square source comes out as it is.
   const img = await Jimp.read(SOURCE);
-  const w = img.bitmap.width, h = img.bitmap.height;
-
-  // Pad to a square before scaling. Scaling a non-square source straight to
-  // 1024x1024 stretches the artwork, and electron-builder rejects non-square.
-  if (w !== h) {
-    const side = Math.max(w, h);
-    const canvas = new Jimp({ width: side, height: side, color: 0x00000000 });
-    canvas.composite(img, Math.floor((side - w) / 2), Math.floor((side - h) / 2));
-    await canvas.resize({ w: SIZE, h: SIZE });
-    await canvas.write(OUT);
-  } else {
-    await img.resize({ w: SIZE, h: SIZE });
-    await img.write(OUT);
-  }
+  const tile = findTile(img.bitmap);
+  const side = Math.max(tile.w, tile.h);
+  const sq = new Jimp({ width: side, height: side, color: 0x00000000 });
+  sq.composite(img, Math.round(side / 2 - (tile.x + tile.w / 2)), Math.round(side / 2 - (tile.y + tile.h / 2)));
+  maskTile(sq.bitmap, { x: side / 2 - tile.w / 2, y: side / 2 - tile.h / 2, w: tile.w, h: tile.h, r: tile.r });
+  const inner = Math.round(SIZE * FILL);
+  await sq.resize({ w: inner, h: inner });
+  const out = new Jimp({ width: SIZE, height: SIZE, color: 0x00000000 });
+  out.composite(sq, Math.round((SIZE - inner) / 2), Math.round((SIZE - inner) / 2));
+  await out.write(OUT);
 
   const kb = (fs.statSync(OUT).size / 1024).toFixed(1);
   console.log('[gen-icon] wrote ' + path.relative(ROOT, OUT) + ' (' + SIZE + 'x' + SIZE + ', ' + kb + ' KB)');
@@ -73,11 +81,17 @@ async function main() {
   const big = await Jimp.read(OUT);
   const entries = [];
   for (const s of [16, 24, 32, 48, 64, 128, 256]) {
-    const im = big.clone(); await im.resize({ w: s, h: s });
+    // Halve step by step, then scale to size: one jump from 1024 to 16 samples
+    // too few pixels and turns the detailed artwork into speckle.
+    const im = big.clone();
+    while (im.bitmap.width / 2 >= s * 1.5) await im.resize({ w: Math.round(im.bitmap.width / 2), h: Math.round(im.bitmap.height / 2) });
+    await im.resize({ w: s, h: s });
     entries.push({ size: s, rgba: im.bitmap.data, png: s === 256 ? await im.getBuffer('image/png') : null });
   }
   fs.writeFileSync(ICO, encodeIco(entries));
   console.log('[gen-icon] wrote ' + path.relative(ROOT, ICO) + ' (' + entries.map(e => e.size).join(', ') + ')');
+
+  generateMacIcon();
 }
 
 /* An .ico file. Sizes below 256 are classic 32-bit bitmaps, which every tool
@@ -115,3 +129,62 @@ function encodeIco(entries) {
 }
 
 main().catch(e => fail(e.stack || e.message));
+
+/* The macOS icon, with Apple's own tools: sips renders each size of an
+   .iconset from the 1024 PNG, and iconutil turns the set into an .icns. Both
+   come with macOS, which is the only place a Mac build runs, so elsewhere
+   this does nothing. (v3.25.3: the Mac build on GitHub stopped with "cannot
+   find specified resource buildResources/icon.icns".) */
+function generateMacIcon() {
+  if (process.platform !== 'darwin') return;
+  fs.rmSync(ICONSET, { recursive: true, force: true });
+  fs.mkdirSync(ICONSET, { recursive: true });
+  const sizes = [
+    [16, 'icon_16x16.png'], [32, 'icon_16x16@2x.png'],
+    [32, 'icon_32x32.png'], [64, 'icon_32x32@2x.png'],
+    [128, 'icon_128x128.png'], [256, 'icon_128x128@2x.png'],
+    [256, 'icon_256x256.png'], [512, 'icon_256x256@2x.png'],
+    [512, 'icon_512x512.png'], [1024, 'icon_512x512@2x.png'],
+  ];
+  for (const [size, name] of sizes)
+    execFileSync('sips', ['-z', String(size), String(size), OUT, '--out', path.join(ICONSET, name)], { stdio: 'ignore' });
+  execFileSync('iconutil', ['-c', 'icns', ICONSET, '-o', ICNS], { stdio: 'inherit' });
+  fs.rmSync(ICONSET, { recursive: true, force: true });
+  console.log('[gen-icon] wrote ' + path.relative(ROOT, ICNS));
+}
+
+/* The artwork's tile: the box of everything that is not the black
+   background, and its corner radius, from where the diagonal from the box's
+   corner first meets it (a rounded corner of radius r lies r(1 - 1/sqrt 2) in
+   along the diagonal). */
+function findTile({ data, width: W, height: H }) {
+  const lit = (x, y) => { const i = (y * W + x) * 4; return Math.max(data[i], data[i + 1], data[i + 2]) > 12 && data[i + 3] > 12; };
+  let x0 = W, x1 = -1, y0 = H, y1 = -1;
+  for (let y = 0; y < H; y += 2) for (let x = 0; x < W; x += 2)
+    if (lit(x, y)) { if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y; }
+  if (x1 < 0) return { x: 0, y: 0, w: W, h: H, r: 0 };
+  const w = x1 - x0 + 1, h = y1 - y0 + 1;
+  let d = 0;
+  while (d < Math.min(w, h) / 2 && !lit(x0 + d, y0 + d)) d++;
+  return { x: x0, y: y0, w, h, r: Math.min(d / (1 - Math.SQRT1_2), w / 2, h / 2) };
+}
+
+/* Everything outside the tile's rounded rectangle becomes transparent, with a
+   one-pixel soft edge. The tile is trimmed by INSET pixels first, where its
+   edge blends into the black, and pixels outside take the tile's own edge
+   colour, so scaling cannot pull a dark fringe in from the old background. */
+function maskTile({ data, width: W, height: H }, { x, y, w, h, r }) {
+  x += INSET; y += INSET; w -= 2 * INSET; h -= 2 * INSET; r = Math.max(0, r - INSET);
+  const cx = x + w / 2, cy = y + h / 2, hx = w / 2 - r, hy = h / 2 - r;
+  const ei = (Math.round(cy) * W + Math.round(x + Math.min(24, w / 4))) * 4;   // just inside the left edge
+  const edge = [data[ei], data[ei + 1], data[ei + 2]];
+  for (let py = 0; py < H; py++) for (let px = 0; px < W; px++) {
+    const qx = Math.abs(px + 0.5 - cx) - hx, qy = Math.abs(py + 0.5 - cy) - hy;
+    const dist = Math.hypot(Math.max(qx, 0), Math.max(qy, 0)) + Math.min(Math.max(qx, qy), 0) - r;
+    const k = Math.min(1, Math.max(0, 0.5 - dist));
+    if (k >= 1) continue;
+    const i = (py * W + px) * 4;
+    if (dist > 0.5) { data[i] = edge[0]; data[i + 1] = edge[1]; data[i + 2] = edge[2]; }
+    data[i + 3] = Math.round(data[i + 3] * k);
+  }
+}

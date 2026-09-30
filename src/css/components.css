@@ -502,3 +502,54 @@ html.bm-layered.playing body:not(.audio-viz) #player-view { background: transpar
 .np-art-placeholder { display: flex; align-items: center; justify-content: center; width: 100%; height: 100%; }
 #mmp-art { display: flex; align-items: center; justify-content: center; }
 .ico-lbl { white-space: nowrap; }
+
+/* ── Volume sliders filled with the theme (v3.25.3) ─────────────────────
+   The track is the theme's two accents up to the thumb (--fill, set by
+   range-fill.js), then a plain track. The video bar always sits over the dark
+   picture, so its plain track stays light. The others follow the theme. */
+#volume-slider, #np-volume, #ctx-vol {
+  -webkit-appearance: none; appearance: none; height: 4px; border-radius: 4px; cursor: pointer; outline: none;
+  background: linear-gradient(90deg, var(--accent) 0%, var(--accent2) var(--fill, 0%), var(--vol-track) var(--fill, 0%));
+  --vol-track: color-mix(in srgb, var(--text) 18%, transparent);
+}
+#volume-slider { --vol-track: rgba(255, 255, 255, .2); }
+#np-volume::-webkit-slider-thumb, #ctx-vol::-webkit-slider-thumb {
+  -webkit-appearance: none; width: 12px; height: 12px; border-radius: 50%; background: #fff; cursor: pointer;
+  box-shadow: 0 0 6px color-mix(in srgb, var(--accent) 70%, transparent);
+}
+
+/* ── Lite playback: a fixed layout (v3.25.3) ───────────────────────────
+   The picture shrank when the resume or "make default" prompt came up and
+   grew back when it closed, and with no prompt it covered the title bar and
+   menus, which fade over the picture in the full layout and cannot in Lite.
+   Now the title bar and menus stay put, the picture starts below them, and
+   prompts appear as a slim bar over the menu row, so the picture never moves. */
+.lite-window body.playing:not(.pip-mode) .titlebar,
+.lite-window body.playing:not(.pip-mode) .menu-toolbar {
+  transform: none !important; opacity: 1 !important; pointer-events: auto !important;
+  background: var(--bg2) !important; -webkit-backdrop-filter: none !important; backdrop-filter: none !important;
+}
+.lite-window body.playing:not(.pip-mode) #player-view.active { top: 64px !important; }
+/* The prompts live in #toast-stack, which is fixed and transformed, so it is
+   the stack that moves over the menu row; its children become slim bars. */
+.lite-window body.playing:not(.pip-mode) .toast-stack {
+  top: 32px !important; bottom: auto !important; left: 0 !important; right: 0 !important;
+  width: auto !important; transform: none !important; gap: 0 !important; z-index: 9800 !important;
+}
+/* One at a time: a second would land below the menu row, on the picture. The
+   next shows when the first is dismissed. */
+.lite-window body.playing:not(.pip-mode) .toast-stack > :not(.hidden) ~ :not(.hidden) { display: none !important; }
+.lite-window body.playing:not(.pip-mode) .toast-stack > :not(.hidden) {
+  position: static !important; width: 100% !important; max-width: none !important; height: 32px !important;
+  margin: 0 !important; padding: 0 12px !important; overflow: hidden;
+  display: flex !important; align-items: center; justify-content: center; gap: 10px;
+  transform: none !important; border-radius: 0 !important; box-shadow: none !important; animation: none !important;
+  background: var(--surface2) !important; border: 0 !important; border-bottom: 1px solid var(--border) !important;
+}
+.lite-window body.playing:not(.pip-mode) #resume-prompt .resume-prompt-icon { width: 22px; height: 22px; border-radius: 6px; }
+.lite-window body.playing:not(.pip-mode) #resume-prompt .resume-prompt-icon .ico { width: 14px; height: 14px; }
+.lite-window body.playing:not(.pip-mode) #resume-prompt .resume-prompt-body { flex: 0 1 auto; display: flex; align-items: baseline; gap: 8px; min-width: 0; white-space: nowrap; overflow: hidden; }
+.lite-window body.playing:not(.pip-mode) #resume-prompt .resume-prompt-title { font-size: 12.5px; }
+.lite-window body.playing:not(.pip-mode) #resume-prompt .resume-prompt-meta { margin: 0; }
+.lite-window body.playing:not(.pip-mode) #resume-prompt .resume-prompt-btn,
+.lite-window body.playing:not(.pip-mode) #default-player-prompt button { padding: 3px 10px !important; font-size: 12px !important; }

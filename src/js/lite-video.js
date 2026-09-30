@@ -5,12 +5,15 @@
  * mpv used to draw into the Lite window itself, a child window covering the
  * whole page: on Windows the controls disappeared behind the picture during
  * playback (the field check's "lite" row). Now the picture covers #video-area
- * only, and anything that must stay visible over the video (the resume and
- * default-player prompts, the PiP bar) makes the picture leave room for it.
+ * only, and the PiP bar, which must stay visible, makes the picture leave room
+ * for it. Prompts sit over the menu row, so the picture never moves.
  */
 const LITE = new URLSearchParams(location.search).get('lite') === '1';
-// Overlays that must never end up under the picture.
-const KEEP_VISIBLE = ['#resume-prompt', '#default-player-prompt', '#update-banner', 'body.pip-mode .pip-bar'];
+// Overlays the picture leaves room for: only the PiP bar, which is there for
+// the whole of PiP. Prompts used to be here too, and the picture shrank when
+// one came up and grew back when it closed (v3.25.3): in Lite playback they
+// now sit over the menu row instead (components.css).
+const KEEP_VISIBLE = ['body.pip-mode .pip-bar'];
 
 function shown(el) {
   if (!el || el.classList.contains('hidden')) return null;
