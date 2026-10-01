@@ -302,6 +302,28 @@ if (PART === 'a') {
     console.log(`      (${r.count} controls, all drawn icons)`);
   });
 
+  // The right-click menu (v3.27.0): a short standard menu with submenus. It
+  // showed seven expanded sections at once, with a close button among them.
+  await step('the right-click menu is short, with submenus that open on hover', async () => {
+    await page.evaluate(() => bmApp._openCtxPanel(300, 200));
+    await page.waitForTimeout(200);
+    const r = await page.evaluate(() => {
+      const p = document.getElementById('ctx-panel'), vis = e => e.offsetParent !== null;
+      const rows = [...p.querySelectorAll(':scope > .ctx-group > .ctx-item, :scope > .ctx-has-sub > .ctx-label')].filter(vis).map(e => e.textContent.trim());
+      const subsOpen = [...p.querySelectorAll('.ctx-sub')].filter(x => getComputedStyle(x).display !== 'none').length;
+      return { rows, subsOpen, close: !!document.getElementById('ctx-close') };
+    });
+    if (r.close) throw new Error('the menu still has a close button');
+    if (r.subsOpen) throw new Error(r.subsOpen + ' submenus open before any hover');
+    if (r.rows.length > 16) throw new Error(`${r.rows.length} rows at the top level: ${r.rows.join(', ')}`);
+    await page.hover('#ctx-sec-quick > .ctx-label');
+    await page.waitForTimeout(400);
+    const opened = await page.evaluate(() => getComputedStyle(document.querySelector('#ctx-sec-quick > .ctx-sub')).display);
+    await page.evaluate(() => bmApp._closeCtxPanel());
+    if (opened === 'none') throw new Error('hovering Volume did not open its submenu');
+    console.log(`      (${r.rows.length} rows with nothing playing: ${r.rows.join(', ')})`);
+  });
+
   // Volume sliders (v3.25.3): filled with the theme's colours up to the thumb,
   // whether the value comes from a drag or from code (keys, wheel, mpv).
   await step('volume sliders fill with the theme up to the thumb', async () => {
@@ -748,6 +770,27 @@ if (PART === 'c') {
     if (!d?.windows?.controls || !d.windows.picture) throw new Error('the diagnostics report does not say where the windows are');
   });
 
+  // The pin (v3.27.0): on every window at once. It went to the picture window
+  // only, and a file dialog left the controls window on top along with it, so
+  // turning the pin off left the window you see above everything. It is no
+  // longer saved either: a pin turned on once came back at every launch.
+  await step('the pin sets and releases every window, and is not saved', async () => {
+    const tops = () => app.evaluate(({ BaseWindow }) => BaseWindow.getAllWindows().map(w => w.isAlwaysOnTop()));
+    if (await page.evaluate(() => bmApp.alwaysOnTop || localStorage.getItem('bm_ontop') !== null)) throw new Error('the player started pinned, or a pin was saved');
+    await page.evaluate(() => bmApp.toggleAlwaysOnTop());
+    await page.waitForTimeout(200);
+    const on = await tops();
+    if (!on.every(Boolean)) throw new Error('pinned, but not every window is on top: ' + JSON.stringify(on));
+    await page.evaluate(() => bmApp.toggleAlwaysOnTop());
+    // The old trap: the controls window left on top by itself, then the pin on and off.
+    await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setAlwaysOnTop(true));
+    await page.evaluate(() => { bmApp.toggleAlwaysOnTop(); bmApp.toggleAlwaysOnTop(); });
+    await page.waitForTimeout(200);
+    const off = await tops();
+    if (off.some(Boolean)) throw new Error('unpinned, but a window is still on top: ' + JSON.stringify(off));
+    if (await page.evaluate(() => localStorage.getItem('bm_ontop') !== null)) throw new Error('the pin was saved');
+  });
+
   if (VIDEO) {
     let normal;
     await step('controls sit above the video while it plays', async () => {
@@ -795,6 +838,33 @@ if (PART === 'c') {
   } else {
     console.log('  (ffmpeg unavailable: video steps skipped)');
   }
+  // The artistic themes (v3.27.0): each draws a scene of its own instead of
+  // the fluid every theme shared. Dark, Light, Dracula and Snow keep theirs.
+  // Full visuals here: a small machine switches to Lite's on its own. Last in
+  // part C, because it reloads the page.
+  await step('each artistic theme draws its own scene, the standard four keep theirs', async () => {
+    await page.evaluate(() => { localStorage.setItem('bm_lite_user', '0'); localStorage.setItem('bm_fluid_enabled', '1'); });
+    await page.reload(); await page.waitForFunction(() => window.bmApp, null, { timeout: 30000 });
+    const r = await page.evaluate(async () => {
+      const out = {};
+      // The canvas fades in over 0.5s: without the fade the opacity read is
+      // the final one, however slow the machine.
+      if (bmApp.themeFX?.canvas) bmApp.themeFX.canvas.style.transition = 'none';
+      for (const t of ['ocean', 'forest', 'cyberpunk', 'midnight', 'northern', 'sakura', 'sunset', 'golden', 'lavender', 'glass', 'dark', 'light', 'dracula', 'snow']) {
+        bmApp.applyTheme(t); await new Promise(res => setTimeout(res, 300));
+        const fx = bmApp.themeFX;
+        out[t] = { mode: fx?.mode, scene: !!fx?._scene, shown: fx ? +getComputedStyle(fx.canvas).opacity : null };
+      }
+      bmApp.applyTheme('dark');
+      return out;
+    });
+    const keep = { dark: 'off', light: 'off', dracula: 'blood', snow: 'snow' };
+    for (const [t, v] of Object.entries(r)) {
+      if (keep[t]) { if (v.mode !== keep[t]) throw new Error(`${t} changed: ${v.mode}, expected ${keep[t]}`); continue; }
+      if (v.mode !== 'scene:' + t || !v.scene) throw new Error(`${t} has no scene of its own: ${JSON.stringify(v)}`);
+      if (!(v.shown > 0.9)) throw new Error(`${t}'s scene is drawn on a hidden canvas (opacity ${v.shown})`);
+    }
+  });
 }
 } finally {
   await app.close().catch(() => {});

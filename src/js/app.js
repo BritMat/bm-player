@@ -15,6 +15,8 @@ import { parseM3u, serializeM3u, readM3uFile, writeM3uFile, isM3uPath } from './
 import liteMode from './modules/lite-mode.js';
 import './lite-video.js';   // Lite: where the video window goes
 import './range-fill.js';   // volume sliders filled with the theme's colours
+import './ctx-menu.js';     // the right-click menu's submenus
+import { SCENE_THEMES } from './theme-scenes.js';   // the artistic themes' own scenes
 import { TVModule } from './modules/tv.js';
 import { el, fileURL, fmtSec, seedGrad,
          escapeHtml, escapeAttr, basenameOf, relativeTime } from './util.js';
@@ -31,7 +33,10 @@ class BMPlayer {
   constructor(){
     this.api=window.api;
     this.isPlaying=false;this.duration=0;this.currentTime=0;this.isSeeking=false;
-    this.alwaysOnTop=localStorage.getItem('bm_ontop')==='1';
+    // For this session only (v3.27.0): a pin switched on once was saved and came
+    // back at every launch, so the player opened above everything. An old saved
+    // value is cleared once.
+    this.alwaysOnTop=false;try{localStorage.removeItem('bm_ontop');}catch(_){}
     this.recent=JSON.parse(localStorage.getItem('bm_recent')||'[]');
     this.eqValues=[...EQ_PRESETS.flat];
     this.osdTimer=null;this.hideTimer=null;
@@ -253,6 +258,12 @@ class BMPlayer {
       if(name==='dracula'){
         this.themeFX?.setMode('blood');
         this.auroraFX?.setMode('off');
+      } else if(SCENE_THEMES.includes(name)){
+        // v3.27.0: the artistic themes each have a scene of their own (ocean
+        // light and bubbles, forest fireflies, city lights...) instead of the
+        // fluid every theme shared. Dark, Light, Dracula and Snow keep theirs.
+        this.themeFX?.setMode(this._fluidEnabled?'scene:'+name:'off');
+        this.auroraFX?.setMode('off');
       } else {
         // Snow falls in the effects layer, over the icy fluid.
         this.themeFX?.setMode(name==='snow'?'snow':'off');
@@ -271,9 +282,7 @@ class BMPlayer {
     document.querySelectorAll('.tp').forEach(b=>b.addEventListener('click',()=>this.applyTheme(b.dataset.theme)));
     this.applyTheme(localStorage.getItem('bm_theme')||'dark');
     el('mi-always-top')?.addEventListener('click',()=>{
-      this.alwaysOnTop=!this.alwaysOnTop;localStorage.setItem('bm_ontop',this.alwaysOnTop?'1':'0');
-      this.api?.win.alwaysTop(this.alwaysOnTop);el('mi-always-top')?.classList.toggle('active-opt',this.alwaysOnTop);
-      this.showOSD(this.alwaysOnTop?'Always on top: ON':'Always on top: OFF');
+      this.toggleAlwaysOnTop();
     });
   }
   wireSidebar(){document.querySelectorAll('.sidebar-btn[data-dest]').forEach(b=>b.addEventListener('click',()=>this.switchDest(b.dataset.dest)));}
@@ -793,17 +802,14 @@ class BMPlayer {
   renderPlaylistPanel(){this.api?.mpv.getPlaylist?.().then(pl=>{const list=el('pl-list');if(!list)return;if(!pl?.length){list.innerHTML='<div style="color:var(--text-muted);font-size:12px;padding:10px">Playlist empty</div>';return;}list.innerHTML=pl.map((item,i)=>{const name=(item.title||item.filename||'').split(/[\\/]/).pop();return'<div class="pl-item'+(item.current?' playing':'')+'" data-idx="'+i+'"><span class="pl-item-idx">'+(i+1)+'</span><span class="pl-item-name">'+name+'</span><span class="pl-item-rm" data-rm="'+i+'">x</span></div>';}).join('');list.querySelectorAll('.pl-item').forEach(item=>item.addEventListener('click',()=>this.api?.mpv.cmd('set_property','playlist-pos',+item.dataset.idx)));list.querySelectorAll('.pl-item-rm').forEach(btn=>btn.addEventListener('click',e=>{e.stopPropagation();this.api?.mpv.cmd('playlist-remove',+btn.dataset.rm);setTimeout(()=>this.renderPlaylistPanel(),100);}));});}
   wireCtxPanel(){
     document.querySelectorAll('.ctx-tab').forEach(t=>t.addEventListener('click',()=>{document.querySelectorAll('.ctx-tab').forEach(x=>x.classList.remove('active'));document.querySelectorAll('.ctx-body').forEach(x=>x.classList.remove('active'));t.classList.add('active');el('ctx-tab-'+t.dataset.tab)?.classList.add('active');}));
-    el('ctx-close')?.addEventListener('click',()=>this._closeCtxPanel());
     document.addEventListener('mousedown',e=>{const p=el('ctx-panel');if(p&&!p.contains(e.target)&&!p.classList.contains('hidden'))this._closeCtxPanel();});
     el('ctx-vol')?.addEventListener('input',e=>{const v=+e.target.value;this.setVolume(v);const s=el('volume-slider');if(s)s.value=v;const l=el('vol-label');if(l)l.textContent=v;const cl=el('ctx-vol-val');if(cl)cl.textContent=v+'%';});
     el('ctx-mute')?.addEventListener('change',()=>this.toggleMute());
     el('ctx-sub-size')?.addEventListener('input',e=>{this.api?.mpv.cmd('set_property','sub-font-size',+e.target.value);const v=el('ctx-sub-size-val');if(v)v.textContent=e.target.value;});
     el('ctx-sub-pos')?.addEventListener('input',e=>{this.api?.mpv.cmd('set_property','sub-pos',+e.target.value);const v=el('ctx-sub-pos-val');if(v)v.textContent=e.target.value;});
-    document.querySelectorAll('.ctx-adj-btn[data-cmd]').forEach(btn=>btn.addEventListener('click',()=>{const c=btn.dataset.cmd,v=btn.dataset.v;if(c==='sub-delay'){if(v==='0'){this.api?.adj.resetSub();this._ctxSubDelay=0;}else{const d=parseFloat(v);this.api?.adj.subDelay(d);this._ctxSubDelay+=d;}const e=el('ctx-sub-delay-val');if(e)e.textContent=this._ctxSubDelay.toFixed(1)+'s';}else if(c==='audio-delay'){if(v==='0'){this.api?.adj.resetAudio();this._ctxAudioDelay=0;}else{const d=parseFloat(v);this.api?.adj.audioDelay(d);this._ctxAudioDelay+=d;}const e=el('ctx-audio-delay-val');if(e)e.textContent=this._ctxAudioDelay.toFixed(1)+'s';}}));
     document.querySelectorAll('.ctx-chip[data-cmd]').forEach(chip=>chip.addEventListener('click',()=>{chip.closest('.ctx-chip-row')?.querySelectorAll('.ctx-chip').forEach(c=>c.classList.remove('active'));chip.classList.add('active');const{cmd,v}=chip.dataset;if(cmd==='aspect')this.api?.mpv.cmd('set_property','video-aspect-override',v==='-1'?'-1':v);if(cmd==='hwdec')this.api?.mpv.cmd('set_property','hwdec',v);}));
     el('ctx-deinterlace')?.addEventListener('change',()=>this.api?.mpv.cmd('cycle','deinterlace'));
     el('ctx-screenshot')?.addEventListener('click',()=>{this.api?.mpv.cmd('screenshot','subtitles');this.showOSD('Screenshot saved');this._closeCtxPanel();});
-    el('ctx-add-sub')?.addEventListener('click',async()=>{const s=await this.api?.dialog.openSub();if(s){this.api?.mpv.cmd('sub-add',s,'select');this.showOSD('Subtitle loaded');}this._closeCtxPanel();});
     // mpv runs with --keep-open=yes, so the end of a file does NOT send
     // end-file. It sets eof-reached and pauses on the last frame. Verified
     // against real mpv 0.37 (scripts/integration-mpv.cjs). Advance on that.
@@ -847,6 +853,8 @@ class BMPlayer {
     show('ctx-sec-audio-tracks',playing);
     show('ctx-sec-sub-tracks',vid);
     show('ctx-sec-video',vid);
+    show('ctx-sec-extra',playing);
+    el('ctx-ontop')?.classList.toggle('on',!!this.alwaysOnTop);
 
     p.classList.remove('hidden');
     p.style.left='-9999px';p.style.top='-9999px';
@@ -884,6 +892,7 @@ class BMPlayer {
       'fullscreen':  ()=>this.api?.win.fullscreen(),
       'theatre':     ()=>this.api?.win.theatre(),
       'pip':         ()=>this.togglePiP(),
+      'always-top':  ()=>this.toggleAlwaysOnTop(),
       'open-eq':     ()=>this.openPanel('eq'),
       'diagnostics': ()=>this.openDiagnostics(),
       'open-info':   ()=>this.openPanel('info'),
@@ -928,6 +937,13 @@ class BMPlayer {
     });
   }
   _closeCtxPanel(){el('ctx-panel')?.classList.add('hidden');}
+  // The pin button and the right-click menu's "Always on top" (v3.27.0).
+  toggleAlwaysOnTop(){
+    this.alwaysOnTop=!this.alwaysOnTop;
+    this.api?.win.alwaysTop(this.alwaysOnTop);
+    el('mi-always-top')?.classList.toggle('active-opt',this.alwaysOnTop);
+    this.showOSD(this.alwaysOnTop?'Always on top: ON':'Always on top: OFF');
+  }
   // Active re-fetch on top of the passive observer stream — mirrors what
   // the old native right-click menu used to do (explicit get_property
   // before building the menu) rather than trusting only the cached

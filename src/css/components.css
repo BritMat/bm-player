@@ -553,3 +553,53 @@ html.bm-layered.playing body:not(.audio-viz) #player-view { background: transpar
 .lite-window body.playing:not(.pip-mode) #resume-prompt .resume-prompt-meta { margin: 0; }
 .lite-window body.playing:not(.pip-mode) #resume-prompt .resume-prompt-btn,
 .lite-window body.playing:not(.pip-mode) #default-player-prompt button { padding: 3px 10px !important; font-size: 12px !important; }
+
+/* ── The right-click menu (v3.27.0) ─────────────────────────────────────
+   A standard menu: compact rows, submenus that fly out to the side
+   (ctx-menu.js), no close button. It was a 320px column of seven expanded
+   sections that scrolled, and scrolling would also clip a submenu. Scoped
+   to #ctx-panel, so it outranks the older .ctx- rules. */
+#ctx-panel.ctx-panel {
+  width: auto; min-width: 214px; max-width: 300px; max-height: none; overflow: visible;
+  display: block; padding: 5px; border-radius: 10px; font-size: 13px;
+  background: var(--menu-bg, var(--surface)); border: 1px solid var(--border);
+  box-shadow: 0 12px 32px rgba(0,0,0,.45), 0 0 0 1px rgba(255,255,255,.04);
+}
+#ctx-panel .hidden { display: none !important; }
+#ctx-panel .ctx-item, #ctx-panel .ctx-label, #ctx-panel .ctx-checkbox {
+  display: flex; align-items: center; gap: 9px; height: 30px; padding: 0 12px 0 8px; margin: 0;
+  border-radius: 6px; color: var(--text); cursor: pointer; white-space: nowrap; user-select: none;
+  font-size: 13px; background: transparent; border: 0;
+}
+#ctx-panel .ctx-item:hover, #ctx-panel .ctx-label:hover, #ctx-panel .ctx-checkbox:hover,
+#ctx-panel .ctx-has-sub.open > .ctx-label { background: color-mix(in srgb, var(--accent) 18%, transparent); }
+#ctx-panel .ctx-ico { width: 16px; height: 16px; flex: 0 0 16px; display: inline-flex; align-items: center; justify-content: center; opacity: .8; }
+#ctx-panel .ctx-ico svg { width: 15px; height: 15px; }
+#ctx-panel .ctx-sep { height: 1px; margin: 5px 6px; background: var(--border); }
+#ctx-panel .ctx-has-sub { position: relative; }
+/* The submenu chevron and the tick are drawn with borders, not characters. */
+#ctx-panel .ctx-has-sub > .ctx-label::after {
+  content: ''; margin-left: auto; width: 6px; height: 6px; transform: rotate(45deg); opacity: .6;
+  border-right: 1.6px solid currentColor; border-top: 1.6px solid currentColor;
+}
+#ctx-panel .ctx-check.on::after {
+  content: ''; margin-left: auto; width: 9px; height: 5px; transform: rotate(-45deg) translateY(-2px);
+  border-left: 1.8px solid var(--accent); border-bottom: 1.8px solid var(--accent);
+}
+#ctx-panel .ctx-sub {
+  display: none; position: absolute; top: -6px; left: calc(100% - 2px); min-width: 236px; padding: 5px; z-index: 2;
+  background: var(--menu-bg, var(--surface)); border: 1px solid var(--border); border-radius: 10px;
+  box-shadow: 0 12px 32px rgba(0,0,0,.45);
+}
+#ctx-panel .ctx-has-sub.flip-x > .ctx-sub { left: auto; right: calc(100% - 2px); }
+#ctx-panel .ctx-has-sub.open > .ctx-sub { display: block; }
+#ctx-panel .ctx-slider-row { display: flex; align-items: center; gap: 7px; padding: 5px 10px; }
+#ctx-panel .ctx-slider-label { font-size: 12px; opacity: .75; min-width: 46px; }
+#ctx-panel .ctx-slider-val { font-size: 12px; font-variant-numeric: tabular-nums; min-width: 38px; text-align: right; }
+#ctx-panel .ctx-range { flex: 1; min-width: 96px; }
+#ctx-panel .ctx-mini-btn { min-width: 24px; height: 22px; padding: 0 5px; border-radius: 5px; border: 1px solid var(--border); background: transparent; color: var(--text); cursor: pointer; }
+#ctx-panel .ctx-mini-btn:hover { background: color-mix(in srgb, var(--accent) 18%, transparent); }
+#ctx-panel .ctx-checkbox input { margin: 0 4px 0 1px; accent-color: var(--accent); }
+#ctx-panel .ctx-track-list:empty, #ctx-panel .ctx-track-list:empty + .ctx-sep { display: none; }
+/* A group of rows app.js hides or shows as one (Screenshot and Media info while nothing plays). */
+#ctx-panel .ctx-group { display: block; }

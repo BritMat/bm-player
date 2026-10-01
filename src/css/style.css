@@ -90,6 +90,8 @@ body.playing #player-view,.sidebar~#player-view{left:0!important;}
 [data-theme="dracula"] .theme-fx-canvas{opacity:1;}
 /* Snow falls on the same canvas (v3.21.0); it stayed invisible without this. */
 [data-theme="snow"] .theme-fx-canvas{opacity:1;}
+/* v3.27.0: the artistic themes draw their own scenes on this canvas. */
+[data-theme="ocean"] .theme-fx-canvas,[data-theme="forest"] .theme-fx-canvas,[data-theme="cyberpunk"] .theme-fx-canvas,[data-theme="midnight"] .theme-fx-canvas,[data-theme="northern"] .theme-fx-canvas,[data-theme="sakura"] .theme-fx-canvas,[data-theme="sunset"] .theme-fx-canvas,[data-theme="golden"] .theme-fx-canvas,[data-theme="lavender"] .theme-fx-canvas,[data-theme="glass"] .theme-fx-canvas{opacity:1;}
 [data-theme="northern"] .aurora-canvas{opacity:1;}
 [data-theme="northern"] .fox-stage{opacity:0;pointer-events:none;}
 .welcome-layout{position:relative;z-index:5;display:flex;width:100%;height:100%;}

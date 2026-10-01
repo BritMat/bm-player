@@ -21,6 +21,7 @@
  */
 
 import { perf } from './perf.js';
+import { createScene } from './theme-scenes.js';
 
 /* ─── Color palettes — one per theme ─────────────────────────────── */
 const THEME_PALETTES = {
@@ -114,6 +115,7 @@ export class ThemeFX {
       this._params  = p;
       this._tierCfg = TIER_CONFIG[perf.tier] || TIER_CONFIG.medium;
       if (this.mode === 'fluid') this._resizeDyes();
+      if (String(this.mode).startsWith('scene:')) this._initScene();
     });
   }
 
@@ -157,6 +159,8 @@ export class ThemeFX {
     if (m === 'fluid') { this._initFluid(); this.start(); }
     if (m === 'blood') { this._initBlood(); this.start(); }
     if (m === 'snow')  { this._initSnow();  this.start(); }
+    // v3.27.0: the artistic themes' own scenes (theme-scenes.js).
+    if (String(m).startsWith('scene:')) { this._initScene(); this.start(); }
     if (m === 'off')   { this.ctx?.clearRect(0, 0, this.canvas.width, this.canvas.height); }
   }
 
@@ -249,6 +253,24 @@ export class ThemeFX {
     if (this.mode === 'blood')  this._initBlood();
     if (this.mode === 'fluid') this._initFluid();
     if (this.mode === 'snow')  this._initSnow();
+    if (String(this.mode).startsWith('scene:')) this._scene?.resize(this.canvas.width, this.canvas.height);
+  }
+
+  // A scene that fails to start shows nothing rather than stopping the theme
+  // change it was part of (lavender's did, in development).
+  _initScene() {
+    try { this._scene = createScene(String(this.mode).slice(6), this.canvas.width, this.canvas.height, perf.tier); }
+    catch (e) { console.warn('[BM Player] theme scene failed:', e); this._scene = null; }
+    this._sceneT = 0;
+  }
+
+  // Motion is per second: dt is capped, so a stall does not make things jump.
+  _drawScene() {
+    const now = performance.now(), dt = this._sceneT ? Math.min(0.05, (now - this._sceneT) / 1000) : 1 / 60;
+    this._sceneT = now;
+    this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+    try { this._scene?.frame(this.ctx, this.canvas.width, this.canvas.height, dt, now / 1000); }
+    catch (e) { console.warn('[BM Player] theme scene stopped:', e); this._scene = null; }
   }
 
   /* ═══════════════════════════════════════════════════════════════
@@ -269,6 +291,7 @@ export class ThemeFX {
     if (this.mode === 'blood')  this._drawBlood();
     if (this.mode === 'fluid') this._drawFluid();
     if (this.mode === 'snow')  this._drawSnow();
+    if (String(this.mode).startsWith('scene:')) this._drawScene();
   }
 
   /* ═══════════════════════════════════════════════════════════════

@@ -420,7 +420,7 @@ function registerIpc(){
   ipcMain.handle('win:maximize',()=>{if(!win)return;if(win.isFullScreen())win.setFullScreen(false);win.isMaximized()?win.unmaximize():win.maximize();});
   ipcMain.handle('win:fullscreen',()=>{if(!win||pipActive)return;if(win.isFullScreen())win.setFullScreen(false);else win.isMaximized()?win.unmaximize():win.maximize();});
   ipcMain.handle('win:close',()=>{killMpv();app.exit(0);});
-  ipcMain.handle('win:alwaysTop',(_, v)=>{try{alwaysOnTopFlag=!!v;if(pipActive)return;(bgWin||win)?.setAlwaysOnTop(!!v);}catch(_){}});
+  ipcMain.handle('win:alwaysTop',(_, v)=>{try{alwaysOnTopFlag=!!v;if(pipActive)return;applyOnTop(v);}catch(_){}});
   ipcMain.handle('win:isMax',()=>win?.isMaximized());
   ipcMain.handle('win:isFs',()=>win?.isFullScreen());
   ipcMain.handle('win:snap',(_,zone)=>{
@@ -577,7 +577,7 @@ function registerIpc(){
       win.moveTop();
       win.focus();
       await new Promise(r => setTimeout(r, 60));
-      win.setAlwaysOnTop(alwaysOnTopFlag); // restore the user's actual preference
+      applyOnTop(alwaysOnTopFlag); // the user's actual preference, on every window
     } catch(_) {}
   };
 
@@ -744,7 +744,7 @@ function registerIpc(){
   });
 
   ipcMain.handle('app:addRecent',(_,f)=>{try{app.addRecentDocument(f);}catch(_){}});
-  ipcMain.handle('app:checkUpdate',async()=>{try{return await autoUpdater.checkForUpdates();}catch(e){return{error:e.message};}});
+  ipcMain.handle('app:checkUpdate',async()=>{if(process.platform==='darwin')return{error:'On a Mac, download new versions from github.com/BritMat/bm-player/releases'};try{return await autoUpdater.checkForUpdates();}catch(e){return{error:e.message};}});
   ipcMain.handle('app:installUpdate',()=>autoUpdater.quitAndInstall(false,true));
   ipcMain.handle('app:isDefault',()=>app.isDefaultProtocolClient('bm-player'));
   ipcMain.handle('app:setDefault',()=>{try{app.setAsDefaultProtocolClient('bm-player');}catch(_){}});
@@ -917,7 +917,10 @@ function setupUpdater(){
   autoUpdater.on('download-progress',p=>send('updater:status',{state:'progress',pct:Math.round(p.percent)}));
   autoUpdater.on('update-downloaded',info=>send('updater:status',{state:'ready',ver:info.version}));
   autoUpdater.on('error',err=>send('updater:status',{state:'error',msg:err.message}));
-  setTimeout(()=>{try{autoUpdater.checkForUpdates();}catch(_){}},12000);
+  // Not on a Mac (v3.27.0): an app updates itself there only when signed with
+  // an Apple Developer ID, which this build is not, and the check failed with
+  // "Cannot find latest-mac.yml" at every start (and stopped the Mac release).
+  if (process.platform !== 'darwin') setTimeout(()=>{try{autoUpdater.checkForUpdates();}catch(_){}},12000);
 }
 
 // mpv binary discovery — checks the app-bundled copy first (vendor/mpv,
@@ -984,6 +987,15 @@ function initMpv(){const exe=getMpv();if(!exe){send('mpv:status',{state:'missing
 // at every check. It acts again when the target changes or the picture window
 // drifts from what it settled at.
 let bgAsked = '', bgSettled = '';
+// The pin, on every BM window at once (v3.27.0). It used to go to the picture
+// window only, while focusWin() (before every file dialog) left the controls
+// window on top along with the pin: turning the pin off then left the window
+// you see above everything until a restart.
+function applyOnTop(v) {
+  alwaysOnTopFlag = !!v;
+  for (const w of [bgWin, win, videoWin]) { try { if (w && !w.isDestroyed()) w.setAlwaysOnTop(alwaysOnTopFlag); } catch (_) {} }
+}
+
 function alignBg() {
   if (!bgWin || !win || bgWin.isDestroyed() || win.isDestroyed()) return;
   try {
@@ -1160,7 +1172,8 @@ const dialogParent = () => (win && !win.isDestroyed()) ? win : null;
 // on, or left on by PiP, the player stayed in front of its own folder picker
 // on Windows (reported on a real machine, after the parent fix above).
 async function withoutTopmost(fn) {
-  const was = [[win, win?.isAlwaysOnTop?.()], [bgWin, bgWin?.isAlwaysOnTop?.()]];
+  // Every BM window, as the pin covers (applyOnTop), Lite's video window included.
+  const was = [win, bgWin, videoWin].map(w => [w, w?.isAlwaysOnTop?.()]);
   for (const [w, top] of was) if (w && top && !w.isDestroyed()) { try { w.setAlwaysOnTop(false); } catch {} }
   try { return await fn(); }
   finally { for (const [w, top] of was) if (w && top && !w.isDestroyed()) { try { w.setAlwaysOnTop(true); } catch {} } }

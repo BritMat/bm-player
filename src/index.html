@@ -1460,92 +1460,105 @@
   <div class="drop-inner"><div class="drop-icon">&#8681;</div><div>Drop to play</div></div>
 </div>
 
-<div class="ctx-panel hidden" id="ctx-panel">
-  <div class="ctx-section" id="ctx-sec-file">
-    <div class="ctx-section-label">File</div>
-    <div class="ctx-item" data-a="open">Open File…</div>
-    <div class="ctx-item" data-a="open-url">Open URL…</div>
-    <div class="ctx-sep"></div>
-    <div class="ctx-item" data-a="quit">Quit</div>
-  </div>
-  <div class="ctx-section" id="ctx-sec-playback">
-    <div class="ctx-section-label">Playback</div>
-    <div class="ctx-item" data-a="toggle-play">Play / Pause</div>
-    <div class="ctx-item" data-a="stop">Stop</div>
-    <div class="ctx-sep"></div>
-    <div class="ctx-item" data-a="prev">Previous</div>
-    <div class="ctx-item" data-a="next">Next</div>
-    <div class="ctx-sep"></div>
-    <div class="ctx-item" data-a="fullscreen">Fullscreen</div>
-    <div class="ctx-item" data-a="theatre">Theatre Mode</div>
-    <div class="ctx-item" data-a="pip">Picture-in-Picture</div>
-  </div>
-  <div class="ctx-section" id="ctx-sec-quick">
-    <div class="ctx-section-label">Quick Controls</div>
-    <div class="ctx-slider-row">
-      <span class="ctx-slider-label">Volume</span>
-      <input type="range" id="ctx-vol" min="0" max="130" value="100" class="ctx-range">
-      <span class="ctx-slider-val" id="ctx-vol-val">100%</span>
+<div class="ctx-panel hidden" id="ctx-panel" role="menu">
+    <!-- v3.27.0: a standard menu. The everyday actions, then submenus that open
+         on hover or click (ctx-menu.js). It showed seven sections at once,
+         with a close button in the middle. app.js hides, by these ids, the
+         groups that do nothing right now, and runs every data-a action. -->
+    <div class="ctx-group" id="ctx-sec-playback">
+      <div class="ctx-item" data-a="toggle-play"><span class="ctx-ico" data-icon="play"></span>Play / Pause</div>
+      <div class="ctx-item" data-a="stop"><span class="ctx-ico" data-icon="stop"></span>Stop</div>
+      <div class="ctx-item" data-a="prev"><span class="ctx-ico" data-icon="prev"></span>Previous</div>
+      <div class="ctx-item" data-a="next"><span class="ctx-ico" data-icon="next"></span>Next</div>
+      <div class="ctx-sep"></div>
     </div>
-    <label class="ctx-checkbox"><input type="checkbox" id="ctx-mute"> Mute</label>
-    <label class="ctx-checkbox"><input type="checkbox" id="ctx-deinterlace"> Deinterlace</label>
-    <div class="ctx-item" id="ctx-screenshot">Screenshot</div>
-    <div class="ctx-item" id="ctx-add-sub">Add Subtitle File…</div>
-    <button class="ctx-close-btn" id="ctx-close" title="Close" aria-label="Close" data-icon="close"></button>
-  </div>
-  <div class="ctx-section" id="ctx-sec-subtitle-style">
-    <div class="ctx-section-label">Subtitle Style</div>
-    <div class="ctx-slider-row">
-      <span class="ctx-slider-label">Size</span>
-      <input type="range" id="ctx-sub-size" min="20" max="120" value="55" class="ctx-range">
-      <span class="ctx-slider-val" id="ctx-sub-size-val">55</span>
-    </div>
-    <div class="ctx-slider-row">
-      <span class="ctx-slider-label">Position</span>
-      <input type="range" id="ctx-sub-pos" min="0" max="150" value="100" class="ctx-range">
-      <span class="ctx-slider-val" id="ctx-sub-pos-val">100</span>
-    </div>
-    <div class="ctx-slider-row">
-      <span class="ctx-slider-label">Sub delay</span>
-      <span class="ctx-slider-val" id="ctx-sub-delay-val">0.00s</span>
-      <span class="ctx-slider-label">Audio delay</span>
-      <span class="ctx-slider-val" id="ctx-audio-delay-val">0.00s</span>
-    </div>
-  </div>
-  <div class="ctx-section" id="ctx-sec-audio-tracks">
-    <div class="ctx-section-label">Audio Track</div>
-    <div class="ctx-track-list" id="ctx-audio-tracks"></div>
-    <div class="ctx-slider-row">
+    <div class="ctx-has-sub" id="ctx-sec-audio-tracks">
+      <div class="ctx-label"><span class="ctx-ico" data-icon="music"></span>Audio</div>
+      <div class="ctx-sub">
+        <div class="ctx-track-list" id="ctx-audio-tracks"></div>
+        <div class="ctx-sep"></div>
+        <div class="ctx-slider-row">
       <span class="ctx-slider-label">Delay</span>
       <button class="ctx-mini-btn" data-a="adelay-down" title="-50ms" aria-label="-50ms">−</button>
       <span class="ctx-slider-val" id="ctx-adelay-val">0.00s</span>
       <button class="ctx-mini-btn" data-a="adelay-up" title="+50ms" aria-label="+50ms">+</button>
       <button class="ctx-mini-btn" data-a="adelay-reset" title="Reset" aria-label="Reset">⟲</button>
     </div>
-  </div>
-  <div class="ctx-section" id="ctx-sec-sub-tracks">
-    <div class="ctx-section-label">Subtitles</div>
-    <div class="ctx-track-list" id="ctx-sub-tracks"></div>
-    <div class="ctx-item" data-a="load-sub">Load Subtitle File…</div>
-    <div class="ctx-slider-row">
+      </div>
+    </div>
+    <div class="ctx-has-sub" id="ctx-sec-sub-tracks">
+      <div class="ctx-label"><span class="ctx-ico" data-icon="list"></span>Subtitles</div>
+      <div class="ctx-sub">
+        <div class="ctx-track-list" id="ctx-sub-tracks"></div>
+        <div class="ctx-sep"></div>
+        <div class="ctx-item" data-a="load-sub"><span class="ctx-ico" data-icon="folder"></span>Load subtitle file&hellip;</div>
+        <div class="ctx-slider-row">
       <span class="ctx-slider-label">Delay</span>
       <button class="ctx-mini-btn" data-a="sdelay-down" title="-100ms" aria-label="-100ms">−</button>
       <span class="ctx-slider-val" id="ctx-sdelay-val">0.00s</span>
       <button class="ctx-mini-btn" data-a="sdelay-up" title="+100ms" aria-label="+100ms">+</button>
       <button class="ctx-mini-btn" data-a="sdelay-reset" title="Reset" aria-label="Reset">⟲</button>
     </div>
+        <div class="ctx-sep"></div>
+        <div id="ctx-sec-subtitle-style">
+          <div class="ctx-slider-row">
+      <span class="ctx-slider-label">Size</span>
+      <input type="range" id="ctx-sub-size" min="20" max="120" value="55" class="ctx-range">
+      <span class="ctx-slider-val" id="ctx-sub-size-val">55</span>
+    </div>
+          <div class="ctx-slider-row">
+      <span class="ctx-slider-label">Position</span>
+      <input type="range" id="ctx-sub-pos" min="0" max="150" value="100" class="ctx-range">
+      <span class="ctx-slider-val" id="ctx-sub-pos-val">100</span>
+    </div>
+        </div>
+      </div>
+    </div>
+    <div class="ctx-has-sub" id="ctx-sec-video">
+      <div class="ctx-label"><span class="ctx-ico" data-icon="video"></span>Video</div>
+      <div class="ctx-sub">
+        <div class="ctx-track-list" id="ctx-video-tracks"></div>
+        <div class="ctx-sep"></div>
+        <label class="ctx-checkbox"><input type="checkbox" id="ctx-deinterlace"> Deinterlace</label>
+        <div class="ctx-item" data-a="open-eq"><span class="ctx-ico" data-icon="eq"></span>Equalizer&hellip;</div>
+        <div class="ctx-item" data-a="frame-fwd"><span class="ctx-ico" data-icon="fwd"></span>Frame forward</div>
+        <div class="ctx-item" data-a="frame-back"><span class="ctx-ico" data-icon="rew"></span>Frame back</div>
+      </div>
+    </div>
+    <div class="ctx-has-sub" id="ctx-sec-quick">
+      <div class="ctx-label"><span class="ctx-ico" data-icon="volHigh"></span>Volume</div>
+      <div class="ctx-sub">
+        <div class="ctx-slider-row">
+      <span class="ctx-slider-label">Volume</span>
+      <input type="range" id="ctx-vol" min="0" max="130" value="100" class="ctx-range">
+      <span class="ctx-slider-val" id="ctx-vol-val">100%</span>
+    </div>
+        <label class="ctx-checkbox"><input type="checkbox" id="ctx-mute"> Mute</label>
+      </div>
+    </div>
+    <div class="ctx-has-sub" id="ctx-sec-view">
+      <div class="ctx-label"><span class="ctx-ico" data-icon="fullscreen"></span>View</div>
+      <div class="ctx-sub">
+        <div class="ctx-item" data-a="fullscreen"><span class="ctx-ico" data-icon="fullscreen"></span>Fullscreen</div>
+        <div class="ctx-item" data-a="theatre"><span class="ctx-ico" data-icon="theatre"></span>Theatre mode</div>
+        <div class="ctx-item" data-a="pip"><span class="ctx-ico" data-icon="pip"></span>Picture-in-picture</div>
+        <div class="ctx-sep"></div>
+        <div class="ctx-item ctx-check" id="ctx-ontop" data-a="always-top"><span class="ctx-ico" data-icon="pin"></span>Always on top</div>
+      </div>
+    </div>
+    <div class="ctx-group" id="ctx-sec-extra">
+      <div class="ctx-sep"></div>
+      <div class="ctx-item" id="ctx-screenshot"><span class="ctx-ico" data-icon="images"></span>Screenshot</div>
+      <div class="ctx-item" data-a="open-info"><span class="ctx-ico" data-icon="info"></span>Media info&hellip;</div>
+    </div>
+    <div class="ctx-group" id="ctx-sec-file">
+      <div class="ctx-sep"></div>
+      <div class="ctx-item" data-a="open"><span class="ctx-ico" data-icon="folder"></span>Open file&hellip;</div>
+      <div class="ctx-item" data-a="open-url"><span class="ctx-ico" data-icon="playFile"></span>Open URL&hellip;</div>
+      <div class="ctx-sep"></div>
+      <div class="ctx-item" data-a="quit"><span class="ctx-ico" data-icon="close"></span>Quit</div>
+    </div>
   </div>
-  <div class="ctx-section" id="ctx-sec-video">
-    <div class="ctx-section-label">Video</div>
-    <div class="ctx-track-list" id="ctx-video-tracks"></div>
-    <div class="ctx-item" data-a="open-eq">Equalizer…</div>
-    <div class="ctx-item" data-a="open-info">Media Info…</div>
-    <div class="ctx-sep"></div>
-    <div class="ctx-item" data-a="screenshot">Screenshot</div>
-    <div class="ctx-item" data-a="frame-fwd">Frame Forward</div>
-    <div class="ctx-item" data-a="frame-back">Frame Back</div>
-  </div>
-</div>
 
 <!-- ══ RESUME PROMPT (toast with action button) ═════════════════ -->
 

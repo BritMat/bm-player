@@ -45,7 +45,10 @@ read by BM Player's built-in updater. You don't need to download them.
   visualizer.
 - An image gallery, PDF tools and IPTV.
 - Picture-in-picture, in a small window that stays on top.
-- 14 themes, some with animated effects, and a 3D fox mascot.
+- 14 themes: four standard ones (Dark, Light, Dracula and Snow) and ten artistic
+  ones, each with an animated scene of its own: ocean light and bubbles, forest
+  fireflies, city lights in neon rain, an aurora, falling cherry blossom, and more.
+  And a 3D fox mascot.
 - Plugins: themes and scripts you add yourself (see below).
 - Lite mode for weak hardware: lighter visuals, switched on automatically on
   low-spec machines and available as a setting in any build.
