@@ -90,6 +90,10 @@ class FakeBrowserWindow {
     n.width = Math.max(n.width, this.minSize[0]); n.height = Math.max(n.height, this.minSize[1]);
     this._bounds = n;
   } getBounds() { return this._bounds || { x: 0, y: 0, width: 1280, height: 780 }; }
+  // Frameless windows: the content is the whole window. main.js aligns the
+  // picture window by content bounds (v3.26.1).
+  getContentBounds() { return { ...this.getBounds() }; }
+  setContentBounds(b) { this.setBounds(b); }
   setMinimumSize(w, h) { this.minSize = [w, h]; } setAspectRatio(r) { this.aspect = r; }
   setResizable() {} setSkipTaskbar(v) { this.skipTaskbar = !!v; }
   setAlwaysOnTop(v) { this.onTop = !!v; } isAlwaysOnTop() { return !!this.onTop; } setIgnoreMouseEvents() {} setMenuBarVisibility() {}

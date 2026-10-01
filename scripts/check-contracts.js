@@ -828,6 +828,25 @@ for (const cfg of ['electron-builder.yml', 'electron-builder.lite.yml']) {
   }
 }
 
+/* ── The two video windows' frames (v3.26.2) ───────────────────────────
+   The picture window (bgWin) had Windows' invisible resize borders, which
+   showed as a see-through band around the player on a real machine: it must
+   be created without a thick frame or shadow. And a backgroundMaterial on the
+   transparent controls window stopped it being transparent there (no picture
+   in the default layout, v3.26.1): it must not have one. */
+{
+  const mainSrc = fs.readFileSync(path.join(ROOT, 'main.js'), 'utf8');
+  const bgNew = (mainSrc.match(/bgWin\s*=\s*new BaseWindow\(\{[\s\S]*?\}\);/) || [])[0] || '';
+  if (!bgNew) err('windows', 'main.js: the picture window (bgWin = new BaseWindow) was not found');
+  else {
+    if (!/thickFrame\s*:\s*false/.test(bgNew)) err('windows', 'main.js: the picture window must have thickFrame:false (its resize borders showed as a band around the player)');
+    if (!/hasShadow\s*:\s*false/.test(bgNew)) err('windows', 'main.js: the picture window must have hasShadow:false');
+    if (/resizable\s*:\s*false/.test(bgNew)) err('windows', 'main.js: the picture window must stay resizable (resizable:false pins its size, and it must follow the controls window)');
+  }
+  for (const m of mainSrc.matchAll(/new BrowserWindow\(\{[^;]*?transparent\s*:\s*true[^;]*?\}\)/g))
+    if (/backgroundMaterial/.test(m[0])) err('windows', 'main.js: a transparent window has backgroundMaterial, which stopped it being transparent on Windows (v3.26.1)');
+}
+
 /* ── The release workflow looks where the builds put their files ──────
    electron-builder.lite.yml builds into dist-lite, and the release job looked
    for the Lite installer in dist (v3.25.1): it would have failed on GitHub,

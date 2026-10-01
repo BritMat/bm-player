@@ -113,6 +113,11 @@ export function formatDiagnostics(d) {
   head('Application');
   row('mode', m?.flags?.compat ? 'COMPATIBILITY (start:compat)' : 'normal');
   if (m?.flags) row('flags', `files:${m.flags.fileScheme} audio-engine:${m.flags.audioEngine} gpu-fluid:${m.flags.gpuFluid}`);
+  if (m?.windows?.controls && m.windows.picture) {
+    const c = m.windows.controls.content, p = m.windows.picture.content, r = b => `${b.width}x${b.height} at ${b.x},${b.y}`;
+    const off = Math.max(Math.abs(c.x - p.x), Math.abs(c.y - p.y), Math.abs((c.x + c.width) - (p.x + p.width)), Math.abs((c.y + c.height) - (p.y + p.height)));
+    row('windows', `controls ${r(c)} | picture ${r(p)} | scale ${m.windows.scale ?? '?'} | ${off <= 1 ? 'aligned' : 'OUT OF STEP by ' + off + 'px'}${m.windows.controls.maximized ? ' | maximised' : ''}`);
+  }
   if (m?.flags) row('video', `layer:${m.flags.videoLayer || '?'} mpv-output:${m.flags.mpvVo || 'default'} chromium-switches:${(m.flags.chromiumSwitches || []).join(',') || 'none'}`);
   row('version',  m?.app.version);
   row('packaged', m?.app.packaged);

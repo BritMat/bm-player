@@ -718,6 +718,36 @@ if (PART === 'c') {
     if (!layered) throw new Error('page is not in the layered mode that lets the picture show through');
   });
 
+  // The picture window must cover exactly what the controls window shows
+  // (v3.26.1): on a real machine it ended about 8px short of the right and
+  // bottom edges, and the desktop showed through there like frosted glass.
+  // Knock it out of step and it must be put back; resize the controls window
+  // and it must follow. The diagnostics report says where both windows are.
+  await step('the picture window stays exactly under the controls window', async () => {
+    const cb = () => app.evaluate(({ BaseWindow, BrowserWindow }) => {
+      const c = BrowserWindow.getAllWindows()[0], p = BaseWindow.getAllWindows().find(w => w.getTitle() === 'BM Player BG');
+      return { c: c.getContentBounds(), p: p.getContentBounds() };
+    });
+    const same = r => ['x', 'y', 'width', 'height'].every(k => Math.abs(r.c[k] - r.p[k]) <= 1);
+    await app.evaluate(({ BaseWindow }) => {
+      const p = BaseWindow.getAllWindows().find(w => w.getTitle() === 'BM Player BG'), b = p.getContentBounds();
+      p.setContentBounds({ ...b, width: b.width - 10, height: b.height - 10 });
+    });
+    if (same(await cb())) throw new Error('could not knock the picture window out of step to test it');
+    await page.waitForTimeout(1500);
+    const back = await cb();
+    if (!same(back)) throw new Error(`the picture window stayed out of step: controls ${JSON.stringify(back.c)}, picture ${JSON.stringify(back.p)}`);
+    const before = await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].getBounds());
+    await app.evaluate(({ BrowserWindow }) => { const w = BrowserWindow.getAllWindows()[0], b = w.getBounds(); w.setBounds({ ...b, width: b.width + 40, height: b.height + 30 }); });
+    await page.waitForTimeout(400);
+    const resized = await cb();
+    await app.evaluate(({ BrowserWindow }, b) => BrowserWindow.getAllWindows()[0].setBounds(b), before);
+    await page.waitForTimeout(400);
+    if (!same(resized)) throw new Error(`after a resize the picture window did not follow: controls ${JSON.stringify(resized.c)}, picture ${JSON.stringify(resized.p)}`);
+    const d = await page.evaluate(() => window.api?.app?.diagnostics?.());
+    if (!d?.windows?.controls || !d.windows.picture) throw new Error('the diagnostics report does not say where the windows are');
+  });
+
   if (VIDEO) {
     let normal;
     await step('controls sit above the video while it plays', async () => {

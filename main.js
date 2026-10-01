@@ -232,13 +232,27 @@ app.whenReady().then(()=>{
     // page in it. mpv draws its video in here, and on Windows Chromium paints
     // its page above child windows, so any page in this window covered the
     // picture. That is why video played black on a real Windows machine.
-    bgWin=new BaseWindow({width:1280,height:780,minWidth:900,minHeight:560,frame:false,transparent:false,backgroundColor:'#000000',show:false,title:'BM Player BG'});
+    // No thick frame, shadow or rounded corners (v3.26.2): a frameless window
+    // with a thick frame has Windows' invisible resize borders on the left,
+    // right and bottom, and on a real machine they showed as a see-through,
+    // frosted band around the player (about 9px, light on a bright desktop,
+    // dark in the field check's captures with a console behind). This window is
+    // only ever placed by the app and ignores the mouse, so it needs none of
+    // them. It stays resizable: resizable:false pins a window's size, and it
+    // must follow the controls window.
+    bgWin=new BaseWindow({width:1280,height:780,minWidth:900,minHeight:560,frame:false,transparent:false,backgroundColor:'#000000',show:false,title:'BM Player BG',
+      thickFrame:false,hasShadow:false,roundedCorners:false});
     // bgWin is a pure opaque visual backdrop (no interactive content) — never
     // let it intercept clicks meant for the transparent UI window above it.
     try{bgWin.setIgnoreMouseEvents(true);}catch(_){}
     win=new BrowserWindow({parent:bgWin,width:1280,height:780,minWidth:900,minHeight:560,frame:false,transparent:true,backgroundColor:'#00000000',show:false,title:'BM Player',webPreferences:{nodeIntegration:false,contextIsolation:true,preload:path.join(__dirname,'preload.js'),webSecurity:FLAGS.fileScheme==='bmfile',sandbox:false}});
-    const sync=()=>{try{if(win&&bgWin)bgWin.setBounds(win.getBounds());}catch(_){}};
+    const sync=alignBg;
     win.on('resize',sync);win.on('move',sync);
+    // Also the end of a drag, restoring and fullscreen, and a light check that
+    // puts the picture back if anything leaves the two windows out of step.
+    for (const ev of ['resized','moved','restore','enter-full-screen','leave-full-screen','show']) win.on(ev,sync);
+    const bgAlignTimer=setInterval(alignBg,600);
+    win.on('closed',()=>clearInterval(bgAlignTimer));
     win.on('maximize',()=>{sync();send('win:state','maximized');});
     win.on('unmaximize',()=>{sync();send('win:state','normal');});
     win.loadFile(path.join(__dirname,'src','index.html'),{query:flagQuery()});
@@ -401,7 +415,7 @@ function registerIpc(){
   // registered for ..." — which app.js swallowed, producing a dead button.
   if (_ipcRegistered) return;
   _ipcRegistered = true;
-  const sync=()=>{try{if(win&&bgWin)bgWin.setBounds(win.getBounds());}catch(_){}};
+  const sync=alignBg;
   ipcMain.handle('win:minimize',()=>{try{(bgWin||win)?.minimize();}catch(_){}});
   ipcMain.handle('win:maximize',()=>{if(!win)return;if(win.isFullScreen())win.setFullScreen(false);win.isMaximized()?win.unmaximize():win.maximize();});
   ipcMain.handle('win:fullscreen',()=>{if(!win||pipActive)return;if(win.isFullScreen())win.setFullScreen(false);else win.isMaximized()?win.unmaximize():win.maximize();});
@@ -666,7 +680,12 @@ function registerIpc(){
     let gpu = null;
     try { gpu = await app.getGPUInfo('basic'); } catch (e) { gpu = { error: e.message }; }
 
+    // Where the windows are: the picture window must cover the controls window
+    // exactly (v3.26.1). Copy report while the problem shows to see it.
+    const wInfo = w => (w && !w.isDestroyed()) ? { content: w.getContentBounds(), bounds: w.getBounds(), maximized: !!w.isMaximized?.(), fullscreen: !!w.isFullScreen?.() } : null;
+    let scale = null; try { scale = screen.getDisplayMatching(win.getBounds()).scaleFactor; } catch (_) {}
     return {
+      windows: { controls: wInfo(win), picture: wInfo(bgWin), liteVideo: wInfo(videoWin), scale },
       flags: { ...FLAGS, mpvVo: MPV_VO || 'default', chromiumSwitches: CHROMIUM_SWITCHES },
       app: {
         version: app.getVersion(),
@@ -954,6 +973,28 @@ function initMpv(){const exe=getMpv();if(!exe){send('mpv:status',{state:'missing
 // NOTE: macOS window embedding via --wid is documented by mpv as less
 // mature than the Windows/X11 path — this is implemented per mpv's public
 // docs but has not been verified on real Mac hardware from this environment.
+// The picture window (bgWin) must cover exactly what the controls window
+// shows. It followed win.getBounds(), the window rectangle, on resize and move
+// only, and on a real machine the picture ended about 8px short of the right
+// and bottom edges, the desktop showing through there like frosted glass
+// (v3.26.1). Content bounds are what each window actually shows, whatever its
+// state (maximised, snapped, any display scale). Only acts on a difference.
+// A display scale can round the two windows a pixel apart however they are
+// asked: then it is left as the system settles it, rather than resized again
+// at every check. It acts again when the target changes or the picture window
+// drifts from what it settled at.
+let bgAsked = '', bgSettled = '';
+function alignBg() {
+  if (!bgWin || !win || bgWin.isDestroyed() || win.isDestroyed()) return;
+  try {
+    const key = b => b.x + ',' + b.y + ',' + b.width + ',' + b.height;
+    const want = win.getContentBounds(), have = bgWin.getContentBounds();
+    if (key(have) === key(want) || (bgAsked === key(want) && bgSettled === key(have))) return;
+    bgWin.setContentBounds(want);
+    bgAsked = key(want); bgSettled = key(bgWin.getContentBounds());
+  } catch (_) {}
+}
+
 function videoWindow() {
   if (IS_LITE_BUILD && videoWin) return videoWin;
   return (FLAGS.videoLayer === 'back' && bgWin) ? bgWin : win;
