@@ -19,7 +19,7 @@
 import { perf } from './perf.js';
 
 /* ─── Per-theme dye colours (0–1 range, matched to the CSS accents) ─── */
-const PALETTES = {
+export const PALETTES = {
   dark:      [[0.36,0.44,0.97],[0.00,0.83,1.00],[0.51,0.31,1.00]],
   light:     [[0.28,0.34,0.89],[0.00,0.60,0.81],[0.39,0.24,0.78]],
   glass:     [[0.55,0.48,1.00],[0.26,0.88,1.00],[0.78,0.39,1.00]],
@@ -277,6 +277,10 @@ export class FluidFX {
     this._nextAutoSplat = 0;
     this._alpha = 0;          // fades in so the first frame isn't a hard pop
     this._targetAlpha = 0;
+    // The Flow theme's controls (v3.28.0). Neutral unless that theme sets them,
+    // so Dark and Light keep their look. Multipliers on the tier's values,
+    // applied where they are used: the tier table itself is shared.
+    this.flow = { palette: null, intensity: 1, radius: 1, swirl: 1, trail: 1 };
 
     const params = {
       alpha: true, depth: false, stencil: false,
@@ -493,7 +497,7 @@ export class FluidFX {
     gl.uniform2f(P.vorticity.uniforms.texelSize, this.velocity.texelSizeX, this.velocity.texelSizeY);
     gl.uniform1i(P.vorticity.uniforms.uVelocity, this.velocity.read.attach(0));
     gl.uniform1i(P.vorticity.uniforms.uCurl, this.curlFBO.attach(1));
-    gl.uniform1f(P.vorticity.uniforms.curl, cfg.curl);
+    gl.uniform1f(P.vorticity.uniforms.curl, cfg.curl * this.flow.swirl);
     gl.uniform1f(P.vorticity.uniforms.dt, dt);
     this._blit(this.velocity.write); this.velocity.swap();
 
@@ -534,7 +538,7 @@ export class FluidFX {
     gl.uniform1i(P.advect.uniforms.uVelocity, this.velocity.read.attach(0));
     gl.uniform1i(P.advect.uniforms.uSource, this.dye.read.attach(1));
     gl.uniform2f(P.advect.uniforms.dyeTexelSize, this.dye.texelSizeX, this.dye.texelSizeY);
-    gl.uniform1f(P.advect.uniforms.dissipation, cfg.dissipation);
+    gl.uniform1f(P.advect.uniforms.dissipation, cfg.dissipation / this.flow.trail);
     this._blit(this.dye.write); this.dye.swap();
   }
 
@@ -558,30 +562,30 @@ export class FluidFX {
   }
 
   _splatRadius() {
-    let r = this.cfg.radius / 100;
+    let r = this.cfg.radius / 100 * this.flow.radius;
     const aspect = this.canvas.width / this.canvas.height;
     if (aspect > 1) r *= aspect;
     return r;
   }
 
-  _palette() { return PALETTES[this.theme] || PALETTES.dark; }
+  _palette() { return PALETTES[this.flow.palette] || PALETTES[this.theme] || PALETTES.dark; }
 
   _randomColor(scale) {
     const p = this._palette();
     const c = p[Math.floor(Math.random() * p.length)];
-    const k = scale === undefined ? 0.22 : scale;
+    const k = (scale === undefined ? 0.22 : scale) * this.flow.intensity;
     return [c[0] * k, c[1] * k, c[2] * k];
   }
 
   /* Autonomous splats so the welcome screen is alive without a pointer. */
   _autoSplat(now) {
     if (now < this._nextAutoSplat) return;
-    this._nextAutoSplat = now + 1400 + Math.random() * 2200;
+    this._nextAutoSplat = now + (1400 + Math.random() * 2200) / Math.max(0.3, this.flow.intensity);
     const n = this._tier === 'low' ? 1 : 2;
     for (let i = 0; i < n; i++) {
       const x = Math.random(), y = Math.random() * 0.6 + 0.2;
       const a = Math.random() * Math.PI * 2;
-      const power = 900 + Math.random() * 900;
+      const power = (900 + Math.random() * 900) * Math.sqrt(this.flow.intensity);
       this._splat(x, y, Math.cos(a) * power, Math.sin(a) * power, this._randomColor(0.26));
     }
   }
@@ -591,6 +595,11 @@ export class FluidFX {
     this.mode = mode;
     if (mode === 'fluid') { this._targetAlpha = 1; this._start(); }
     else { this._targetAlpha = 0; }
+  }
+  /** The Flow theme's settings; {} puts everything back to neutral. */
+  setFlow(o = {}) {
+    const n = (v, d, lo, hi) => (typeof v === 'number' && isFinite(v)) ? Math.max(lo, Math.min(hi, v)) : d;
+    this.flow = { palette: PALETTES[o.palette] ? o.palette : null, intensity: n(o.intensity, 1, 0.2, 3), radius: n(o.radius, 1, 0.3, 3), swirl: n(o.swirl, 1, 0, 3), trail: n(o.trail, 1, 0.3, 3) };
   }
   setPalette(theme) {
     if (PALETTES[theme]) this.theme = theme;
@@ -627,7 +636,8 @@ export class FluidFX {
 
       try {
         this._resize();
-        this._autoSplat(now);
+        // The audio visualiser's fluid moves with the music only (v3.29.0).
+        if (!this.audioDriven) this._autoSplat(now);
         this._step(dt);
         this._render();
       } catch (e) {

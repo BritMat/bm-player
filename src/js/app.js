@@ -1,6 +1,8 @@
 import { createFox  } from './fox3d.js';
 import { buildFoxSVG } from './geofox.js';
-import { Visualizer } from './visualizer.js';
+import { Visualizer, vizSettings, saveVizSettings, allVisualisers, setSharedAnalyser } from './visualizer.js';
+import { AudioShadow } from './audio-shadow.js';   // the exact visualiser for audio mpv plays
+import './viz-settings.js';   // the visualiser settings panel
 import { ThemeFX    } from './theme-fx.js';
 import { FluidFX    } from './fluid.js';
 import { applyIcons, setTogglePair, setIcon, setPlaying } from './icons.js';
@@ -17,6 +19,8 @@ import './lite-video.js';   // Lite: where the video window goes
 import './range-fill.js';   // volume sliders filled with the theme's colours
 import './ctx-menu.js';     // the right-click menu's submenus
 import { SCENE_THEMES } from './theme-scenes.js';   // the artistic themes' own scenes
+import { flowSettings } from './flow-settings.js';   // the Flow theme's controls
+import { applySubStyle } from './sub-style.js';   // subtitle font and colour
 import { TVModule } from './modules/tv.js';
 import { el, fileURL, fmtSec, seedGrad,
          escapeHtml, escapeAttr, basenameOf, relativeTime } from './util.js';
@@ -44,6 +48,7 @@ class BMPlayer {
     this._pluginListeners={};
     this._ctxSubDelay=0;this._ctxAudioDelay=0;this._mProps={};
     this._currentFilePath=null;          // path of the currently-loaded media file
+    this.shadow=new AudioShadow();this._shadowOn=false;   // v3.29.0, audio-shadow.js
     this._resumePromptTimer=null;
     // ── v1.8.0: fluid FX state, music energy, custom theme ──
     this._musicEnergy=0;this._targetMusicEnergy=0;
@@ -258,6 +263,12 @@ class BMPlayer {
       if(name==='dracula'){
         this.themeFX?.setMode('blood');
         this.auroraFX?.setMode('off');
+      } else if(name==='northern'){
+        // v3.28.0: Flow, the fluid this theme had before v3.27.0, with its
+        // controls in the theme customizer (flow-settings.js).
+        this.themeFX?.setMode('off');
+        if(this._fluidEnabled){ this.auroraFX?.setPalette?.('northern'); this.auroraFX?.setFlow?.(flowSettings()); this.auroraFX?.setMode('fluid'); }
+        else this.auroraFX?.setMode('off');
       } else if(SCENE_THEMES.includes(name)){
         // v3.27.0: the artistic themes each have a scene of their own (ocean
         // light and bubbles, forest fireflies, city lights...) instead of the
@@ -268,6 +279,7 @@ class BMPlayer {
         // Snow falls in the effects layer, over the icy fluid.
         this.themeFX?.setMode(name==='snow'?'snow':'off');
         if(this._fluidEnabled){
+          this.auroraFX?.setFlow?.({});   // Dark and Light: the standard fluid
           this.auroraFX?.setPalette?.(name);
           this.auroraFX?.setMode('fluid');
         } else {
@@ -320,7 +332,7 @@ class BMPlayer {
         const vc=el('visualizer-canvas');
         if(vc && !this.viz){ try{ this.viz=new Visualizer(vc); }catch(_){} }
         window.bmMusic?.attachVisualiser?.(this.viz);
-        requestAnimationFrame(()=>{ this.viz?._resize?.(); this.viz?.setMode('bars'); this.viz?.start(); });
+        requestAnimationFrame(()=>{ this.viz?._resize?.(); this.viz?.setMode(vizSettings().style); this.viz?.start(); });
         this._hideMiniPlayer();
         this._updateVizMeta();
         this.fox?.setExpression?.('happy');
@@ -537,6 +549,7 @@ class BMPlayer {
     // The class that shows the music overlay in the player view. Left set,
     // it put the album tile and transport on top of the next video.
     document.body.classList.remove('audio-viz');
+    this._stopShadow();
     this.viz?.stop();this.musicViz?.stop();
     this._hideMiniPlayer();
     this._resetNowPlaying();
@@ -694,6 +707,7 @@ class BMPlayer {
   playMedia(files){
     this._lastOpened=Array.isArray(files)?String(files[0]||''):'';
     if(!this.api?.mpv||!files?.length)return;
+    applySubStyle(this.api);   // the chosen subtitle font and colour (v3.28.0)
     // Music playing in the in-app engine stops, instead of carrying on under the film.
     window.bmMusic?.yieldToPlayer?.();
     // ── v1.7.0: persist previous file's last position before switching ──
@@ -937,6 +951,21 @@ class BMPlayer {
     });
   }
   _closeCtxPanel(){el('ctx-panel')?.classList.add('hidden');}
+  // The exact visualiser for a song mpv plays (v3.29.0): a silent copy of
+  // the file, kept in step with mpv and measured (audio-shadow.js). The
+  // visualisers that exist are given its analyser, and one made later finds
+  // it shared. Stopping takes it back only where it is still the shadow's.
+  _startShadow(){
+    const a=this.shadow?.load(this._currentFilePath,this.currentTime||0,!!this._lastPause);
+    if(!a)return;
+    this._shadowOn=true;setSharedAnalyser(a);
+    for(const v of [this.viz,this.musicViz]) if(v) v.analyser=a;
+  }
+  _stopShadow(){
+    if(!this._shadowOn)return;
+    const a=this.shadow.analyser;this._shadowOn=false;this.shadow.stop();setSharedAnalyser(null);
+    for(const v of [this.viz,this.musicViz]) if(v&&v.analyser===a) v.analyser=null;
+  }
   // The pin button and the right-click menu's "Always on top" (v3.27.0).
   toggleAlwaysOnTop(){
     this.alwaysOnTop=!this.alwaysOnTop;
@@ -1057,6 +1086,7 @@ class BMPlayer {
       // engine plays, so neither of these may overrule the engine.
       if(p.name==='idle-active'){ this._mpvIdle=!!p.data;
         this._mpvIdle=p.data!==false;
+        if(this._mpvIdle)this._stopShadow();   // the song ended or was replaced
         if(window.bmMusic?.engineOwns?.()) return;
         if(this._mpvIdle){ this.isPlaying=false; this.updatePlayIcon?.(); this._updateMiniPlayer?.(); }
         else { this.isPlaying=!this._lastPause; this.updatePlayIcon?.(); }
@@ -1064,6 +1094,7 @@ class BMPlayer {
       }
       if(p.name==='pause'){
         this._lastPause=!!p.data;
+        if(this._shadowOn)this.shadow.follow({paused:!!p.data});
         if(window.bmMusic?.engineOwns?.()) return;
         this.isPlaying=!p.data && this._mpvIdle===false;this.updatePlayIcon();
         el('np-bars')?.classList.toggle('playing',this.isPlaying);
@@ -1080,6 +1111,7 @@ class BMPlayer {
       }
       if(p.name==='time-pos'){
         this.currentTime=p.data||0;
+        if(this._shadowOn)this.shadow.follow({time:this.currentTime});
         // ── v1.7.0: feed A-B repeat & history ──
         this.abRepeat?.onTimePos(this.currentTime);
         history.onTimeUpdate({ timePos: this.currentTime, duration: this.duration });
@@ -1095,7 +1127,7 @@ class BMPlayer {
         const mt=el('mmp-title');if(mt)mt.textContent=p.data||'Not Playing';
         this._updateVizMeta();
       }
-      if(p.name==='speed'){const sb=el('speed-badge');if(sb)sb.textContent=(+p.data).toFixed(2).replace(/\.?0+$/,'')+'x';this.speedMenu?.onSpeedChange(p.data);}
+      if(p.name==='speed'){if(this._shadowOn)this.shadow.follow({speed:+p.data});const sb=el('speed-badge');if(sb)sb.textContent=(+p.data).toFixed(2).replace(/\.?0+$/,'')+'x';this.speedMenu?.onSpeedChange(p.data);}
       if(p.name==='sub-delay'){this._ctxSubDelay=Number(p.data)||0;this._syncCtxDelays();}
       if(p.name==='audio-delay'){this._ctxAudioDelay=Number(p.data)||0;this._syncCtxDelays();}
       if(p.name==='track-list'){this._lastTracks=Array.isArray(p.data)?p.data:[];this.renderTrackMenus(this._lastTracks);this.updateVisualizerVisibility(this._lastTracks);this.emitPlugin('track-change',{tracks:this._lastTracks});}
@@ -1109,6 +1141,8 @@ class BMPlayer {
   updateVisualizerVisibility(tracks){
     const hasVideo=tracks.some(t=>t.type==='video');
     this._hasVideo=hasVideo;
+    // A song mpv plays (not the in-app engine) gets the exact visualiser.
+    if(!hasVideo&&!window.bmMusic?.engineOwns?.()&&this._currentFilePath)this._startShadow();else this._stopShadow();
     if(hasVideo){
       document.body.classList.remove('audio-viz');
       this._audioVizMode=false;
@@ -1132,7 +1166,7 @@ class BMPlayer {
       if(this.currentDash==='music' && !this.isLite){
         const mc=el('music-visualizer-canvas');
         if(mc&&!this.musicViz){this.musicViz=new Visualizer(mc);}
-        this.musicViz?.setMode('bars');
+        this.musicViz?.setMode(vizSettings().style);
       }
       // Show mini player bar if user is on video tab
       this._updateMiniPlayer();
@@ -1220,7 +1254,7 @@ class BMPlayer {
       const vc=el('visualizer-canvas');
       if(vc && !this.viz){ try{ this.viz=new Visualizer(vc); }catch(_){} }
       document.body.classList.add('audio-viz');
-      this.viz?.setMode('bars');this.viz?.start();
+      this.viz?.setMode(vizSettings().style);this.viz?.start();
       this._updateVizMeta();
     }
     this._pipPending=true;
@@ -1265,10 +1299,10 @@ class BMPlayer {
     el('viz-btn-music')?.addEventListener('click',()=>this.switchDest('music'));
     el('pip-play')?.addEventListener('click',e=>{e.stopPropagation();this.togglePlay();});
     // Cycle visualiser modes by clicking the canvas — bars/radial/wave/particles
-    const modes=['bars','radial','wave','particles'];let mi=0;
+    const modes=['bars','radial','wave','particles','fluid'];let mi=Math.max(0,modes.indexOf(vizSettings().style));
     el('visualizer-canvas')?.addEventListener('click',()=>{
       if(!this._audioVizMode)return;
-      mi=(mi+1)%modes.length;this.viz?.setMode(modes[mi]);this.showOSD('Visualiser: '+modes[mi]);
+      mi=(mi+1)%modes.length;saveVizSettings({...vizSettings(),style:modes[mi]});allVisualisers().forEach(v=>v.setMode(modes[mi]));window.bmVizPanel?.sync?.();this.showOSD('Visualiser: '+modes[mi]);
     });
   }
 
@@ -1858,7 +1892,12 @@ class BMPlayer {
     return '#'+[r,g,b].map(c=>Math.min(255,Math.max(0,c)).toString(16).padStart(2,'0')).join('');
   }
 
-  _openThemeCustomizer(){el('theme-customizer')?.classList.remove('hidden');}
+  _openThemeCustomizer(){
+    el('theme-customizer')?.classList.remove('hidden');
+    // On the Flow theme, its controls are what you came for: they are the
+    // customizer's last section, so it opens scrolled to them (v3.28.0).
+    if(document.documentElement.getAttribute('data-theme')==='northern') requestAnimationFrame(()=>el('tc-flow')?.scrollIntoView({block:'nearest'}));
+  }
 
   // ── v1.8.0: Music energy -> Fox ────────────────────────────────
   _startMusicEnergyLoop(){

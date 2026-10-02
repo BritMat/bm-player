@@ -428,6 +428,30 @@ async function main() {
     if (res.status && res.status !== 200) throw new Error('status ' + res.status + ' for ' + f);
   });
 
+  // Byte ranges (v3.28.0): a media element asks for parts of a file, and some
+  // formats only get a duration from a ranged reply (a WAV had none, so the
+  // music seek bar did nothing). And a plugin's script is served as one.
+  await step('bmfile serves byte ranges, with the length and the type', async () => {
+    const f = path.join(TMP, 'ranges.wav');
+    fs.writeFileSync(f, Buffer.from(Array.from({ length: 100 }, (_, i) => i)));
+    const url = 'bmfile://local/' + encodeURIComponent(f.replace(/\\/g, '/'));
+    const get = range => rec.protocols.get('bmfile')({ url, headers: new Headers(range ? { range } : {}) });
+    const full = await get(null);
+    if (full.status !== 200 || full.headers.get('content-length') !== '100' || full.headers.get('accept-ranges') !== 'bytes') throw new Error(`whole file: ${full.status}, length ${full.headers.get('content-length')}, ${full.headers.get('accept-ranges')}`);
+    if (full.headers.get('content-type') !== 'audio/wav') throw new Error('served as ' + full.headers.get('content-type'));
+    const part = await get('bytes=10-19'), body = new Uint8Array(await part.arrayBuffer());
+    if (part.status !== 206 || part.headers.get('content-range') !== 'bytes 10-19/100' || body.length !== 10 || body[0] !== 10 || body[9] !== 19)
+      throw new Error(`bytes 10-19: ${part.status}, ${part.headers.get('content-range')}, ${body.length} bytes from ${body[0]} to ${body[9]}`);
+    const tail = new Uint8Array(await (await get('bytes=-5')).arrayBuffer());
+    if (tail.length !== 5 || tail[0] !== 95) throw new Error('the last 5 bytes: ' + tail.length + ' from ' + tail[0]);
+    const open = await get('bytes=90-');
+    if (open.headers.get('content-range') !== 'bytes 90-99/100') throw new Error('bytes 90 on: ' + open.headers.get('content-range'));
+    if ((await get('bytes=500-')).status !== 416) throw new Error('a range past the end was not refused');
+    const js = path.join(TMP, 'plugin.js'); fs.writeFileSync(js, 'export default 1;');
+    const jr = await rec.protocols.get('bmfile')({ url: 'bmfile://local/' + encodeURIComponent(js.replace(/\\/g, '/')) });
+    if (jr.headers.get('content-type') !== 'text/javascript') throw new Error('a script is served as ' + jr.headers.get('content-type'));
+  });
+
   await step('bmfile 404s a file that does not exist', async () => {
     const res = await serve('bmfile://local/' + encodeURIComponent('/no/such/file.jpg'));
     if (res.status !== 404) throw new Error('expected 404, got ' + res.status);

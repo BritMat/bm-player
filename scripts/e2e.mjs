@@ -77,6 +77,13 @@ wav(TONE, 30, 330);
 // machines rarely have ffmpeg, but anyone running BM Player has mpv.
 // 20 seconds: at 4 it could end before part C's PiP step on a slow run, and
 // PiP rightly refuses to start with nothing playing.
+// A 1500 Hz tone for mpv (v3.29.0): the exact visualiser must find it where
+// 1500 Hz belongs. null without ffmpeg, and the steps that need it are skipped.
+let TONE1500 = path.join(FIX, 'tone 1500.wav');
+try {
+  execFileSync('ffmpeg', ['-loglevel', 'error', '-y', '-f', 'lavfi', '-i', 'sine=frequency=1500:duration=20', TONE1500], { timeout: 20000, stdio: 'ignore', windowsHide: true });
+  if (!fs.existsSync(TONE1500)) TONE1500 = null;
+} catch { TONE1500 = null; }
 let VIDEO = null;
 try {
   VIDEO = path.join(FIX, 'clip #1.mp4');
@@ -111,7 +118,9 @@ if (PART === 'c') {
 const t0 = Date.now();
 const app = await _electron.launch({
   executablePath: electronPath,
-  args: [ROOT, '--no-sandbox', `--user-data-dir=${PROFILE}`, ...(PART === 'c' ? [] : ['--lite'])],
+  // --mpv-ao=null (v3.29.0): mpv plays audio into nothing, so an audio-only
+  // file plays on a machine without a sound device, and the run is silent.
+  args: [ROOT, '--no-sandbox', '--mpv-ao=null', `--user-data-dir=${PROFILE}`, ...(PART === 'c' ? [] : ['--lite'])],
   cwd: ROOT, timeout: PART === 'warmup' ? 150000 : 90000,
 });
 let page;
@@ -428,7 +437,9 @@ if (PART === 'a') {
 
   // The fox on the welcome screen: the hand-placed low-poly SVG (v3.15.0),
   // which replaced a three.js fox whose head floated above its body.
-  await step('the geometric fox is on the welcome screen, whole and animated', async () => {
+  // v3.29.1: the flat fox is the 3D fox drawn still (the same mesh), and it
+  // no longer floats: it is alive through blinks, ear twitches and its tilt.
+  await step('the geometric fox is on the welcome screen, whole, blinking and not floating', async () => {
     await page.evaluate(() => bmApp.switchDest('video'));
     const r = await page.evaluate(() => {
       const svg = document.querySelector('.fox-stage svg.geofox');
@@ -439,7 +450,9 @@ if (PART === 'a') {
         facets: svg.querySelectorAll('polygon').length,
         parts: ['.gf-ear-l', '.gf-ear-r', '.gf-eye-l', '.gf-eye-r', '.gf-nose', '.gf-body'].filter(s => !svg.querySelector(s)),
         visible: box.width > 100 && box.height > 100 && box.top >= stage.top - 2,
-        animated: getComputedStyle(svg.querySelector('.gf-body')).animationName,
+        floats: getComputedStyle(svg.querySelector('.gf-body')).animationName,
+        live: !!bmApp.fox?._timers?.size,
+        hat: !!svg.querySelector('.gf-hat polygon'),
         canvasGone: !document.getElementById('fox-canvas'),
       };
     });
@@ -447,9 +460,11 @@ if (PART === 'a') {
     if (r.facets < 80) throw new Error('only ' + r.facets + ' facets');
     if (r.parts.length) throw new Error('missing parts: ' + r.parts.join(', '));
     if (!r.visible) throw new Error('the fox is not visibly placed in its stage');
-    if (!/gf-breathe/.test(r.animated)) throw new Error('the idle animation is not running: ' + r.animated);
+    if (r.floats && r.floats !== 'none') throw new Error('the fox floats: its body runs ' + r.floats);
+    if (!r.live) throw new Error('no blinks or twitches are scheduled');
+    if (!r.hat) throw new Error('the Santa hat is not drawn (from the 3D fox\'s geometry)');
     if (!r.canvasGone) throw new Error('the old fox canvas is still in the page');
-    console.log(`      (${r.facets} facets, idle animation: ${r.animated})`);
+    console.log(`      (${r.facets} facets, the 3D fox's mesh, blinking, not floating)`);
   });
 }
 
@@ -472,6 +487,48 @@ if (PART === 'b') {
     if (!(r.t > 0.3)) throw new Error('playback did not advance: ' + r.t + 's');
   });
   await shot('engine-playing');
+
+  // The music seek bar (v3.28.0): drag to scrub. It took a click only, on a
+  // bar 5px tall, and a drag released off the bar did not seek at all. The
+  // press is 6px above the thin bar (in its grab area), the release 40px
+  // below it.
+  await step('the music seek bar scrubs, and a release off the bar still seeks', async () => {
+    const box = await page.evaluate(() => { const r = document.getElementById('np-seek-track').getBoundingClientRect(); return { x: r.x, y: r.y, w: r.width, h: r.height }; });
+    if (!(box.w > 20)) throw new Error('the seek bar is not on screen');
+    const y = box.y + box.h / 2;
+    await page.mouse.move(box.x + box.w * 0.2, box.y - 6); await page.mouse.down();
+    await page.mouse.move(box.x + box.w * 0.5, y, { steps: 4 });
+    const mid = await page.evaluate(() => ({ fill: parseFloat(document.getElementById('np-seek-fill').style.width), scrubbing: document.getElementById('np-seek-track').classList.contains('scrubbing') }));
+    await page.mouse.move(box.x + box.w * 0.8, y + 40, { steps: 4 });
+    await page.mouse.up(); await page.waitForTimeout(600);
+    const r = await page.evaluate(() => ({ t: bmMusic.engine.currentTime, d: bmMusic.engine.duration }));
+    if (!mid.scrubbing || Math.abs(mid.fill - 50) > 6) throw new Error(`the bar did not follow the drag: ${JSON.stringify(mid)}`);
+    if (!(r.d > 0) || Math.abs(r.t / r.d - 0.8) > 0.07) throw new Error(`released at 80%, playback at ${(r.t / r.d * 100).toFixed(1)}%`);
+  });
+
+  // The visualiser's settings (v3.28.0): a panel from the visualiser's
+  // settings button, applied to every visualiser and kept.
+  await step('the visualiser settings apply to every visualiser and are kept', async () => {
+    await page.click('#mv-btn-settings'); await page.waitForTimeout(200);
+    const open = await page.evaluate(() => !document.getElementById('viz-settings').classList.contains('hidden'));
+    await page.click('#vs-colors button[data-v="fire"]');
+    await page.click('#vs-style button[data-v="radial"]');
+    await page.evaluate(() => { const i = document.getElementById('vs-bars'); i.value = 40; i.dispatchEvent(new Event('input')); });
+    // Visualisers are made when their view first opens: those that exist must
+    // follow, and one made afterwards must start with the kept settings.
+    const r = await page.evaluate(async () => {
+      const { Visualizer, allVisualisers } = await import('./js/visualizer.js');
+      const all = allVisualisers().map(v => ({ c: v.opts.colors, b: v.opts.bars, n: v._getFreq().length }));
+      const fresh = new Visualizer(document.createElement('canvas'));
+      return { saved: JSON.parse(localStorage.getItem('bm_viz') || '{}'), all, fresh: { c: fresh.opts.colors, b: fresh.opts.bars, n: fresh._getFreq().length } };
+    });
+    await page.click('#vs-reset');
+    await page.evaluate(() => window.bmVizPanel?.close());   // not Escape: that is also a player key
+    if (!open) throw new Error('the settings button did not open the panel');
+    if (r.saved.colors !== 'fire' || r.saved.style !== 'radial' || r.saved.bars !== 40) throw new Error('not kept: ' + JSON.stringify(r.saved));
+    if (r.all.some(v => v.c !== 'fire' || v.b !== 40 || v.n !== 40)) throw new Error('a visualiser did not follow: ' + JSON.stringify(r.all));
+    if (r.fresh.c !== 'fire' || r.fresh.b !== 40 || r.fresh.n !== 40) throw new Error('a new visualiser did not start with them: ' + JSON.stringify(r.fresh));
+  });
 
   // Reported on a real machine: while music played the sidebar was gone, so
   // there was no way to another tab and the mini bar never appeared. This
@@ -521,6 +578,22 @@ if (PART === 'b') {
     // mpv's failed gpu attempt closed handle 0 on every file load, and the
     // second time handle 0 was the video file. Traced with strace; the app
     // now locks mpv onto the video output that worked.
+    // Subtitle font and colour (v3.28.0), from the right-click menu: they
+    // reach mpv, styled ASS subtitles included, and Default puts it back.
+    await step('subtitle font and colour reach mpv, and Default restores the file\'s own', async () => {
+      await page.evaluate(v => bmApp.playMedia([v]), VIDEO); await page.waitForTimeout(2500);
+      await page.evaluate(() => bmApp._openCtxPanel(300, 160));
+      await page.hover('#ctx-sec-sub-tracks > .ctx-label'); await page.waitForTimeout(450);
+      const g = () => page.evaluate(async () => { const c = n => window.api.mpv.cmd('get_property', n); return { color: String(await c('sub-color')), font: await c('sub-font'), ass: await c('sub-ass-override') }; });
+      await page.click('#ctx-sub-colors button[data-c="#FFE135"]');
+      await page.click('#ctx-sub-fonts button[data-f="Georgia"]');
+      await page.waitForTimeout(300); const on = await g();
+      await page.click('#ctx-sub-colors button[data-c=""]'); await page.click('#ctx-sub-fonts button[data-f=""]');
+      await page.waitForTimeout(300); const off = await g();
+      await page.evaluate(() => { bmApp._closeCtxPanel(); bmApp.stop(); });
+      if (on.font !== 'Georgia' || !on.color.toUpperCase().includes('FFE135') || on.ass !== 'force') throw new Error('not applied: ' + JSON.stringify(on));
+      if (off.font !== 'sans-serif' || off.ass !== 'scale') throw new Error('Default did not restore: ' + JSON.stringify(off));
+    });
     await step('stop a video, open the same file again: it starts from the beginning', async () => {
       const r = await page.evaluate(async vid => {
         const g = n => window.api.mpv.cmd('get_property', n);
@@ -709,6 +782,37 @@ if (PART === 'b') {
     console.log('  (ffmpeg unavailable: mpv video steps skipped)');
   }
 
+  // The exact visualiser (v3.29.0): a song mpv plays is measured from a
+  // silent copy that follows mpv (audio-shadow.js); the visualiser drew a
+  // made-up animation for it before. A 1500 Hz tone must peak where 1500 Hz
+  // belongs and fall silent when paused, and the copy must follow a seek and
+  // stop with playback. Smoothing is set to 0 right before each reading (the
+  // visualiser sets it every frame), so a reading is the sound of that moment.
+  if (TONE1500) {
+    await step('a song mpv plays is measured exactly, and follows pause and seek', async () => {
+      await page.evaluate(f => bmApp.playMedia([f]), TONE1500); await page.waitForTimeout(3500);
+      const read = () => page.evaluate(async () => {
+        const a = bmApp.shadow?.analyser; if (!a || !bmApp._shadowOn) return null;
+        const d = new Uint8Array(a.frequencyBinCount);
+        for (let k = 0; k < 5; k++) { a.smoothingTimeConstant = 0; a.getByteFrequencyData(d); await new Promise(r => setTimeout(r, 50)); }
+        let mi = 0; for (let i = 1; i < d.length; i++) if (d[i] > d[mi]) mi = i;
+        return { bin: mi, total: d.reduce((x, y) => x + y, 0), want: 1500 / (a.context.sampleRate / a.fftSize), t: bmApp.shadow.el.currentTime, mpv: bmApp.currentTime };
+      });
+      const on = await read();
+      if (!on) throw new Error('no exact visualiser for a song mpv plays');
+      if (Math.abs(on.bin - on.want) > 1.01) throw new Error(`the loudest band is ${on.bin}, and 1500 Hz belongs at ${on.want.toFixed(1)}`);
+      await page.evaluate(() => bmApp.api.mpv.cmd('set_property', 'pause', true)); await page.waitForTimeout(700);
+      const off = await read();
+      if (!(off.total < on.total * 0.1)) throw new Error(`paused, but the spectrum is still at ${off.total} (playing: ${on.total})`);
+      await page.evaluate(() => bmApp.api.mpv.cmd('set_property', 'pause', false));
+      await page.evaluate(() => bmApp.seekTo(12)); await page.waitForTimeout(1500);
+      const sk = await read();
+      if (Math.abs(sk.t - sk.mpv) > 0.6) throw new Error(`after a seek the copy is at ${sk.t.toFixed(2)}s and mpv at ${sk.mpv.toFixed(2)}s`);
+      await page.evaluate(() => bmApp.stop()); await page.waitForTimeout(300);
+      if (await page.evaluate(() => bmApp._shadowOn || !!bmApp.shadow?.active)) throw new Error('the copy kept going after stop');
+    });
+  }
+
   await step('no page errors during playback', () => {
     const bad = consoleMsgs.filter(m => m.type === 'pageerror' || (m.type === 'error' && !NOISE.test(m.text)));
     if (bad.length) throw new Error(bad.map(m => m.text).join(' | ').slice(0, 300));
@@ -850,7 +954,7 @@ if (PART === 'c') {
       // The canvas fades in over 0.5s: without the fade the opacity read is
       // the final one, however slow the machine.
       if (bmApp.themeFX?.canvas) bmApp.themeFX.canvas.style.transition = 'none';
-      for (const t of ['ocean', 'forest', 'cyberpunk', 'midnight', 'northern', 'sakura', 'sunset', 'golden', 'lavender', 'glass', 'dark', 'light', 'dracula', 'snow']) {
+      for (const t of ['ocean', 'forest', 'cyberpunk', 'midnight', 'sakura', 'sunset', 'golden', 'lavender', 'glass', 'dark', 'light', 'dracula', 'snow']) {
         bmApp.applyTheme(t); await new Promise(res => setTimeout(res, 300));
         const fx = bmApp.themeFX;
         out[t] = { mode: fx?.mode, scene: !!fx?._scene, shown: fx ? +getComputedStyle(fx.canvas).opacity : null };
@@ -865,6 +969,62 @@ if (PART === 'c') {
       if (!(v.shown > 0.9)) throw new Error(`${t}'s scene is drawn on a hidden canvas (opacity ${v.shown})`);
     }
   });
+
+  // The Flow theme (v3.28.0): Northern is the fluid again, with its own
+  // controls in the theme customizer, and Dark and Light keep the standard
+  // fluid. And the fox (v3.28.0): its head turns from the neck, so the base
+  // of its chest stays put instead of floating like a balloon.
+  await step('the Flow theme is the fluid with its own controls, and the fox stays put', async () => {
+    const r = await page.evaluate(async () => {
+      bmApp.applyTheme('northern'); await new Promise(res => setTimeout(res, 300));
+      const fx = bmApp.auroraFX, a = { mode: fx?.mode, palette: fx?.flow?.palette, scene: bmApp.themeFX?.mode };
+      const i = document.getElementById('tc-flow-intensity'); i.value = 150; i.dispatchEvent(new Event('input'));
+      const b = { intensity: fx?.flow?.intensity, kept: JSON.parse(localStorage.getItem('bm_flow') || '{}').intensity };
+      document.getElementById('tc-flow-reset').click();
+      bmApp.applyTheme('dark'); await new Promise(res => setTimeout(res, 300));
+      const c = { palette: fx?.flow?.palette, intensity: fx?.flow?.intensity };
+      let fox = null;
+      if (bmApp.fox?._pose) {
+        const st = bmApp.fox._state, ys = { base: [], ear: [] };
+        st.energy = st.energyS = 0.9; st.perkUntil = st.t0 + 3000;
+        for (let k = 0; k < 200; k++) {
+          st.lastMove = 0; if (k % 20 === 0) st.energyS = k % 40 ? 0.9 : 0.1;
+          const m = bmApp.fox._pose(st.t0 + k * 50).model.flat(), y = ([x, Y, z]) => m[1] * x + m[5] * Y + m[9] * z + m[13];
+          ys.base.push(y([0, -2.08, 0])); ys.ear.push(y([-0.96, 1.8, 0]));
+        }
+        const span = q => Math.max(...q) - Math.min(...q);
+        fox = { base: span(ys.base), ear: span(ys.ear) };
+      }
+      return { a, b, c, fox };
+    });
+    if (r.a.mode !== 'fluid' || r.a.palette !== 'northern' || r.a.scene !== 'off') throw new Error('Flow is not the fluid with Northern lights: ' + JSON.stringify(r.a));
+    if (r.b.intensity !== 1.5 || r.b.kept !== 1.5) throw new Error('the intensity control did not reach the fluid, or was not kept: ' + JSON.stringify(r.b));
+    if (r.c.palette !== null || r.c.intensity !== 1) throw new Error('Dark did not get the standard fluid back: ' + JSON.stringify(r.c));
+    if (r.fox && !(r.fox.base < 0.06 && r.fox.ear > 0.1)) throw new Error('the fox floats: its base moves ' + r.fox.base.toFixed(3) + ', its ear ' + r.fox.ear.toFixed(3));
+  });
+
+  // The Fluid visualiser (v3.29.0): the fluid moved by the music. With a tone
+  // playing it splashes, and paused it adds nothing.
+  if (TONE1500) {
+    await step('the Fluid visualiser moves with the music, and stops with it', async () => {
+      const r = await page.evaluate(async f => {
+        bmApp.playMedia([f]); await new Promise(res => setTimeout(res, 3000));
+        const v = bmApp.viz; if (!v) return { noViz: true };
+        v.setOptions({ style: 'fluid' }); v.setMode('fluid'); if (!v.active) v.start();
+        await new Promise(res => setTimeout(res, 2500));
+        const playing = v._fl?.splats || 0;
+        await bmApp.api.mpv.cmd('set_property', 'pause', true); await new Promise(res => setTimeout(res, 1000));
+        const a = v._fl?.splats || 0; await new Promise(res => setTimeout(res, 1500)); const b = v._fl?.splats || 0;
+        const out = { fluid: !!v._fluid, playing, whilePaused: b - a };
+        v.setOptions({ style: 'bars' }); v.setMode('bars'); bmApp.stop();
+        return out;
+      }, TONE1500);
+      if (r.noViz) throw new Error('no visualiser');
+      if (!r.fluid) throw new Error('the fluid did not start');
+      if (r.playing < 5) throw new Error('the music made only ' + r.playing + ' splashes');
+      if (r.whilePaused !== 0) throw new Error(r.whilePaused + ' splashes while paused');
+    });
+  }
 }
 } finally {
   await app.close().catch(() => {});

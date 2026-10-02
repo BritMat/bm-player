@@ -1,7 +1,7 @@
 /**
  * theme-scenes: an artistic, animated background for each of the ten
  * artistic themes (v3.27.0). Dark, Light, Dracula and Snow keep their
- * standard backgrounds. Until now every theme shared one fluid, recoloured.
+ * standard backgrounds, and Northern is the Flow theme (fluid.js). Until now every theme shared one fluid, recoloured.
  *
  * ThemeFX draws a scene in its 'scene:<theme>' mode, on its own canvas, in
  * canvas pixels, transparent over the theme's CSS background. A scene is
@@ -12,7 +12,9 @@
  * than per frame, and with reduced motion everything moves at a third of the
  * speed. Nothing here touches the page until a scene is created.
  */
-export const SCENE_THEMES = ['ocean', 'forest', 'cyberpunk', 'midnight', 'northern', 'sakura', 'sunset', 'golden', 'lavender', 'glass'];
+// Northern is the Flow theme: the fluid it had before v3.27.0, with its own
+// controls (flow-settings.js), so it is not a scene (v3.28.0).
+export const SCENE_THEMES = ['ocean', 'forest', 'cyberpunk', 'midnight', 'sakura', 'sunset', 'golden', 'lavender', 'glass'];
 
 const TIER = { low: 0.5, medium: 1, high: 1.5 };
 const TAU = Math.PI * 2;
@@ -234,38 +236,6 @@ function midnight(w, h, q, sp) {
         g.addColorStop(0, `rgba(255,255,255,${0.9 * (1 - k)})`); g.addColorStop(1, 'rgba(255,255,255,0)');
         ctx.globalAlpha = 1; ctx.strokeStyle = g; ctx.lineWidth = 1.6; ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x + 160, y - 60); ctx.stroke();
         if (k >= 1) shoot = null;
-      }
-      ctx.restore();
-    },
-  };
-}
-
-/* ── Northern: aurora curtains over a quiet starfield ───────────────── */
-function northern(w, h, q, sp) {
-  const star = glow(2, '230,245,255');
-  const ribbons = [['90,255,170', 0.34, 0.9], ['80,215,255', 0.42, 0.7], ['185,120,255', 0.28, 0.55]].map(([rgb, y, a], i) => {
-    const c = canvas(1, 256), g = c.getContext('2d'), gr = g.createLinearGradient(0, 0, 0, 256);
-    gr.addColorStop(0, `rgba(${rgb},0)`); gr.addColorStop(0.65, `rgba(${rgb},${0.35 * a})`); gr.addColorStop(0.93, `rgba(${rgb},${a})`); gr.addColorStop(1, `rgba(${rgb},0)`);
-    g.fillStyle = gr; g.fillRect(0, 0, 1, 256);
-    return { spr: c, y, amp: rnd(0.04, 0.08), f: rnd(0.002, 0.004), s: rnd(0.15, 0.3) * (i % 2 ? -1 : 1), ht: rnd(0.22, 0.34), ph: rnd(0, TAU) };
-  });
-  const step = q < 1 ? 10 : 6;
-  let stars;
-  const fill = () => { stars = Array.from({ length: count(120, q) }, () => ({ x: rnd(0, w), y: rnd(0, h * 0.9), a: rnd(0.2, 0.8), ph: rnd(0, TAU), f: rnd(0.5, 1.6) })); };
-  fill();
-  return {
-    resize(W, H) { w = W; h = H; fill(); },
-    frame(ctx, W, H, dt, t) {
-      ctx.save(); ctx.globalCompositeOperation = 'lighter';
-      for (const s of stars) { ctx.globalAlpha = s.a * (0.6 + 0.4 * Math.sin(t * s.f + s.ph)); ctx.drawImage(star, s.x - 2, s.y - 2); }
-      ctx.globalAlpha = 0.5;
-      const tt = t * sp;
-      for (const r of ribbons) {
-        for (let x = 0; x < w + step; x += step) {
-          const base = h * r.y + Math.sin(x * r.f + tt * r.s + r.ph) * h * r.amp + Math.sin(x * r.f * 2.3 + tt * r.s * 1.7) * h * r.amp * 0.4;
-          const ht = h * r.ht * (0.65 + 0.35 * Math.sin(x * 0.006 + tt * 0.5 + r.ph));
-          ctx.drawImage(r.spr, x, base - ht, step + 1, ht);
-        }
       }
       ctx.restore();
     },
@@ -495,7 +465,7 @@ function glass(w, h, q, sp) {
   };
 }
 
-const SCENES = { ocean, forest, cyberpunk, midnight, northern, sakura, sunset, golden, lavender, glass };
+const SCENES = { ocean, forest, cyberpunk, midnight, sakura, sunset, golden, lavender, glass };
 
 /** A scene for a theme, sized to the canvas, or null for a theme without one. */
 export function createScene(name, w, h, tier = 'medium') {

@@ -1,131 +1,49 @@
 /**
- * GeoFox: the welcome-screen fox, drawn as a hand-placed low-poly SVG.
- *
- * Replaces the three.js fox, which was built from spheres in code: a
- * floating ball of a head over a ball of a body, its facets cracked apart,
- * in pink. This one is designed rather than generated. Every point has a
- * depth towards the viewer, and each triangle is its material shaded by the
- * real facet normal against a single light from the upper left, so flat
- * facets read as a solid head. The left half is laid out by hand and
- * mirrored, so the face is symmetrical and the lighting is not.
- *
- * Plain SVG and CSS: no WebGL, no library, cheap enough for Lite mode, so
- * every machine gets the same fox.
- *
- * Interface kept from the old fox, so nothing else had to change:
- *   wake(), setExpression('neutral'|'happy'|'excited'), pause(), resume(),
- *   setTheme(name), setMusicEnergy(0..1), destroy()
+ * geofox: the fox drawn flat, as SVG. BM Player Lite, and a machine without
+ * WebGL, show it instead of the 3D fox (fox3d.js). Until v3.29.1 it was a
+ * separate, older drawing, so the two players showed two different foxes.
+ * Now it is the 3D fox itself, drawn still: the same mesh, colours and
+ * lighting (the 3D shader's formula, per facet), turned a little as the 3D
+ * fox rests. It blinks, twitches an ear and tilts towards the pointer, and,
+ * like the 3D fox, it no longer floats.
  */
+import { TRIANGLES, MATERIALS, MATERIAL_ORDER, PARTS, PIVOTS } from './fox3d-mesh.js';
+import { hatTriangles } from './fox3d.js';   // a function: called once both modules are loaded
 
 const W = 400;
 const NS = 'http://www.w3.org/2000/svg';
-
-const MAT = {
-  orange:    [232, 118, 43],
-  orange_hi: [243, 146, 69],
-  cream:     [251, 236, 216],
-  ear_in:    [74, 42, 34],
-};
-
-/* (x, y, z) on a 400x400 face: left half and the centre line only. */
-const P = {
-  crown:     [200, 100, 44],
-  brow_c:    [200, 170, 74],
-  bridge:    [200, 236, 98],
-  nose_top:  [200, 314, 116],
-  chin:      [200, 362, 76],
-  // ear: outer triangle, with an inset inner ear
-  ear_tip:   [104, 20, 0],
-  ear_out:   [66, 156, 12],
-  ear_in:    [162, 108, 30],
-  ie_tip:    [110, 50, 6],
-  ie_o:      [88, 136, 14],
-  ie_i:      [146, 116, 22],
-  crown2:    [172, 128, 48],
-  forehead:  [150, 164, 62],
-  brow:      [118, 188, 54],
-  temple:    [64, 196, 24],
-  cheek_top: [88, 238, 40],
-  tuft:      [30, 254, 6],
-  notch:     [68, 272, 22],
-  tuft2:     [56, 306, 10],
-  cheek_low: [92, 292, 36],
-  jaw:       [138, 330, 54],
-  muz_side:  [164, 284, 90],
-  muz_low:   [174, 330, 72],
-  eye_out:   [108, 206, 56],
-  eye_top:   [148, 200, 64],
-  eye_in:    [176, 228, 72],
-  eye_bot:   [144, 240, 60],
-  under_eye: [158, 262, 78],
-};
-
-/* Triangles on the left half: [points, material, part]. */
-const F = [
-  [['ear_tip', 'ear_out', 'ie_o'], 'orange', 'ear'],
-  [['ear_tip', 'ie_o', 'ie_tip'], 'orange', 'ear'],
-  [['ear_out', 'ear_in', 'ie_i'], 'orange', 'ear'],
-  [['ear_out', 'ie_i', 'ie_o'], 'orange', 'ear'],
-  [['ear_in', 'ear_tip', 'ie_tip'], 'orange', 'ear'],
-  [['ear_in', 'ie_tip', 'ie_i'], 'orange', 'ear'],
-  [['ie_tip', 'ie_o', 'ie_i'], 'ear_in', 'ear'],
-  [['ear_in', 'crown', 'crown2'], 'orange', 'face'],
-  [['ear_in', 'crown2', 'forehead'], 'orange', 'face'],
-  [['crown2', 'crown', 'brow_c'], 'orange', 'face'],
-  [['crown2', 'brow_c', 'forehead'], 'orange', 'face'],
-  [['ear_out', 'ear_in', 'forehead'], 'orange', 'face'],
-  [['ear_out', 'forehead', 'brow'], 'orange', 'face'],
-  [['ear_out', 'brow', 'temple'], 'orange', 'face'],
-  [['temple', 'brow', 'eye_out'], 'orange', 'face'],
-  [['temple', 'eye_out', 'cheek_top'], 'orange', 'face'],
-  [['brow', 'forehead', 'eye_top'], 'orange', 'face'],
-  [['brow', 'eye_top', 'eye_out'], 'orange', 'face'],
-  [['eye_top', 'forehead', 'eye_in'], 'orange', 'face'],
-  [['forehead', 'brow_c', 'eye_in'], 'orange', 'face'],
-  [['brow_c', 'bridge', 'eye_in'], 'orange_hi', 'face'],
-  [['eye_in', 'bridge', 'under_eye'], 'orange_hi', 'face'],
-  [['bridge', 'nose_top', 'under_eye'], 'orange_hi', 'face'],
-  [['under_eye', 'nose_top', 'muz_side'], 'orange_hi', 'face'],
-  [['nose_top', 'muz_low', 'muz_side'], 'cream', 'face'],
-  [['nose_top', 'chin', 'muz_low'], 'cream', 'face'],
-  [['muz_side', 'muz_low', 'jaw'], 'cream', 'face'],
-  [['muz_low', 'chin', 'jaw'], 'cream', 'face'],
-  [['eye_out', 'eye_bot', 'cheek_top'], 'orange', 'face'],
-  [['eye_bot', 'under_eye', 'muz_side'], 'cream', 'face'],
-  [['cheek_top', 'eye_bot', 'muz_side'], 'cream', 'face'],
-  [['cheek_top', 'muz_side', 'cheek_low'], 'cream', 'face'],
-  [['temple', 'cheek_top', 'tuft'], 'cream', 'face'],
-  [['cheek_top', 'notch', 'tuft'], 'cream', 'face'],
-  [['cheek_top', 'cheek_low', 'notch'], 'cream', 'face'],
-  [['notch', 'cheek_low', 'tuft2'], 'cream', 'face'],
-  [['cheek_low', 'jaw', 'tuft2'], 'cream', 'face'],
-  [['cheek_low', 'muz_side', 'jaw'], 'cream', 'face'],
-];
-
-const LIGHT = (() => { const v = [-0.45, 0.55, 0.70]; const l = Math.hypot(...v); return v.map(c => c / l); })();
-
-function shade(tri, mat) {
-  const [a, b, c] = tri.map(p => [p[0], -p[1], p[2]]);          // SVG y points down
-  const u = [b[0] - a[0], b[1] - a[1], b[2] - a[2]], v = [c[0] - a[0], c[1] - a[1], c[2] - a[2]];
-  let n = [u[1] * v[2] - u[2] * v[1], u[2] * v[0] - u[0] * v[2], u[0] * v[1] - u[1] * v[0]];
-  const l = Math.hypot(...n) || 1; n = n.map(x => x / l);
-  if (n[2] < 0) n = n.map(x => -x);
-  const d = Math.max(0, n[0] * LIGHT[0] + n[1] * LIGHT[1] + n[2] * LIGHT[2]);
-  const k = 0.70 + 0.38 * d;
-  return '#' + MAT[mat].map(ch => Math.min(255, Math.round(ch * k)).toString(16).padStart(2, '0')).join('');
-}
-
-const mirror = p => [W - p[0], p[1], p[2]];
+const K = 88, CX = 200, CY = 205;   // mesh units to the 400 by 400 view
+const YAW = -0.24, PITCH = 0.08;    // the 3D fox's resting turn
+const norm3 = v => { const l = Math.hypot(...v) || 1; return v.map(c => c / l); };
+const KEY = norm3([-0.45, 0.55, 0.70]), FILL = norm3([0.7, 0.1, 0.6]);   // fox3d.js's lights
+const cyw = Math.cos(YAW), syw = Math.sin(YAW), cpt = Math.cos(PITCH), spt = Math.sin(PITCH);
+const rot = ([x, y, z]) => { const x1 = x * cyw + z * syw, z1 = -x * syw + z * cyw; return [x1, y * cpt - z1 * spt, y * spt + z1 * cpt]; };
+const to2 = p => { const [x, y] = rot(p); return [+(CX + x * K).toFixed(1), +(CY - y * K).toFixed(1)]; };
 const pts = list => list.map(p => `${p[0]},${p[1]}`).join(' ');
 
-function poly(parent, points, fill, extra = {}) {
-  const e = document.createElementNS(NS, 'polygon');
-  e.setAttribute('points', pts(points));
-  e.setAttribute('fill', fill);
-  for (const [k, v] of Object.entries(extra)) e.setAttribute(k, v);
-  parent.appendChild(e);
-  return e;
+// The rim light is the theme's accent, as on the 3D fox.
+function accent() {
+  try {
+    const c = getComputedStyle(document.documentElement).getPropertyValue('--accent').trim();
+    const m = /^#([0-9a-f]{6})$/i.exec(c); if (m) return [0, 2, 4].map(i => parseInt(m[1].slice(i, i + 2), 16) / 255);
+  } catch {}
+  return [0.4, 0.6, 1];
 }
+
+// fox3d.js's fragment shader, for one flat facet.
+function shade(col, n, lit, rim) {
+  n = norm3(rot(n));
+  const d = Math.max(0, n[0] * KEY[0] + n[1] * KEY[1] + n[2] * KEY[2]);
+  const f = Math.max(0, n[0] * FILL[0] + n[1] * FILL[1] + n[2] * FILL[2]);
+  const r = Math.pow(1 - Math.max(n[2], 0), 2.4) * 0.30;
+  const warm = [0.035, 0.018, 0];
+  const out = col.map((c, i) => {
+    const l = c * (0.70 + 0.38 * d + 0.10 * f) + warm[i] * (1 - d) + rim[i] * r;
+    return Math.min(1, c + (l - c) * lit);
+  });
+  return `rgb(${out.map(v => Math.round(v * 255)).join(',')})`;
+}
+
 function group(parent, cls, origin) {
   const g = document.createElementNS(NS, 'g');
   g.setAttribute('class', cls);
@@ -141,43 +59,43 @@ export function buildFoxSVG() {
   svg.setAttribute('class', 'geofox');
   svg.setAttribute('role', 'img');
   svg.setAttribute('aria-label', 'BM Player fox');
-  const body = group(svg, 'gf-body', [200, 360]);
-  const earL = group(body, 'gf-ear gf-ear-l', [114, 132]);
-  const earR = group(body, 'gf-ear gf-ear-r', [W - 114, 132]);
-  const face = group(body, 'gf-face');
-  for (const [names, mat, part] of F) {
-    const tri = names.map(n => P[n]);
-    const col = shade(tri, mat), colM = shade(tri.map(mirror), mat);
-    // A hairline stroke in the fill colour closes anti-aliasing seams.
-    poly(part === 'ear' ? earL : face, tri, col, { stroke: col, 'stroke-width': '0.8', 'stroke-linejoin': 'round' });
-    poly(part === 'ear' ? earR : face, tri.map(mirror), colM, { stroke: colM, 'stroke-width': '0.8', 'stroke-linejoin': 'round' });
+  const rim = accent();
+  // The facets of each part, front-facing ones only, drawn back to front.
+  const parts = {};
+  const add = (name, p, n, col, lit) => {
+    if (rot(n)[2] <= 0) return;                       // facing away: hidden
+    (parts[name] = parts[name] || []).push({ p: p.map(to2), z: (rot(p[0])[2] + rot(p[1])[2] + rot(p[2])[2]) / 3, fill: shade(col, n, lit, rim) });
+  };
+  for (const t of TRIANGLES) {
+    const mat = MATERIAL_ORDER[t[12]], col = MATERIALS[mat].map(c => c / 255);
+    add(PARTS[t[13]], [t.slice(0, 3), t.slice(3, 6), t.slice(6, 9)], t.slice(9, 12), col, mat === 'glint' ? 0 : 1);
   }
-  for (const side of [1, -1]) {
-    const X = x => (side === 1 ? x : W - x);
-    const eye = group(body, 'gf-eye ' + (side === 1 ? 'gf-eye-l' : 'gf-eye-r'), [X(144), 222]);
-    const almond = [P.eye_out, P.eye_top, P.eye_in, P.eye_bot].map(p => [X(p[0]), p[1]]);
-    poly(eye, almond, '#1c1413');
-    poly(eye, [[124, 210], [150, 205], [168, 224], [146, 234]].map(([x, y]) => [X(x), y]), '#f0a531');
-    poly(eye, [[124, 210], [150, 205], [146, 218]].map(([x, y]) => [X(x), y]), '#f7c95b');
-    poly(eye, [[147, 208], [153, 220], [147, 232], [141, 220]].map(([x, y]) => [X(x), y]), '#1c1413');
-    poly(eye, [[135, 211], [141, 209], [139, 215]].map(([x, y]) => [X(x), y]), '#fffaf0');
+  try { for (const h of hatTriangles()) add('hat', h.p, h.n, h.col, 1); } catch {}
+  const mirror = v => [-v[0], v[1], v[2]];
+  const eyeAt = name => to2(name === 'eye_l' ? PIVOTS.eye_l : mirror(PIVOTS.eye_l));
+  const body = group(svg, 'gf-body', [CX, CY + 1.8 * K]);
+  const groups = {
+    ear_l: group(body, 'gf-ear gf-ear-l', to2(PIVOTS.ear_l)),
+    ear_r: group(body, 'gf-ear gf-ear-r', to2(mirror(PIVOTS.ear_l))),
+    head: group(body, 'gf-face'),
+    nose: group(body, 'gf-nose'),
+    eye_l: group(body, 'gf-eye gf-eye-l', eyeAt('eye_l')),
+    eye_r: group(body, 'gf-eye gf-eye-r', eyeAt('eye_r')),
+    hat: group(body, 'gf-hat'),
+  };
+  for (const [name, list] of Object.entries(parts)) {
+    const g = groups[name] || groups.head;
+    list.sort((a, b) => a.z - b.z);
+    for (const f of list) {
+      const e = document.createElementNS(NS, 'polygon');
+      e.setAttribute('points', pts(f.p)); e.setAttribute('fill', f.fill);
+      // An outline in the facet's own colour closes the seams between facets.
+      // About a pixel on screen (the 400-unit view is drawn about 200px wide):
+      // thinner, the background showed through as light lines.
+      e.setAttribute('stroke', f.fill); e.setAttribute('stroke-width', '2'); e.setAttribute('stroke-linejoin', 'round');
+      g.appendChild(e);
+    }
   }
-  // The Santa hat for the Snow theme, shown by the gf-hat-on class.
-  const hat = group(body, 'gf-hat');
-  poly(hat, [[144, 111], [256, 111], [258, 122], [142, 122]], '#dfe5ec');
-  poly(hat, [[146, 99], [254, 99], [256, 112], [144, 112]], '#f4f6f9');
-  poly(hat, [[156, 100], [204, 100], [214, 40]], '#e23a4b');
-  poly(hat, [[204, 100], [244, 100], [214, 40]], '#b8202f');
-  poly(hat, [[214, 40], [262, 58], [236, 70]], '#c92536');
-  poly(hat, [[214, 40], [236, 70], [226, 54]], '#a51b29');
-  for (const [cx, cy, r, fill] of [[266, 61, 13, '#f7f8fa'], [262, 57, 5, '#ffffff']]) {
-    const c = document.createElementNS(NS, 'circle');
-    c.setAttribute('cx', cx); c.setAttribute('cy', cy); c.setAttribute('r', r); c.setAttribute('fill', fill);
-    hat.appendChild(c);
-  }
-  const nose = group(body, 'gf-nose');
-  poly(nose, [[178, 312], [222, 312], [200, 340]], '#1d1614');
-  poly(nose, [[186, 315], [204, 315], [194, 322]], '#6b5a55');
   return svg;
 }
 
@@ -242,7 +160,19 @@ export class GeoFox {
     else if (name === 'excited') { this.svg.classList.add('gf-excited'); this._flash('gf-perk', 700); }
   }
   setMusicEnergy(e) { this.svg.style.setProperty('--gf-energy', String(Math.max(0, Math.min(1, +e || 0)))); }
-  setTheme(name) { this.svg.classList.toggle('gf-hat-on', name === 'snow'); }   // colours stay fox colours; a hat in Snow
+  // A hat in Snow, and the rim light follows the theme's accent, as on the 3D
+  // fox: the drawing is redone on the next frame, once the theme applies.
+  setTheme(name) {
+    this._theme = name;
+    this.svg.classList.toggle('gf-hat-on', name === 'snow');
+    requestAnimationFrame(() => {
+      const fresh = buildFoxSVG();
+      fresh.setAttribute('class', this.svg.getAttribute('class'));
+      fresh.style.transform = this.svg.style.transform;
+      this.svg.replaceWith(fresh); this.svg = fresh;
+      this.svg.classList.toggle('gf-hat-on', this._theme === 'snow');
+    });
+  }
   pause() { this._paused = true; this.svg.classList.add('gf-paused'); }
   resume() { this._paused = false; this.svg.classList.remove('gf-paused'); }
   destroy() {

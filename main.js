@@ -1,6 +1,7 @@
 'use strict';
 const { app, BaseWindow, BrowserWindow, ipcMain, dialog, Menu, shell, screen, nativeImage, protocol, net: electronNet } = require('electron');
 const path = require('path'), fs = require('fs'), net = require('net'), os = require('os'), crypto = require('crypto');
+const { Readable } = require('stream');   // bmfile:// streams files from disk
 
 // ── GPU FIX: Disable problematic GPU features that cause crashes ─────
 app.commandLine.appendSwitch('disable-gpu-sandbox');
@@ -173,6 +174,15 @@ const MPV_VO = (() => {
   let v = a ? a.slice('--mpv-vo='.length) : '';
   if (!v) { try { v = JSON.parse(require('fs').readFileSync(require('path').join(require('electron').app.getPath('userData'), 'flags.json'), 'utf8')).mpvVo || ''; } catch {} }
   // mpv output names are simple words; refuse anything else.
+  return /^[a-z0-9_,-]{1,60}$/i.test(v) ? v : '';
+})();
+// mpv's audio output, like --mpv-vo (v3.29.0). A machine with no sound device,
+// a test machine for one, cannot play an audio-only file at all ("Could not
+// open/initialize audio device"), and --mpv-ao=null plays it into nothing, in
+// real time. Nothing changes unless it is given.
+const MPV_AO = (() => {
+  const a = process.argv.find(x => x.startsWith('--mpv-ao='));
+  const v = a ? a.slice('--mpv-ao='.length) : '';
   return /^[a-z0-9_,-]{1,60}$/i.test(v) ? v : '';
 })();
 const IS_LITE_BUILD = (process.env.BM_LITE === '1')
@@ -358,6 +368,19 @@ protocol.registerSchemesAsPrivileged([{
  * Serve one local file. The path arrives as a single percent-encoded
  * segment, so there is no drive-letter or separator parsing to get wrong.
  */
+// The types bmfile:// states, by extension.
+const BMFILE_TYPES = {
+  '.mp3': 'audio/mpeg', '.wav': 'audio/wav', '.flac': 'audio/flac', '.ogg': 'audio/ogg', '.oga': 'audio/ogg', '.opus': 'audio/ogg',
+  '.m4a': 'audio/mp4', '.aac': 'audio/aac', '.weba': 'audio/webm', '.mp4': 'video/mp4', '.m4v': 'video/mp4', '.webm': 'video/webm',
+  '.pdf': 'application/pdf', '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.gif': 'image/gif',
+  '.webp': 'image/webp', '.avif': 'image/avif', '.bmp': 'image/bmp', '.svg': 'image/svg+xml', '.ico': 'image/x-icon',
+  // Scripts too: plugins load theirs through bmfile://, and a module script
+  // served as octet-stream is refused (seen in the e2e suite, v3.28.0).
+  '.js': 'text/javascript', '.mjs': 'text/javascript', '.css': 'text/css', '.json': 'application/json',
+  '.html': 'text/html', '.htm': 'text/html', '.txt': 'text/plain', '.wasm': 'application/wasm',
+  '.vtt': 'text/vtt', '.srt': 'text/plain', '.ass': 'text/plain',
+  '.woff2': 'font/woff2', '.woff': 'font/woff', '.ttf': 'font/ttf', '.otf': 'font/otf',
+};
 async function serveBmFile(request) {
   try {
     const url = new URL(request.url);
@@ -372,12 +395,26 @@ async function serveBmFile(request) {
     try { st = fs.statSync(raw); } catch (_) { return new Response('Not found', { status: 404 }); }
     if (!st.isFile()) return new Response('Not a file', { status: 403 });
 
-    // net.fetch handles range requests and streaming, which media elements
-    // and pdf.js both rely on; reading the file into a buffer would not.
-    const abs = path.resolve(raw);
-    const fileUrl = 'file://' + (abs.startsWith('/') ? '' : '/') + abs.replace(/\\/g, '/');
-    // electronNet, not Node's `net` — that name is taken by the mpv socket.
-    return await electronNet.fetch(fileUrl);
+    // Byte ranges, served here (v3.28.0). This passed the request on to
+    // net.fetch without its headers, so a media element's Range request got
+    // the whole file back: MP3 coped (its length can be estimated), but a WAV
+    // had no duration, and the music seek bar, which needs one, did nothing.
+    // Streamed from disk either way, with the length and the type stated.
+    const abs = path.resolve(raw), size = st.size;
+    // Access-Control-Allow-Origin: the audio engine and the visualiser's
+    // shadow load with crossOrigin, and an analyser is fed only zeros from a
+    // response that does not allow it (v3.29.0). Only the app's own pages can
+    // reach bmfile://.
+    const head = { 'Content-Type': BMFILE_TYPES[path.extname(abs).toLowerCase()] || 'application/octet-stream', 'Accept-Ranges': 'bytes', 'Access-Control-Allow-Origin': '*' };
+    const m = /^bytes=(\d*)-(\d*)$/.exec(request.headers?.get?.('range') || '');
+    if (m && (m[1] || m[2])) {
+      const start = m[1] ? +m[1] : Math.max(0, size - +m[2]);           // "bytes=-N": the last N
+      const end = Math.min(size - 1, m[1] && m[2] ? +m[2] : size - 1);
+      if (start >= size || start > end) return new Response(null, { status: 416, headers: { 'Content-Range': `bytes */${size}` } });
+      return new Response(Readable.toWeb(fs.createReadStream(abs, { start, end })), {
+        status: 206, headers: { ...head, 'Content-Range': `bytes ${start}-${end}/${size}`, 'Content-Length': String(end - start + 1) } });
+    }
+    return new Response(Readable.toWeb(fs.createReadStream(abs)), { status: 200, headers: { ...head, 'Content-Length': String(size) } });
   } catch (e) {
     console.error('[bmfile] failed to serve:', e);
     return new Response('Error', { status: 500 });
@@ -1065,6 +1102,7 @@ function startMpv(exe, minimalArgs){
     // the same mpv showed the picture in its own window. gpu-next is mpv's
     // own default there now; the list falls back to gpu, then direct3d.
     MPV_VO ? `--vo=${MPV_VO}` : (IS_WIN ? '--vo=gpu-next,gpu,direct3d,' : (IS_LINUX ? '--vo=gpu,xv,x11,' : '--vo=gpu,')),
+    ...(MPV_AO ? [`--ao=${MPV_AO}`] : []),
     '--volume=100',
   ];
   const extraArgs = [

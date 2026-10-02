@@ -69,12 +69,44 @@ _wire(){
   // Seekbar click
   // Seek bar. It sent time-pos to mpv, which is idle whenever the in-app
   // engine is playing, and it needed a tag duration the engine doesn't need.
-  const st=el('np-seek-track');st?.addEventListener('click',e=>{
-    const dur=this.engineOwns()?this.engine.duration:(this._dur[this.currentPath]||window.bmApp?.duration||0);
-    if(!this.currentPath||!dur)return;
-    const r=st.getBoundingClientRect();
-    const pct=Math.max(0,Math.min(1,(e.clientX-r.left)/(r.width||1)));
-    window.bmApp?.seekTo(pct*dur);
+  // v3.28.0: drag to scrub, or click. It took a click only, on a bar 5px
+  // tall, so a click a little off it did nothing, a drag moved nothing until
+  // the release, and a release off the bar did not seek at all. While you
+  // drag, the bar and the time follow the pointer (pointer capture keeps it
+  // going off the bar) and playback updates wait; letting go seeks there.
+  const st=el('np-seek-track');
+  // The library's duration for the track stands in if the player reports none.
+  const durNow=()=>(this.engineOwns()?this.engine.duration:0)||this._dur[this.currentPath]||window.bmApp?.duration||0;
+  const pctAt=x=>{const r=st.getBoundingClientRect();return Math.max(0,Math.min(1,(x-r.left)/(r.width||1)));};
+  const preview=p=>{const f=el('np-seek-fill');if(f)f.style.width=(p*100)+'%';const c=el('np-time-cur'),d=durNow();if(c&&d)c.textContent=fmtSec(p*d);st?.setAttribute('aria-valuenow',String(Math.round(p*100)));};
+  st?.addEventListener('pointerdown',e=>{
+    if(e.button!==0||!this.currentPath||!durNow())return;
+    e.preventDefault();st.setPointerCapture?.(e.pointerId);
+    this._scrubbing=true;st.classList.add('scrubbing');
+    let p=pctAt(e.clientX);preview(p);
+    const move=ev=>{p=pctAt(ev.clientX);preview(p);};
+    const done=()=>{
+      st.removeEventListener('pointermove',move);st.removeEventListener('pointerup',done);st.removeEventListener('pointercancel',done);
+      this._scrubbing=false;st.classList.remove('scrubbing');this._scrubEnded=performance.now();
+      const d=durNow();if(d)window.bmApp?.seekTo(p*d);
+    };
+    st.addEventListener('pointermove',move);st.addEventListener('pointerup',done);st.addEventListener('pointercancel',done);
+  });
+  // A click with no pointer press before it (assistive tools, a click made
+  // from the keyboard) seeks too. A real click comes after a press, which
+  // already seeked, so a click straight after one is left alone.
+  st?.addEventListener('click',e=>{
+    if(performance.now()-(this._scrubEnded||0)<400)return;
+    const d=durNow();if(!this.currentPath||!d)return;
+    window.bmApp?.seekTo(pctAt(e.clientX)*d);
+  });
+  // The keyboard: left and right step five seconds.
+  st?.addEventListener('keydown',e=>{
+    if(e.key!=='ArrowLeft'&&e.key!=='ArrowRight')return;
+    const d=durNow();if(!this.currentPath||!d)return;
+    e.preventDefault();
+    const cur=this.engineOwns()?this.engine.currentTime:(window.bmApp?.currentTime||0);
+    window.bmApp?.seekTo(Math.max(0,Math.min(d,cur+(e.key==='ArrowLeft'?-5:5))));
   });
   // Transport controls in Now Playing panel
   el('np-btn-play')?.addEventListener('click',()=>this.toggle());
@@ -95,7 +127,7 @@ _wire(){
   // mpv property sync
   this.api?.mpv?.onProp(p=>{
     if(p.name==='duration'&&this.currentPath){this._dur[this.currentPath]=p.data;const t=el('np-time-tot');if(t)t.textContent=fmtSec(p.data);}
-    if(p.name==='time-pos'&&this.currentPath){const dur=this._dur[this.currentPath];if(dur&&dur>0){const pct=(p.data/dur)*100;const f=el('np-seek-fill');if(f)f.style.width=pct+'%';const c=el('np-time-cur');if(c)c.textContent=fmtSec(p.data);}}
+    if(p.name==='time-pos'&&this.currentPath&&!this._scrubbing){const dur=this._dur[this.currentPath];if(dur&&dur>0){const pct=(p.data/dur)*100;const f=el('np-seek-fill');if(f)f.style.width=pct+'%';const c=el('np-time-cur');if(c)c.textContent=fmtSec(p.data);}}
     if(p.name==='pause'){const on=!p.data&&!!this.currentPath;   // idle mpv reports 'not paused'
       el('np-bars')?.classList.toggle('playing',on);const b=el('np-btn-play');if(b)setPlaying(b,on);}
     if(p.name==='volume'){const s=el('np-volume');if(s)s.value=p.data;const l=el('np-vol-label');if(l)l.textContent=Math.round(p.data);}
@@ -353,8 +385,10 @@ _renderTrackPage(){
     e.on('time', d=>{
       if(!e.active) return;
       const pct=d.duration?(d.time/d.duration*100):0;
-      const cur=el('np-time-cur'); if(cur)cur.textContent=fmtSec(d.time);
-      const fill=el('np-seek-fill'); if(fill)fill.style.width=pct+'%';
+      if(!this._scrubbing){   // a drag on the seek bar shows its own position
+        const cur=el('np-time-cur'); if(cur)cur.textContent=fmtSec(d.time);
+        const fill=el('np-seek-fill'); if(fill)fill.style.width=pct+'%';
+      }
       const mfill=el('mmp-progress-fill'); if(mfill)mfill.style.width=pct+'%';
       const app=window.bmApp;
       if(app){

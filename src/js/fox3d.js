@@ -10,9 +10,9 @@
  * design used), a soft fill from the right, warm rather than grey shadows,
  * and a rim in the theme's accent colour.
  *
- * It turns and looks around on its own, follows the pointer, breathes,
- * blinks, flicks an ear, perks up when media starts, squints when happy and
- * bobs with music. Where WebGL is not available, and in Lite mode, the flat
+ * Its head turns from the neck: it looks around on its own, follows the
+ * pointer, blinks, flicks an ear, perks up when media starts, squints when
+ * happy and nods with music. The base of the chest stays put (v3.28.0). Where WebGL is not available, and in Lite mode, the flat
  * SVG fox (geofox.js) is used instead: createFox() picks.
  */
 
@@ -36,6 +36,10 @@ function R(axis, a) {
   return [t * x * x + c, t * x * y + s * z, t * x * z - s * y, 0, t * x * y - s * z, t * y * y + c, t * y * z + s * x, 0,
           t * x * z + s * y, t * y * z - s * x, t * z * z + c, 0, 0, 0, 0, 1];
 }
+// The neck: just above the flat base of the chest ruff (the mesh spans y -2.08
+// to 1.80), where the head turns, nods and tilts from (v3.28.0).
+const NECK = [0, -1.55, -0.1];
+
 const about = (p, m) => mul(T(p[0], p[1], p[2]), mul(m, T(-p[0], -p[1], -p[2])));
 function perspective(fovy, aspect, near, far) {
   const f = 1 / Math.tan(fovy / 2), nf = 1 / (near - far);
@@ -46,8 +50,8 @@ function perspective(fovy, aspect, near, far) {
    Built here rather than in the fox's mesh: a white fur brim on the crown
    between the ears, a red cone in two sections whose tip flops over to one
    side, and a white pompom. Low-poly and lit like the fox, and part of the
-   head, so it turns, breathes and bobs with it. */
-function hatTriangles() {
+   head, so it turns and nods with it. */
+export function hatTriangles() {   // also drawn flat by geofox.js
   const out = [];
   const RED = [0.84, 0.16, 0.22], WHITE = [0.96, 0.96, 0.97];
   const sub3 = (a, b) => [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
@@ -220,7 +224,7 @@ export class Fox3D {
     const idlePitch = still ? 0 : 0.05 * Math.sin(t * 0.53 + 0.4);
     // A curious tilt: the pointer resting near the fox makes it cock its head.
     const rest = now - s.lastMove, near = Math.hypot(s.tx, s.ty) < 0.4;
-    const tiltTo = (!still && near && rest > 800 && rest < 6000) ? 0.13 * (s.tx < 0 ? -1 : 1) : 0;
+    const tiltTo = (!still && near && rest > 800 && rest < 6000) ? 0.09 * (s.tx < 0 ? -1 : 1) : 0;
     s.tilt = (s.tilt || 0) + (tiltTo - (s.tilt || 0)) * 0.05;
     const roll = still ? 0 : 0.035 * Math.sin(t * 0.29 + 2.1) + s.tilt;
     const follow = still ? 0 : Math.max(0, 1 - (now - s.lastMove) / 4000);
@@ -228,11 +232,16 @@ export class Fox3D {
     const yaw = this._yaw ?? (idleYaw * (1 - follow) + s.mx * 0.48);
     const pitch = this._pitch ?? (idlePitch * (1 - follow) + s.my * 0.22);
     s.energyS += (s.energy - s.energyS) * 0.15;
-    const breath = still ? 1 : 1 + 0.012 * Math.sin(t * 1.4);
     const perk = now < s.perkUntil ? Math.sin(Math.PI * (1 - (s.perkUntil - now) / 700)) : 0;
-    const hop = perk * 0.07 + s.energyS * 0.06;
+    // v3.28.0: the head turns from the neck, and nothing else moves the fox.
+    // It used to rise and fall (with music and when excited), grow and shrink
+    // (breathing) and swivel about its middle, so the whole fox drifted like a
+    // balloon. Now the base of the chest stays put: music and excitement make
+    // it nod, and turning, nodding and tilting pivot at the neck. The ears,
+    // eyes and nose still move on their own.
+    const nod = perk * 0.10 + s.energyS * 0.07;
     // The chest ruff makes the fox taller: lifted and framed a little wider.
-    let model = mul(T(0, 0.12 + hop, 0), mul(R([0, 1, 0], yaw), mul(R([1, 0, 0], -pitch), mul(R([0, 0, 1], roll), S(breath, breath, breath)))));
+    let model = mul(T(0, 0.12, 0), about(NECK, mul(R([0, 1, 0], yaw), mul(R([1, 0, 0], -(pitch + nod)), R([0, 0, 1], roll)))));
     model = mul(T(0, 0, -22), model);                          // a long lens: 22 units back
     // ears: flick back about the base edge, perk forward when excited
     const earM = side => {

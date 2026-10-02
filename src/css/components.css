@@ -379,13 +379,9 @@ html.bm-layered.playing body:not(.audio-viz) #player-view { background: transpar
   width: 100%; height: 100%; display: block; position: relative; z-index: 1; overflow: visible;
   filter: drop-shadow(0 14px 26px color-mix(in srgb, var(--accent) 38%, transparent));
 }
-.geofox .gf-body {
-  transform-box: view-box;
-  animation: gf-breathe 4.6s ease-in-out infinite;
-  translate: 0 calc(var(--gf-energy, 0) * -6px);
-  transition: translate .12s ease-out;
-}
-@keyframes gf-breathe { 0%, 100% { transform: translateY(0) scale(1); } 50% { transform: translateY(-4px) scale(1.012); } }
+/* v3.29.1: the flat fox no longer floats (it rose, fell and swelled, and rose
+   with the music), as the 3D fox no longer does. */
+.geofox .gf-body { transform-box: view-box; }
 .geofox .gf-ear, .geofox .gf-eye { transform-box: view-box; transition: transform .14s ease-out; }
 .geofox.gf-blink .gf-eye   { transform: scaleY(.12); transition-duration: .07s; }
 .geofox.gf-twitch-l .gf-ear-l { animation: gf-twitch-l .46s ease-in-out; }
@@ -603,3 +599,79 @@ html.bm-layered.playing body:not(.audio-viz) #player-view { background: transpar
 #ctx-panel .ctx-track-list:empty, #ctx-panel .ctx-track-list:empty + .ctx-sep { display: none; }
 /* A group of rows app.js hides or shows as one (Screenshot and Media info while nothing plays). */
 #ctx-panel .ctx-group { display: block; }
+
+/* ── The Flow theme's controls (v3.28.0) ─────────────────────────────── */
+.tc-flow-palettes { display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px; margin: 6px 0 10px; }
+.tc-flow-swatch { height: 26px; border-radius: 7px; border: 2px solid transparent; cursor: pointer; padding: 0; }
+.tc-flow-swatch.active { border-color: var(--text); box-shadow: 0 0 0 2px var(--accent); }
+.tc-flow-row, .tc-flow-slider { display: flex; align-items: center; gap: 8px; margin: 4px 0; }
+.tc-flow-label { font-size: 12px; min-width: 64px; opacity: .8; }
+.tc-flow-name { font-size: 12px; margin-left: auto; opacity: .7; }
+.tc-flow-slider input[type=range] { flex: 1; accent-color: var(--accent); }
+.tc-flow-val { font-size: 12px; min-width: 40px; text-align: right; font-variant-numeric: tabular-nums; }
+.tc-flow-reset { margin-top: 6px; }
+.tc-flow { margin-top: 4px; }
+
+/* ── The music seek bar (v3.28.0) ───────────────────────────────────────
+   Drag to scrub or click. The bar stays thin, but the area that takes the
+   pointer is 22px tall, and a handle shows on hover and while dragging. */
+#np-seek-track { overflow: visible; cursor: pointer; touch-action: none; }
+#np-seek-track::before { content: ''; position: absolute; left: -4px; right: -4px; top: -9px; bottom: -9px; }
+#np-seek-fill::after {
+  content: ''; position: absolute; right: -6px; top: 50%; width: 12px; height: 12px; border-radius: 50%;
+  background: #fff; box-shadow: 0 0 0 2px var(--accent), 0 1px 4px rgba(0,0,0,.4);
+  transform: translateY(-50%) scale(0); transition: transform .12s;
+}
+#np-seek-track:hover #np-seek-fill::after, #np-seek-track.scrubbing #np-seek-fill::after,
+#np-seek-track:focus-visible #np-seek-fill::after { transform: translateY(-50%) scale(1); }
+#np-seek-track.scrubbing #np-seek-fill { transition: none; }
+#np-seek-track:focus-visible { outline: 2px solid var(--accent); outline-offset: 5px; }
+
+/* ── The visualiser settings panel (v3.28.0) ───────────────────────────── */
+.viz-settings {
+  position: fixed; z-index: 9900; width: 300px; padding: 12px 14px; border-radius: 12px;
+  background: var(--menu-bg, var(--surface)); border: 1px solid var(--border); color: var(--text);
+  box-shadow: 0 14px 36px rgba(0,0,0,.5); font-size: 12.5px;
+}
+.viz-settings.hidden { display: none; }
+.vs-title { font-family: var(--font-display, inherit); font-weight: 700; font-size: 13px; margin-bottom: 8px; }
+.vs-row { display: flex; align-items: center; gap: 8px; margin: 7px 0; }
+.vs-label { min-width: 74px; opacity: .78; }
+.vs-row input[type=range] { flex: 1; accent-color: var(--accent); }
+.vs-val { min-width: 38px; text-align: right; font-variant-numeric: tabular-nums; }
+.vs-seg { display: flex; flex-wrap: wrap; gap: 4px; flex: 1; }
+.vs-seg button {
+  padding: 3px 8px; border-radius: 6px; border: 1px solid var(--border); background: transparent;
+  color: var(--text); font: inherit; font-size: 12px; cursor: pointer;
+}
+.vs-seg button:hover { background: color-mix(in srgb, var(--accent) 14%, transparent); }
+.vs-seg button.active { background: color-mix(in srgb, var(--accent) 30%, transparent); border-color: var(--accent); }
+.vs-reset { margin-top: 6px; padding: 4px 10px; border-radius: 6px; border: 1px solid var(--border); background: transparent; color: var(--text); cursor: pointer; font: inherit; }
+.music-viz-wrap { position: relative; }
+.mv-settings-btn {
+  position: absolute; top: 8px; right: 8px; width: 28px; height: 28px; border-radius: 8px; z-index: 2;
+  display: inline-flex; align-items: center; justify-content: center; cursor: pointer;
+  background: rgba(0,0,0,.35); border: 1px solid rgba(255,255,255,.12); color: #fff; opacity: .7;
+}
+.mv-settings-btn:hover { opacity: 1; }
+.mv-settings-btn svg { width: 16px; height: 16px; }
+
+/* ── Subtitle colour and font, in the Subtitles submenu (v3.28.0) ────── */
+#ctx-panel .ctx-swatches { display: flex; gap: 6px; flex: 1; }
+#ctx-panel .ctx-swatches button { width: 20px; height: 20px; border-radius: 50%; border: 2px solid rgba(255,255,255,.25); cursor: pointer; padding: 0; }
+#ctx-panel .ctx-swatches .ctx-sw-default { background: linear-gradient(135deg, #fff 0 48%, #555 52% 100%); }
+#ctx-panel .ctx-sub-fonts-label { padding: 4px 10px 2px; }
+#ctx-panel .ctx-sub-fonts { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; padding: 2px 10px 8px; }
+#ctx-panel .ctx-sub-fonts button {
+  padding: 4px 3px; font-size: 12px; border-radius: 5px; border: 1px solid var(--border); background: transparent;
+  color: var(--text); cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+#ctx-panel .ctx-sub-fonts button:hover { background: color-mix(in srgb, var(--accent) 14%, transparent); }
+#ctx-panel .ctx-sub-fonts button.active, #ctx-panel .ctx-swatches button.active { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+
+/* The visual mode's art placeholder: a drawn note, not a character (v3.29.0). */
+.viz-art-ico { display: inline-flex; width: 42%; height: 42%; opacity: .7; }
+.viz-art-ico svg { width: 100%; height: 100%; }
+
+/* The fluid visualiser's canvas, laid over the visualiser's (visualizer.js, v3.29.0). */
+.viz-fluid-canvas { position: absolute; pointer-events: none; }

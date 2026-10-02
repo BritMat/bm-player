@@ -45,10 +45,14 @@ read by BM Player's built-in updater. You don't need to download them.
   visualizer.
 - An image gallery, PDF tools and IPTV.
 - Picture-in-picture, in a small window that stays on top.
-- 14 themes: four standard ones (Dark, Light, Dracula and Snow) and ten artistic
-  ones, each with an animated scene of its own: ocean light and bubbles, forest
-  fireflies, city lights in neon rain, an aurora, falling cherry blossom, and more.
-  And a 3D fox mascot.
+- 14 themes: four standard ones (Dark, Light, Dracula and Snow), Flow (a flowing
+  fluid of light whose colours, intensity, size, swirl and trails you can set), and
+  nine artistic ones, each with an animated scene of its own: ocean light and
+  bubbles, forest fireflies, city lights in neon rain, falling cherry blossom, and
+  more. And a 3D fox mascot.
+- An audio visualiser that shows the music as it plays, its real frequencies,
+  with a Fluid style the music moves and colours, and settings for its style,
+  colours, sensitivity and bars. And subtitles in the font and colour you choose.
 - Plugins: themes and scripts you add yourself (see below).
 - Lite mode for weak hardware: lighter visuals, switched on automatically on
   low-spec machines and available as a setting in any build.
