@@ -280,6 +280,11 @@ export class ThemeFX {
   _loop() {
     if (!this.running) return;
     this.raf = requestAnimationFrame(() => this._loop());
+    // At most about 72 frames a second, as the visualiser (v3.30.1): a 144 Hz
+    // screen drew the scene 144 times a second. Its motion goes by the clock.
+    const _now = performance.now();
+    if (_now - (this._lastDraw || 0) < 12) return;
+    this._lastDraw = _now;
     this.tick++;
 
     // Advance crossfade

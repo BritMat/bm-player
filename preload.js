@@ -14,6 +14,7 @@ contextBridge.exposeInMainWorld('api',{
     close:     ()=>inv('win:close'),
     fullscreen:()=>inv('win:fullscreen'),
     alwaysTop: v=>inv('win:alwaysTop',v),
+    onHidden:  cb=>on('win:hidden',cb),   // minimised or hidden (v3.30.0)
     isMax:     ()=>inv('win:isMax'),
     isFs:      ()=>inv('win:isFs'),
     snap:      zone=>inv('win:snap',zone),

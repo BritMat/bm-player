@@ -617,6 +617,7 @@
       <div class="mr" data-a="open-plugins">Plugins…</div>
       <div class="mr" data-a="open-fluid">Fluid Settings…</div>
       <div class="mr" data-a="open-theme-customizer">Theme Customizer…</div>
+      <div class="mr" data-a="shortcuts">Keyboard shortcuts<span class="mr-key">?</span></div>
       <div class="ms"></div>
       <div class="mr" data-a="preferences">Preferences…</div>
       <div class="mr" data-a="check-update">Check for Updates</div>
@@ -1474,11 +1475,27 @@
   <div class="drop-inner"><div class="drop-icon">&#8681;</div><div>Drop to play</div></div>
 </div>
 
-<div class="viz-settings hidden" id="viz-settings" role="dialog" aria-label="Visualiser settings">
+<div class="kb-overlay hidden" id="kb-overlay" role="dialog" aria-modal="true" aria-label="Keyboard shortcuts">
+    <!-- v3.30.0: every shortcut the app has (wireKeyboard), in one place.
+         Opens with ? or F1, or from Tools; closes the same way, with Esc or
+         a click outside. -->
+    <div class="kb-panel">
+      <div class="kb-head"><span class="kb-title">Keyboard shortcuts</span><span class="kb-hint"><kbd>?</kbd> or <kbd>Esc</kbd> to close</span></div>
+      <div class="kb-grid">
+      <section class="kb-group"><h3>Playback</h3><div class="kb-row"><span class="kb-keys"><kbd>Space</kbd></span><span class="kb-what">Play or pause</span></div><div class="kb-row"><span class="kb-keys"><kbd>S</kbd></span><span class="kb-what">Stop</span></div><div class="kb-row"><span class="kb-keys"><kbd>←</kbd><kbd>→</kbd></span><span class="kb-what">Back or forward 5 s, with Shift 30 s</span></div><div class="kb-row"><span class="kb-keys"><kbd>1</kbd> to <kbd>9</kbd></span><span class="kb-what">Jump to 10% to 90%</span></div><div class="kb-row"><span class="kb-keys"><kbd>,</kbd><kbd>.</kbd></span><span class="kb-what">One frame back or forward</span></div><div class="kb-row"><span class="kb-keys"><kbd>[</kbd><kbd>]</kbd></span><span class="kb-what">Slower or faster</span></div><div class="kb-row"><span class="kb-keys"><kbd>Backspace</kbd></span><span class="kb-what">Normal speed</span></div><div class="kb-row"><span class="kb-keys"><kbd>P</kbd><kbd>N</kbd></span><span class="kb-what">Previous or next track</span></div><div class="kb-row"><span class="kb-keys"><kbd>Ctrl</kbd><kbd>J</kbd></span><span class="kb-what">Go to a time</span></div></section>
+      <section class="kb-group"><h3>Sound and subtitles</h3><div class="kb-row"><span class="kb-keys"><kbd>↑</kbd><kbd>↓</kbd></span><span class="kb-what">Volume up or down</span></div><div class="kb-row"><span class="kb-keys"><kbd>M</kbd></span><span class="kb-what">Mute</span></div><div class="kb-row"><span class="kb-keys"><kbd>A</kbd></span><span class="kb-what">Next audio track</span></div><div class="kb-row"><span class="kb-keys"><kbd>V</kbd></span><span class="kb-what">Next subtitle track</span></div><div class="kb-row"><span class="kb-keys"><kbd>Z</kbd><kbd>X</kbd></span><span class="kb-what">Subtitles 0.5 s earlier or later</span></div><div class="kb-row"><span class="kb-keys"><kbd>Shift</kbd><kbd>J</kbd> <kbd>Shift</kbd><kbd>K</kbd></span><span class="kb-what">Sound 0.5 s earlier or later</span></div></section>
+      <section class="kb-group"><h3>View</h3><div class="kb-row"><span class="kb-keys"><kbd>F</kbd> or <kbd>F11</kbd></span><span class="kb-what">Fullscreen</span></div><div class="kb-row"><span class="kb-keys"><kbd>T</kbd></span><span class="kb-what">Theatre mode</span></div><div class="kb-row"><span class="kb-keys"><kbd>Alt</kbd><kbd>P</kbd></span><span class="kb-what">Picture-in-picture</span></div><div class="kb-row"><span class="kb-keys"><kbd>Esc</kbd></span><span class="kb-what">Leave fullscreen, or stop</span></div><div class="kb-row"><span class="kb-keys"><span class="kb-click">Click</span></span><span class="kb-what">Next visualiser style, on the visualiser</span></div></section>
+      <section class="kb-group"><h3>Loops and bookmarks</h3><div class="kb-row"><span class="kb-keys"><kbd>B</kbd></span><span class="kb-what">Loop start</span></div><div class="kb-row"><span class="kb-keys"><kbd>Shift</kbd><kbd>B</kbd></span><span class="kb-what">Loop end</span></div><div class="kb-row"><span class="kb-keys"><kbd>C</kbd></span><span class="kb-what">Clear the loop</span></div><div class="kb-row"><span class="kb-keys"><kbd>G</kbd></span><span class="kb-what">Pause or resume the loop</span></div><div class="kb-row"><span class="kb-keys"><kbd>Ctrl</kbd><kbd>B</kbd></span><span class="kb-what">Add a bookmark</span></div><div class="kb-row"><span class="kb-keys"><kbd>Alt</kbd><kbd>B</kbd></span><span class="kb-what">Quick bookmark</span></div></section>
+      <section class="kb-group"><h3>Files and panels</h3><div class="kb-row"><span class="kb-keys"><kbd>Ctrl</kbd><kbd>O</kbd></span><span class="kb-what">Open a file</span></div><div class="kb-row"><span class="kb-keys"><kbd>Ctrl</kbd><kbd>I</kbd></span><span class="kb-what">Media info</span></div><div class="kb-row"><span class="kb-keys"><kbd>Ctrl</kbd><kbd>L</kbd></span><span class="kb-what">Playlist</span></div><div class="kb-row"><span class="kb-keys"><kbd>Ctrl</kbd><kbd>H</kbd></span><span class="kb-what">History</span></div><div class="kb-row"><span class="kb-keys"><kbd>Ctrl</kbd><kbd>T</kbd></span><span class="kb-what">Screenshot</span></div><div class="kb-row"><span class="kb-keys"><kbd>Ctrl</kbd><kbd>Q</kbd></span><span class="kb-what">Quit</span></div><div class="kb-row"><span class="kb-keys"><kbd>?</kbd> or <kbd>F1</kbd></span><span class="kb-what">This list</span></div></section>
+      </div>
+    </div>
+  </div>
+  <div class="viz-settings hidden" id="viz-settings" role="dialog" aria-label="Visualiser settings">
     <!-- v3.28.0: shared by the visual mode for audio and the music player's
          visualiser (viz-settings.js), kept between sessions. -->
     <div class="vs-title">Visualiser</div>
     <div class="vs-row"><span class="vs-label">Style</span><div class="vs-seg" id="vs-style"><button data-v="bars">Bars</button><button data-v="radial">Radial</button><button data-v="wave">Wave</button><button data-v="particles">Particles</button><button data-v="fluid">Fluid</button></div></div>
+    <div class="vs-row"><span class="vs-label">Spin</span><div class="vs-seg" id="vs-spin"><button data-v="on">On</button><button data-v="off">Off</button></div></div>
     <div class="vs-row"><span class="vs-label">Colours</span><div class="vs-seg" id="vs-colors"><button data-v="auto">Original</button><button data-v="theme">Theme</button><button data-v="fire">Fire</button><button data-v="ice">Ice</button><button data-v="rainbow">Rainbow</button><button data-v="mono">Mono</button></div></div>
     <div class="vs-row"><span class="vs-label">Sensitivity</span><input type="range" id="vs-sens" min="40" max="250"><span class="vs-val" id="vs-sens-val"></span></div>
     <div class="vs-row"><span class="vs-label">Bars</span><input type="range" id="vs-bars" min="24" max="160"><span class="vs-val" id="vs-bars-val"></span></div>

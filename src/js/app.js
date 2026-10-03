@@ -159,7 +159,10 @@ class BMPlayer {
     this.wireTV();
     if(this.alwaysOnTop){this.api?.win.alwaysTop(true);el('mi-always-top')?.classList.add('active-opt');}
     window.addEventListener('contextmenu',e=>{e.preventDefault();this._openCtxPanel(e.clientX,e.clientY);});
-    this.api?.win.onState?.(s=>{const b=el('btn-maximize');if(b)setIcon(b,s==='maximized'?'restore':'maximize');});
+    // is-max on the page (v3.30.1): maximised is BM Player's full screen, and
+    // the visual mode hides the side pane there.
+    this.api?.win.onState?.(s=>{const b=el('btn-maximize');if(b)setIcon(b,s==='maximized'?'restore':'maximize');document.documentElement.classList.toggle('is-max',s==='maximized');});
+    this.api?.win.isMax?.()?.then?.(m=>document.documentElement.classList.toggle('is-max',!!m)).catch?.(()=>{});
   }
   /**
    * v1.9.0 — Lite mode bootstrap.
@@ -288,6 +291,7 @@ class BMPlayer {
       }
       this.auroraFX?.setQuality?.(perf.tier);
       this.emitPlugin('theme-change',{theme:name});
+      this._syncEffects();   // a theme change starts loops: settle them (v3.30.0)
     };
     // The effects layer follows the pointer too: snowflakes swirl away from it.
     window.addEventListener('mousemove',e=>this.themeFX?.pointer?.(e.clientX,e.clientY),{passive:true});
@@ -369,8 +373,7 @@ class BMPlayer {
       }
     }
     // Performance: the fox's WebGL scene and the theme-fx canvas
-    if(welcomeVisible){ this.fox?.resume(); this.themeFX?.resume(); this.auroraFX?.resume(); }
-    else { this.fox?.pause(); this.themeFX?.pause(); this.auroraFX?.pause(); }
+    this._syncEffects();
   }
   _updateVizMeta(){
     const t=el('viz-meta-title'),ar=el('viz-meta-artist');
@@ -432,6 +435,7 @@ class BMPlayer {
       'open-plugins':()=>{this.openPanel('plugins');this.pluginManager?.refreshPanel();},'open-fluid':()=>{this.openPanel('fluid');this._refreshFluidPanel();},
       // ── v1.8.0: Theme Customizer ──
       'open-theme-customizer':()=>this._openThemeCustomizer(),
+      'shortcuts':()=>this.toggleShortcuts(true),
       'audio-delay-p':()=>this.api?.adj.audioDelay(0.5),'audio-delay-m':()=>this.api?.adj.audioDelay(-0.5),'audio-delay-r':()=>this.api?.adj.resetAudio(),
       'aspect-auto':()=>cmd('set_property','video-aspect-override','-1'),'aspect-16:9':()=>cmd('set_property','video-aspect-override','16/9'),
       'aspect-4:3':()=>cmd('set_property','video-aspect-override','4/3'),'aspect-21:9':()=>cmd('set_property','video-aspect-override','21/9'),
@@ -573,6 +577,9 @@ class BMPlayer {
     };
     window.addEventListener('error',e=>report('uncaught error:',e.error||e.message));
     window.addEventListener('unhandledrejection',e=>report('unhandled rejection:',e.reason));
+    // The decorative loops follow the window too (v3.30.0, _syncEffects).
+    document.addEventListener('visibilitychange',()=>this._syncEffects());
+    this.api?.win?.onHidden?.(h=>{this._winHidden=!!h;this._syncEffects();});
   }
 
   // mpv's playlist has a single entry during music playback, so transport
@@ -689,7 +696,7 @@ class BMPlayer {
     document.querySelectorAll('.dashboard-view').forEach(v=>v.classList.remove('active'));
     el('player-view')?.classList.remove('active');
     el('welcome-screen')?.classList.add('active');
-    this.fox?.resume();this.themeFX?.resume();this.auroraFX?.resume();
+    this._syncEffects();
   }
   _resetNowPlaying(){
     const set=(id,txt)=>{const e=el(id);if(e)e.textContent=txt;};
@@ -718,6 +725,11 @@ class BMPlayer {
     document.querySelectorAll('.dashboard-view').forEach(v=>v.classList.remove('active'));
     el('player-view')?.classList.add('active');
     document.body.classList.add('playing');document.documentElement.classList.add('playing');
+    this._syncEffects();   // nothing animates behind the film (v3.30.0)
+    // Every other visualiser stops too (v3.30.1): the music yields to the
+    // player, but the music page's visualiser went on drawing, hidden, behind
+    // the film. The music page starts its own again when music plays.
+    for(const v of allVisualisers()) if(v!==this.viz) v.stop?.();
     document.querySelectorAll('.sidebar-btn[data-dest]').forEach(b=>b.classList.toggle('active',b.dataset.dest==='video'));
     this.currentDash='video';
     // Reset A-B loop for the new file
@@ -966,6 +978,46 @@ class BMPlayer {
     const a=this.shadow.analyser;this._shadowOn=false;this.shadow.stop();setSharedAnalyser(null);
     for(const v of [this.viz,this.musicViz]) if(v&&v.analyser===a) v.analyser=null;
   }
+  // v3.30.0: one place decides whether the decorative loops run (the theme's
+  // background, the Flow fluid and the fox): only while the home screen shows,
+  // nothing plays, and the window is not minimised or hidden. A video played
+  // with them still animating behind it (nothing paused them when it started,
+  // and a theme change restarted them), and a minimised window kept them going:
+  // measured at 50 to 90 frames a second, drawn for nobody. It waits a moment
+  // so the page has finished switching views.
+  _syncEffects(){
+    clearTimeout(this._fxT);
+    this._fxT=setTimeout(()=>{
+      const home=!!el('welcome-screen')?.classList.contains('active')&&!document.body.classList.contains('playing');
+      const on=home&&!document.hidden&&!this._winHidden;
+      for(const fx of [this.fox,this.themeFX,this.auroraFX]){ try{ if(on)fx?.resume?.();else fx?.pause?.(); }catch(_){} }
+      this._fxOn=on;
+    },0);
+  }
+  // The keyboard shortcuts list (v3.30.0). While it is open it takes Esc and
+  // ? first (capture phase, e.__bmHandled), so closing it never also stops
+  // the film, the trap wireOverlayKeys guards the other overlays against.
+  toggleShortcuts(force){
+    const o=el('kb-overlay');if(!o)return;
+    const open=force===undefined?o.classList.contains('hidden'):!!force;
+    o.classList.toggle('hidden',!open);
+    if(open&&!this._kbWired){
+      this._kbWired=true;
+      o.addEventListener('mousedown',e=>{if(e.target===o)this.toggleShortcuts(false);});
+      document.addEventListener('keydown',e=>{
+        if(o.classList.contains('hidden'))return;
+        if(e.key==='Escape'||e.key==='?'||e.code==='F1'){e.preventDefault();e.stopPropagation();e.__bmHandled=true;this.toggleShortcuts(false);}
+      },true);
+    }
+  }
+  // Something is playing that the controls should fade over (v3.30.1): mpv, or
+  // the in-app engine while the visual mode shows. A song from the library, in
+  // the visual mode, kept every bar on screen.
+  _anyPlaying(){
+    if(this.isPlaying)return true;
+    const e=window.bmMusic?.engine?.el;
+    return !!(this._audioVizMode&&e&&!e.paused);
+  }
   // The pin button and the right-click menu's "Always on top" (v3.27.0).
   toggleAlwaysOnTop(){
     this.alwaysOnTop=!this.alwaysOnTop;
@@ -1007,7 +1059,8 @@ class BMPlayer {
       if(e.__bmHandled)return;
       if(e.target.matches?.('input,textarea'))return;
       const cmd=(c,...a)=>{e.preventDefault();this.api?.mpv.cmd(c,...a);};
-      if(e.code==='Space'){e.preventDefault();this.togglePlay();}
+      if(e.key==='?'||e.code==='F1'){e.preventDefault();this.toggleShortcuts();}   // v3.30.0
+    else if(e.code==='Space'){e.preventDefault();this.togglePlay();}
       else if(e.code==='KeyS'){e.preventDefault();this.stop();}
       else if(e.code==='KeyF'||e.code==='F11'){e.preventDefault();this.api?.win.fullscreen();}
       else if(e.code==='KeyT'&&!e.ctrlKey){e.preventDefault();this.api?.win.theatre();}
@@ -1053,10 +1106,10 @@ class BMPlayer {
   wireDragDrop(){const ov=el('drop-overlay');document.addEventListener('dragover',e=>{e.preventDefault();ov?.classList.add('active');});document.addEventListener('dragleave',e=>{if(!e.relatedTarget)ov?.classList.remove('active');});document.addEventListener('drop',e=>{e.preventDefault();ov?.classList.remove('active');const files=[...(e.dataTransfer?.files||[])].map(f=>f.path).filter(Boolean);if(files.length)this.playMedia(files);});}
   wireControlsHide(){
     const bar=el('controls-bar'),tb=el('titlebar'),mt=el('menu-toolbar');
-    const show=()=>{bar?.classList.remove('faded');tb?.classList.remove('faded-top');mt?.classList.remove('faded-top');clearTimeout(this.hideTimer);if(this.isPlaying)this.hideTimer=setTimeout(()=>{if(this.isPlaying&&!bar?.matches(':hover')){bar?.classList.add('faded');tb?.classList.add('faded-top');mt?.classList.add('faded-top');}},3000);};
+    const show=()=>{bar?.classList.remove('faded');tb?.classList.remove('faded-top');mt?.classList.remove('faded-top');clearTimeout(this.hideTimer);if(this._anyPlaying())this.hideTimer=setTimeout(()=>{if(this._anyPlaying()&&!bar?.matches(':hover')){bar?.classList.add('faded');tb?.classList.add('faded-top');mt?.classList.add('faded-top');}},3000);};
     document.addEventListener('mousemove',show);
     bar?.addEventListener('mouseenter',()=>{clearTimeout(this.hideTimer);bar.classList.remove('faded');});
-    bar?.addEventListener('mouseleave',()=>{if(this.isPlaying)this.hideTimer=setTimeout(()=>bar?.classList.add('faded'),2500);});
+    bar?.addEventListener('mouseleave',()=>{if(this._anyPlaying())this.hideTimer=setTimeout(()=>bar?.classList.add('faded'),2500);});
   }
   wireUpdate(){
     el('update-dismiss')?.addEventListener('click',()=>el('update-banner')?.classList.add('hidden'));

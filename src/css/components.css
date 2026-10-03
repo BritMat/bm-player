@@ -675,3 +675,52 @@ html.bm-layered.playing body:not(.audio-viz) #player-view { background: transpar
 
 /* The fluid visualiser's canvas, laid over the visualiser's (visualizer.js, v3.29.0). */
 .viz-fluid-canvas { position: absolute; pointer-events: none; }
+
+/* ── The keyboard shortcuts list (v3.30.0) ────────────────────────────── */
+.kb-overlay {
+  position: fixed; inset: 0; z-index: 9950; display: flex; align-items: center; justify-content: center;
+  background: rgba(4, 6, 12, .55); -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px);
+  animation: kb-in .16s ease-out;
+}
+.kb-overlay.hidden { display: none; }
+@keyframes kb-in { from { opacity: 0; } to { opacity: 1; } }
+.kb-panel {
+  width: min(980px, calc(100vw - 48px)); max-height: calc(100vh - 80px); overflow: auto;
+  padding: 20px 24px 22px; border-radius: 16px; color: var(--text);
+  background: var(--surface2, var(--surface)); border: 1px solid var(--border);
+  box-shadow: 0 24px 70px rgba(0,0,0,.55);
+}
+.kb-head { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 14px; }
+.kb-title { font-family: var(--font-display, inherit); font-size: 17px; font-weight: 700; }
+.kb-hint { font-size: 12px; opacity: .65; }
+.kb-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(270px, 1fr)); gap: 18px 28px; }
+.kb-group h3 {
+  margin: 0 0 8px; font-size: 10.5px; font-weight: 800; letter-spacing: .1em; text-transform: uppercase;
+  color: var(--accent);
+}
+.kb-row { display: flex; align-items: center; gap: 12px; padding: 4px 0; font-size: 13px; }
+.kb-keys { min-width: 108px; display: inline-flex; align-items: center; justify-content: flex-end; gap: 4px; flex-wrap: wrap; font-size: 11.5px; opacity: .9; }
+.kb-what { opacity: .85; }
+.kb-panel kbd, .kb-hint kbd {
+  display: inline-block; min-width: 22px; padding: 2px 6px; border-radius: 6px; text-align: center;
+  font: 600 11.5px/1.35 var(--font-ui, inherit); color: var(--text);
+  background: color-mix(in srgb, var(--text) 8%, transparent);
+  border: 1px solid color-mix(in srgb, var(--text) 18%, transparent); border-bottom-width: 2px;
+}
+.kb-click { font-style: italic; opacity: .9; }
+.mr .mr-key { float: right; margin-left: 18px; opacity: .55; font-size: 11.5px; }
+
+/* Keyboard focus, the same everywhere (v3.30.0): a clear ring on whatever the
+   keyboard is on, and none for the mouse. :where() has no specificity, so the
+   app's own focus styles still win where they exist. */
+:where(button, a, input, select, textarea, [role="button"], [role="slider"], [tabindex], .mr, .ctx-item, .ctx-label, .tp, .sidebar-btn, .track-item):focus-visible {
+  outline: 2px solid var(--accent); outline-offset: 2px;
+}
+
+/* The visual mode (v3.30.1). When the controls fade, the title and buttons move
+   down to the bottom: they stayed lifted for a control bar that was not there,
+   and left an empty band. Maximised, which is BM Player's full screen, the
+   side pane slides away, as it does for a film. */
+body.audio-viz .viz-overlay { transition: bottom .28s ease; }
+body.audio-viz:has(#controls-bar.faded) .viz-overlay { bottom: 0; }
+html.is-max body.audio-viz .sidebar { transform: translateX(-100%); opacity: 0; pointer-events: none; }

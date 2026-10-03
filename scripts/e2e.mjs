@@ -333,6 +333,25 @@ if (PART === 'a') {
     console.log(`      (${r.rows.length} rows with nothing playing: ${r.rows.join(', ')})`);
   });
 
+  // The keyboard shortcuts list (v3.30.0): ? opens it, the Tools menu too,
+  // and Esc closes it without also stopping playback.
+  await step('the keyboard shortcuts list opens with ? and from Tools, and Esc only closes it', async () => {
+    await page.keyboard.press('Shift+Slash'); await page.waitForTimeout(250);
+    const a = await page.evaluate(() => { const o = document.getElementById('kb-overlay'); return { open: !o.classList.contains('hidden'), rows: o.querySelectorAll('.kb-row').length, groups: [...o.querySelectorAll('.kb-group h3')].map(h => h.textContent) }; });
+    await page.evaluate(() => { window.__stops = 0; const st = bmApp.stop.bind(bmApp); bmApp.stop = (...x) => { window.__stops++; return st(...x); }; });
+    await page.keyboard.press('Escape'); await page.waitForTimeout(250);
+    const b = await page.evaluate(() => ({ open: !document.getElementById('kb-overlay').classList.contains('hidden'), stops: window.__stops }));
+    await page.evaluate(() => document.querySelector('.mr[data-a="shortcuts"]')?.click()); await page.waitForTimeout(250);
+    const c = await page.evaluate(() => !document.getElementById('kb-overlay').classList.contains('hidden'));
+    await page.evaluate(() => bmApp.toggleShortcuts(false));
+    if (!a.open) throw new Error('? did not open the list');
+    if (a.rows < 30 || a.groups.length !== 5) throw new Error(`the list has ${a.rows} rows in ${a.groups.length} groups`);
+    if (b.open) throw new Error('Esc did not close the list');
+    if (b.stops) throw new Error('Esc also stopped playback');
+    if (!c) throw new Error('the Tools menu item did not open the list');
+    console.log(`      (${a.rows} shortcuts: ${a.groups.join(', ')})`);
+  });
+
   // Volume sliders (v3.25.3): filled with the theme's colours up to the thumb,
   // whether the value comes from a drag or from code (keys, wheel, mpv).
   await step('volume sliders fill with the theme up to the thumb', async () => {
@@ -723,7 +742,13 @@ if (PART === 'b') {
     await step('PiP resizes the real window and restores it', async () => {
       const before = await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].getBounds());
       await page.evaluate(() => bmApp.togglePiP(true)); await page.waitForTimeout(900);
-      const inPip = await app.evaluate(({ BrowserWindow }) => { const w = BrowserWindow.getAllWindows()[0]; return { b: w.getBounds(), top: w.isAlwaysOnTop() }; });
+      // Read until it settles, up to 1.5 s more (Windows applies some of it late).
+      let inPip;
+      for (let i = 0; i < 7; i++) {
+        inPip = await app.evaluate(({ BrowserWindow }) => { const w = BrowserWindow.getAllWindows()[0]; return { b: w.getBounds(), top: w.isAlwaysOnTop() }; });
+        if (inPip.b.width <= 700 && inPip.top) break;
+        await page.waitForTimeout(250);
+      }
       await shot('pip');
       await page.evaluate(() => bmApp.togglePiP(false)); await page.waitForTimeout(900);
       const after = await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].getBounds());
@@ -1002,6 +1027,89 @@ if (PART === 'c') {
     if (r.c.palette !== null || r.c.intensity !== 1) throw new Error('Dark did not get the standard fluid back: ' + JSON.stringify(r.c));
     if (r.fox && !(r.fox.base < 0.06 && r.fox.ear > 0.1)) throw new Error('the fox floats: its base moves ' + r.fox.base.toFixed(3) + ', its ear ' + r.fox.ear.toFixed(3));
   });
+
+  // The fox (v3.30.1): only its head turns, the chest stays where it is (it
+  // swayed as one piece, like a balloon), and the pointer above it makes it
+  // look up (it looked down). Real pixels for the first, the head's pose for
+  // the second.
+  await step('only the fox\'s head turns, and it looks up at a pointer above it', async () => {
+    const r = await page.evaluate(() => {
+      const fox = bmApp.fox, fc = document.getElementById('fox-canvas');
+      if (!fox?.renderAt || !fc) return { none: true };
+      const grab = (yaw, pitch) => {
+        fox.renderAt(yaw, pitch);
+        const c = document.createElement('canvas'); c.width = fc.width; c.height = fc.height;
+        const x = c.getContext('2d'); x.drawImage(fc, 0, 0); return { d: x.getImageData(0, 0, c.width, c.height).data, m: fox._model.slice() };
+      };
+      const a = grab(-28, 0), b = grab(28, 0), up = grab(0, -14), down = grab(0, 14);
+      fox.releaseAngle?.();
+      const W = fc.width, H = fc.height;
+      const diff = (y0, y1) => { let n = 0, t = 0; for (let y = Math.floor(H * y0); y < Math.floor(H * y1); y++) for (let x = 0; x < W; x += 2) { const i = (y * W + x) * 4; t++; if (Math.abs(a.d[i] - b.d[i]) + Math.abs(a.d[i + 1] - b.d[i + 1]) + Math.abs(a.d[i + 2] - b.d[i + 2]) > 60) n++; } return n / t; };
+      // the chest's band: just above the bottom of the drawn fox
+      let bottom = 0; for (let y = H - 1; y > 0 && !bottom; y--) for (let x = 0; x < W; x += 3) if (a.d[(y * W + x) * 4 + 3] > 40) { bottom = y / H; break; }
+      const noseY = m => m[1] * 0 + m[5] * -1.24 + m[9] * 1.5 + m[13];
+      return { head: diff(0.12, 0.5), chest: diff(bottom - 0.07, bottom), up: noseY(up.m), down: noseY(down.m) };
+    });
+    if (r.none) return;
+    if (!(r.head > 0.04)) throw new Error('the head did not turn: ' + JSON.stringify(r));
+    if (!(r.chest < r.head * 0.25)) throw new Error(`the chest moves with the head (${(r.chest * 100).toFixed(1)}% of its pixels changed, the head ${(r.head * 100).toFixed(1)}%)`);
+    if (!(r.up > r.down)) throw new Error('with the pointer above, the fox looks down');
+    console.log(`      (turned: head ${(r.head * 100).toFixed(1)}% of its pixels changed, chest ${(r.chest * 100).toFixed(1)}%)`);
+  });
+
+  // The visual mode (v3.30.1): when the controls fade, the title row moves to
+  // the bottom (it left an empty band), maximised the side pane hides, and
+  // Radial with Spin off stands still.
+  await step('the visual mode: no empty band, no side pane when maximised, Radial still with Spin off', async () => {
+    const r = await page.evaluate(async t => {
+      bmApp.switchDest('music'); bmMusic.play(t, 0); await new Promise(z => setTimeout(z, 1200));
+      bmApp.switchDest('video'); await new Promise(z => setTimeout(z, 900));
+      const v = bmApp.viz; const bar = document.getElementById('controls-bar');
+      bar.classList.add('faded'); await new Promise(z => setTimeout(z, 500));
+      const band = Math.round(innerHeight - document.querySelector('.viz-overlay').getBoundingClientRect().bottom);
+      document.documentElement.classList.add('is-max'); await new Promise(z => setTimeout(z, 600));
+      const pane = +getComputedStyle(document.querySelector('.sidebar')).opacity;
+      document.documentElement.classList.remove('is-max');
+      const spins = async on => { v.setOptions({ style: 'radial', spin: on }); v.setMode('radial'); let n = 0; const rot = v.ctx.rotate.bind(v.ctx); v.ctx.rotate = a => { n++; rot(a); }; await new Promise(z => setTimeout(z, 700)); v.ctx.rotate = rot; return n; };
+      const still = await spins(false), turning = await spins(true);
+      v.setOptions({ style: 'bars', spin: true }); v.setMode('bars'); bar.classList.remove('faded'); bmMusic.engine?.stop?.();
+      return { band, pane, still, turning, viz: document.body.classList.contains('audio-viz') };
+    }, TONE);
+    if (!r.viz) throw new Error('the visual mode did not show');
+    if (r.band > 2) throw new Error(`an empty band of ${r.band}px under the title row`);
+    if (r.pane > 0.05) throw new Error('maximised, the side pane is still shown');
+    if (r.still !== 0) throw new Error(`Radial turned ${r.still} times with Spin off`);
+    if (!(r.turning > 0)) throw new Error('Radial did not turn with Spin on');
+  });
+
+  // The decorative loops (v3.30.0): the theme's background, the Flow fluid
+  // and the fox animate only on the home screen, in a window that is not
+  // minimised. Behind a playing video they ran on at 50 to 90 frames a
+  // second, measured, and a minimised window kept them going too.
+  if (VIDEO) {
+    await step('nothing animates behind a playing video or in a minimised window', async () => {
+      await page.evaluate(() => {
+        if (!window.__fr) { window.__fr = { n: 0 }; const raf = window.requestAnimationFrame.bind(window); window.requestAnimationFrame = cb => raf(t => { window.__fr.n++; cb(t); }); }
+        bmApp.stop(); bmApp.applyTheme('dark'); bmApp.applyTheme('ocean');
+      });
+      const rate = async () => { await page.evaluate(() => { window.__fr.n = 0; }); await page.waitForTimeout(1500); return page.evaluate(() => window.__fr.n / 1.5); };
+      await page.waitForTimeout(800);
+      const home = await rate();
+      await page.evaluate(v => bmApp.playMedia([v]), VIDEO); await page.waitForTimeout(2500);
+      const film = await rate();
+      await page.evaluate(() => bmApp.stop()); await page.waitForTimeout(1200);
+      const back = await rate();
+      await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].webContents.send('win:hidden', true)); await page.waitForTimeout(500);
+      const hidden = await rate();
+      await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].webContents.send('win:hidden', false)); await page.waitForTimeout(500);
+      await page.evaluate(() => bmApp.applyTheme('dark'));
+      if (!(home > 5)) throw new Error(`the home screen does not animate (${home.toFixed(1)} frames a second)`);
+      if (film > 3) throw new Error(`${film.toFixed(1)} frames a second drawn behind the video`);
+      if (!(back > 5)) throw new Error('the effects did not come back on the home screen');
+      if (hidden > 3) throw new Error(`${hidden.toFixed(1)} frames a second in a minimised window`);
+      console.log(`      (home ${home.toFixed(0)}, behind a video ${film.toFixed(0)}, minimised ${hidden.toFixed(0)} frames a second)`);
+    });
+  }
 
   // The Fluid visualiser (v3.29.0): the fluid moved by the music. With a tone
   // playing it splashes, and paused it adds nothing.

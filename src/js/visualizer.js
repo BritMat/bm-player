@@ -28,7 +28,7 @@ function hsl2rgb (h, s, l) {
    (the visual mode for audio and the music player's). Set in the panel that
    opens from their settings button (viz-settings.js). */
 const VIZ_KEY = 'bm_viz';
-export const VIZ_DEFAULTS = { style: 'bars', colors: 'auto', sensitivity: 1, bars: 80, smoothing: 0.8 };
+export const VIZ_DEFAULTS = { style: 'bars', colors: 'auto', sensitivity: 1, bars: 80, smoothing: 0.8, spin: true };   // spin: Radial turns (v3.30.1)
 export function vizSettings() {
   try { return { ...VIZ_DEFAULTS, ...JSON.parse(localStorage.getItem(VIZ_KEY) || '{}') }; } catch { return { ...VIZ_DEFAULTS }; }
 }
@@ -133,6 +133,12 @@ export class Visualizer {
   _loop () {
     if (!this.active) return;
     this._raf = requestAnimationFrame(() => this._loop());
+    // At most about 72 frames a second (v3.30.1): on a 144 Hz screen every
+    // style drew 144 times a second, twice the work for motion the eye cannot
+    // tell apart. A 60 Hz screen draws every frame as before.
+    const now = performance.now();
+    if (now - (this._lastDraw || 0) < 12) return;
+    this._lastDraw = now;
     this._tick++;
     this._draw();
   }
@@ -172,7 +178,9 @@ export class Visualizer {
         if (this._thName !== th) { this._thName = th; this._thHue = hueOf(getComputedStyle(document.documentElement).getPropertyValue('--accent').trim()) ?? 220; }
         return `hsla(${this._thHue + v * 35}, 85%, ${55 + v * 20}%, ${a})`;
       }
-      case 'fire':    return `hsla(${v * 52}, 100%, ${42 + v * 26}%, ${a})`;
+      // Fire is a flame (v3.30.1): blue at the root, quiet, and orange to
+      // yellow at the tips, loud.
+      case 'fire':    return v < 0.38 ? `hsla(${214 - v * 55}, 95%, ${46 + v * 28}%, ${a})` : `hsla(${(v - 0.38) * 82}, 100%, ${44 + v * 24}%, ${a})`;
       case 'ice':     return `hsla(${188 + v * 26}, 85%, ${62 + v * 22}%, ${a})`;
       case 'rainbow': return `hsla(${(pos * 330 + this._tick * 0.4) % 360}, 95%, 64%, ${a})`;
       case 'mono':    return `hsla(0, 0%, ${70 + v * 28}%, ${a})`;
@@ -250,36 +258,36 @@ export class Visualizer {
       this._fluidCanvas = fc;
       this._fluid = new FluidFX(fc);
       this._fluid.audioDriven = true;
-      this._fluid.setFlow({ swirl: 1.25, trail: 1.15 });
+      this._fluid.setFlow({ swirl: 1.7, trail: 0.42, radius: 0.6 });   // smoke: curling, fading fast (v3.30.1)
     } catch (e) {
       console.warn('[BM Player] fluid visualiser unavailable, drawing bars:', e);
       this._fluidFailed = true; this._fluidCanvas?.remove(); this._fluidCanvas = null; this._fluid = null;
     }
   }
 
+  // Four plumes of smoke rising from the bottom (v3.30.1), one for each part of
+  // the sound: bass, low mids, high mids and treble. Each puffs as strongly as
+  // its part is loud, a beat in the bass puffs harder, and a quiet part's plume
+  // dies away. Thin and translucent, curling and fading fast: the screen
+  // filled with fluid before.
   _feedFluid (freq) {
     const f = this._fluid, n = freq.length, now = performance.now();
     const band = (a, b) => { let t = 0; for (let i = a; i < b; i++) t += freq[i]; return t / Math.max(1, b - a) / 255; };
-    const b1 = Math.max(1, Math.round(n * 0.12)), b2 = Math.max(b1 + 1, Math.round(n * 0.5));
-    const bass = band(0, b1), mid = band(b1, b2), treble = band(b2, n);
-    let num = 0, den = 0; for (let i = 0; i < n; i++) { num += i * freq[i]; den += freq[i]; }
-    const bright = den ? num / den / n : 0;   // where the sound's weight sits: 0 dull, 1 bright
-    const st = this._fl || (this._fl = { bassAvg: 0, lastBass: 0, lastMid: 0, lastHi: 0, drift: Math.random(), splats: 0 });
-    st.bassAvg += (bass - st.bassAvg) * 0.04; st.drift = (st.drift + 0.0006) % 1;
-    const dye = (v, pos, k) => this._rgb(v, pos, bright, st.drift).map(x => x * k);
-    // a beat: the bass rising clearly above its recent level
-    if (bass > 0.22 && bass > st.bassAvg * 1.2 && now - st.lastBass > 140) {
-      st.lastBass = now; st.splats++;
-      f._splat(0.25 + Math.random() * 0.5, 0.06, (Math.random() - 0.5) * 400, 700 + bass * 2600, dye(bass, 0.1, 0.25 + bass * 0.35), 1.2 + bass * 1.8);
-    }
-    if (mid > 0.1 && now - st.lastMid > 70) {
-      st.lastMid = now; st.splats++;
-      const a = Math.random() * Math.PI * 2, p = 250 + mid * 1500;
-      f._splat(0.12 + Math.random() * 0.76, 0.28 + Math.random() * 0.44, Math.cos(a) * p, Math.sin(a) * p, dye(mid, 0.5, 0.1 + mid * 0.3), 0.5 + mid * 1.1);
-    }
-    if (treble > 0.08 && now - st.lastHi > 90) {
-      st.lastHi = now; st.splats++;
-      f._splat(Math.random(), 0.72 + Math.random() * 0.22, (Math.random() - 0.5) * 520, -150 - treble * 450, dye(treble, 0.9, 0.12 + treble * 0.4), 0.3 + treble * 0.5);
+    const cut = [0, 0.1, 0.3, 0.6, 1].map(c => Math.round(c * n));
+    const lv = [0, 1, 2, 3].map(i => band(cut[i], Math.max(cut[i] + 1, cut[i + 1])));
+    const st = this._fl || (this._fl = { last: 0, bassAvg: 0, splats: 0, drift: Math.random(), phase: [0, 1.7, 3.1, 4.4] });
+    st.bassAvg += (lv[0] - st.bassAvg) * 0.04; st.drift = (st.drift + 0.0006) % 1;
+    if (now - st.last < 40) return;                       // about 25 puffs a second
+    st.last = now;
+    const X = [0.2, 0.4, 0.6, 0.8];
+    for (let i = 0; i < 4; i++) {
+      const v = lv[i]; if (v < 0.12) continue;   // a quiet part, or a pause fading out: no puff
+      const beat = i === 0 && v > 0.22 && v > st.bassAvg * 1.2;
+      const x = X[i] + Math.sin(now / 900 + st.phase[i]) * 0.035;     // a plume sways
+      const side = Math.sin(now / 600 + st.phase[i]) * 90, up = 300 + v * 750 + (beat ? 700 : 0);
+      const k = 0.05 + v * 0.11 + (beat ? 0.05 : 0);                  // thin smoke, but seen
+      f._splat(x, 0.04, side, up, this._rgb(v, i / 3, 0, st.drift, i).map(c => c * k), 0.22 + v * 0.32 + (beat ? 0.2 : 0));
+      st.splats++;
     }
   }
 
@@ -287,7 +295,7 @@ export class Visualizer {
   // Original each part of the sound has its own: the bass (pos near 0) is
   // magenta turning warm as it hits harder, the mids blue turning teal for a
   // brighter sound, and the treble golden sparks, whiter when loud.
-  _rgb (v, pos, bright, drift) {
+  _rgb (v, pos, bright, drift, plume) {
     let h = 0, s = 0.9, l = 0.55;
     switch (this.opts.colors) {
       case 'theme': {
@@ -295,7 +303,12 @@ export class Visualizer {
         if (this._thName !== th) { this._thName = th; this._thHue = hueOf(getComputedStyle(document.documentElement).getPropertyValue('--accent').trim()) ?? 220; }
         h = this._thHue / 360 + (pos - 0.5) * 0.12; break;
       }
-      case 'fire':    h = v * 0.14; l = 0.45 + v * 0.15; break;
+      // Fire (v3.30.1): orange flames and blue ones, the plumes taking turns,
+      // brighter as they get louder.
+      case 'fire':
+        if (plume % 2 === 1 || (plume === undefined && v < 0.38)) { h = 0.58 + v * 0.04; l = 0.48 + v * 0.22; }
+        else { h = 0.03 + v * 0.09; l = 0.46 + v * 0.2; }
+        break;
       case 'ice':     h = 0.52 + v * 0.07; l = 0.6; break;
       case 'rainbow': h = pos + drift * 3; break;
       case 'mono':    s = 0; l = 0.8; break;
@@ -355,42 +368,47 @@ export class Visualizer {
     const cx    = W / 2;
     const cy    = H / 2;
     const baseR = Math.min(cx, cy) * 0.38;
-    const t     = this._tick * 0.012;
+    // Spin off (v3.30.1): the spokes stand still and so do their colours, which
+    // drifting round the ring looked like turning too.
+    const spin  = this.opts.spin !== false;
+    const t     = spin ? this._tick * 0.012 : 0;
+    const drift = spin ? this._tick * 0.4 : 0;
 
     ctx.clearRect(0, 0, W, H);
 
-    // Inner glow circle
-    const innerGlow = ctx.createRadialGradient(cx, cy, 0, cx, cy, baseR * 0.9);
-    innerGlow.addColorStop(0, this._col(220 + this._tick % 120, 80, 60, 0.5, 0.5, 0.12));
-    innerGlow.addColorStop(1, 'transparent');
-    ctx.fillStyle = innerGlow;
-    ctx.beginPath();
-    ctx.arc(cx, cy, baseR * 0.9, 0, Math.PI * 2);
-    ctx.fill();
+    // The inner glow: made again only when its colour or the size changes.
+    const gHue = 220 + (spin ? Math.round((this._tick % 120) / 4) * 4 : 60);
+    const gKey = `${W}x${H}|${gHue}|${this.opts.colors}|${this._thName || ''}`;
+    if (this._rgKey !== gKey) {
+      this._rgKey = gKey;
+      this._rg = ctx.createRadialGradient(cx, cy, 0, cx, cy, baseR * 0.9);
+      this._rg.addColorStop(0, this._col(gHue, 80, 60, 0.5, 0.5, 0.12));
+      this._rg.addColorStop(1, 'transparent');
+    }
+    ctx.fillStyle = this._rg;
+    ctx.beginPath(); ctx.arc(cx, cy, baseR * 0.9, 0, Math.PI * 2); ctx.fill();
 
+    // Faster (v3.30.1): each spoke's direction worked out once, not every frame,
+    // and the ring turned by one rotation of the canvas.
+    if (!this._uv || this._uv.length !== len) {
+      this._uv = Array.from({ length: len }, (_, i) => { const a = (i / len) * Math.PI * 2 - Math.PI / 2; return [Math.cos(a), Math.sin(a)]; });
+    }
+    ctx.save();
+    ctx.translate(cx, cy); if (t) ctx.rotate(t);
+    ctx.lineCap = 'round';
     for (let i = 0; i < len; i++) {
-      const v     = freq[i] / 255;
-      const angle = (i / len) * Math.PI * 2 - Math.PI / 2 + t;
-      const inner = baseR;
+      const v = freq[i] / 255, [ux, uy] = this._uv[i];
       const outer = baseR + v * baseR * 1.6;
-      const hue   = (i / len) * 360 + this._tick * 0.4;
-
+      const hue   = (i / len) * 360 + drift;
       ctx.strokeStyle = this._col(hue, 100, 65, v, i / len, 0.4 + v * 0.6);
       ctx.lineWidth   = 2.2;
-      ctx.lineCap     = 'round';
-      ctx.beginPath();
-      ctx.moveTo(cx + Math.cos(angle) * inner, cy + Math.sin(angle) * inner);
-      ctx.lineTo(cx + Math.cos(angle) * outer, cy + Math.sin(angle) * outer);
-      ctx.stroke();
-
-      // Mirror
+      ctx.beginPath(); ctx.moveTo(ux * baseR, uy * baseR); ctx.lineTo(ux * outer, uy * outer); ctx.stroke();
+      // the faint mirror, opposite
       ctx.strokeStyle = this._col(hue, 100, 65, v, i / len, (0.4 + v * 0.6) * 0.3);
       ctx.lineWidth   = 1;
-      ctx.beginPath();
-      ctx.moveTo(cx + Math.cos(angle + Math.PI) * inner, cy + Math.sin(angle + Math.PI) * inner);
-      ctx.lineTo(cx + Math.cos(angle + Math.PI) * outer * 0.6, cy + Math.sin(angle + Math.PI) * outer * 0.6);
-      ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(-ux * baseR, -uy * baseR); ctx.lineTo(-ux * outer * 0.6, -uy * outer * 0.6); ctx.stroke();
     }
+    ctx.restore();
   }
 
   // ── WAVE ─────────────────────────────────────────────

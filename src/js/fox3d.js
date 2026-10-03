@@ -99,13 +99,19 @@ export function hatTriangles() {   // also drawn flat by geofox.js
 const VS = `
 attribute vec3 aPos; attribute vec3 aNorm; attribute vec4 aCol; attribute float aPart;
 uniform mat4 uProj; uniform mat4 uModel; uniform mat4 uPart[6];
+uniform mat4 uBody;   // v3.30.1: where the chest stays
 varying vec3 vN; varying vec4 vCol;
 void main() {
   int p = int(aPart + 0.5);
   mat4 pm = uPart[0];
   if (p == 1) pm = uPart[1]; else if (p == 2) pm = uPart[2]; else if (p == 3) pm = uPart[3];
   else if (p == 4) pm = uPart[4]; else if (p == 5) pm = uPart[5];
-  mat4 m = uModel * pm;
+  // Skinning (v3.30.1): the head turns, the chest stays where it is, and the
+  // neck bends between them. Each point follows the head by its height: none
+  // below y -1.85 (the chest), fully above -1.35 (the nose is at -1.24).
+  // The whole fox used to turn as one piece, so it swayed like a balloon.
+  float w = smoothstep(-1.85, -1.35, aPos.y);
+  mat4 m = (uBody * (1.0 - w) + uModel * w) * pm;
   vN = (m * vec4(aNorm, 0.0)).xyz;
   vCol = aCol;
   gl_Position = uProj * m * vec4(aPos, 1.0);
@@ -210,7 +216,7 @@ export class Fox3D {
     this.loc = {
       aPos: gl.getAttribLocation(prog, 'aPos'), aNorm: gl.getAttribLocation(prog, 'aNorm'),
       aCol: gl.getAttribLocation(prog, 'aCol'), aPart: gl.getAttribLocation(prog, 'aPart'),
-      uProj: gl.getUniformLocation(prog, 'uProj'), uModel: gl.getUniformLocation(prog, 'uModel'),
+      uProj: gl.getUniformLocation(prog, 'uProj'), uModel: gl.getUniformLocation(prog, 'uModel'), uBody: gl.getUniformLocation(prog, 'uBody'),
       uPart: gl.getUniformLocation(prog, 'uPart'), uKey: gl.getUniformLocation(prog, 'uKey'),
       uFill: gl.getUniformLocation(prog, 'uFill'), uRim: gl.getUniformLocation(prog, 'uRim'),
     };
@@ -241,8 +247,12 @@ export class Fox3D {
     // eyes and nose still move on their own.
     const nod = perk * 0.10 + s.energyS * 0.07;
     // The chest ruff makes the fox taller: lifted and framed a little wider.
-    let model = mul(T(0, 0.12, 0), about(NECK, mul(R([0, 1, 0], yaw), mul(R([1, 0, 0], -(pitch + nod)), R([0, 0, 1], roll)))));
+    // pitch + nod, not -(pitch + nod) (v3.30.1): with the pointer above the fox
+    // (s.my below 0) it looked down. Now it looks up, and a nod dips the chin.
+    let model = mul(T(0, 0.12, 0), about(NECK, mul(R([0, 1, 0], yaw), mul(R([1, 0, 0], pitch + nod), R([0, 0, 1], roll)))));
     model = mul(T(0, 0, -22), model);                          // a long lens: 22 units back
+    this._body = mul(T(0, 0, -22), T(0, 0.12, 0));             // the chest: placed, never turned
+    this._model = model;                                       // for tests: where the head points
     // ears: flick back about the base edge, perk forward when excited
     const earM = side => {
       const piv = side < 0 ? PIVOTS.ear_l : [-PIVOTS.ear_l[0], PIVOTS.ear_l[1], PIVOTS.ear_l[2]];
@@ -310,6 +320,7 @@ export class Fox3D {
     attr(L.aPos, 3, 0); attr(L.aNorm, 3, 3); attr(L.aCol, 4, 6); attr(L.aPart, 1, 10);
     gl.uniformMatrix4fv(L.uProj, false, new Float32Array(perspective(13 * Math.PI / 180, w / h, 15, 30)));
     gl.uniformMatrix4fv(L.uModel, false, new Float32Array(model));
+    gl.uniformMatrix4fv(L.uBody, false, new Float32Array(this._body || model));
     gl.uniformMatrix4fv(L.uPart, false, new Float32Array(parts.flat()));
     gl.uniform3fv(L.uKey, KEY); gl.uniform3fv(L.uFill, FILL); gl.uniform3fv(L.uRim, this._rim);
     gl.drawArrays(gl.TRIANGLES, 0, this.count);
@@ -322,7 +333,10 @@ export class Fox3D {
 
   _frame(now) {
     this._raf = 0;
-    if (this._paused || document.hidden) { this._raf = requestAnimationFrame(this._frame); return; }
+    if (this._paused || document.hidden) return;   // the app resumes it (app.js _syncEffects)
+    // At most about 72 frames a second (v3.30.1); its motion goes by the clock.
+    if (now - (this._lastDraw || 0) < 12) { this._raf = requestAnimationFrame(this._frame); return; }
+    this._lastDraw = now;
     this._schedule(now);
     this._draw(now);
     this._raf = requestAnimationFrame(this._frame);
@@ -347,9 +361,12 @@ export class Fox3D {
     // the rim follows the theme accent; read it after the theme's CSS applies
     requestAnimationFrame(() => { this._rim = hexToRgb(getComputedStyle(document.documentElement).getPropertyValue('--accent')); });
   }
-  pause() { this._paused = true; }
-  resume() { this._paused = false; }
+  // Paused, the loop stops, and resume() starts it again (v3.30.0). It used to
+  // keep asking for a frame at every refresh and skip the drawing.
+  pause() { this._paused = true; if (this._raf) { cancelAnimationFrame(this._raf); this._raf = 0; } }
+  resume() { this._paused = false; if (!this._raf && !this._dead) this._raf = requestAnimationFrame(this._frame); }
   destroy() {
+    this._dead = true;
     if (this._raf) cancelAnimationFrame(this._raf);
     window.removeEventListener('mousemove', this._onMove);
     this.canvas.removeEventListener('webglcontextlost', this._onLost);

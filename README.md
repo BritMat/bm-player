@@ -50,6 +50,7 @@ read by BM Player's built-in updater. You don't need to download them.
   nine artistic ones, each with an animated scene of its own: ocean light and
   bubbles, forest fireflies, city lights in neon rain, falling cherry blossom, and
   more. And a 3D fox mascot.
+- Keyboard shortcuts for nearly everything: press ? (or F1) in the app for the list.
 - An audio visualiser that shows the music as it plays, its real frequencies,
   with a Fluid style the music moves and colours, and settings for its style,
   colours, sensitivity and bars. And subtitles in the font and colour you choose.

@@ -204,6 +204,8 @@ app.whenReady().then(()=>{
     // can't really afford. One window = one paint target.
     win=new BrowserWindow({width:1280,height:780,minWidth:900,minHeight:560,frame:false,transparent:false,backgroundColor:'#0b0c10',show:false,title:'BM Player Lite',webPreferences:{nodeIntegration:false,contextIsolation:true,preload:path.join(__dirname,'preload.js'),webSecurity:FLAGS.fileScheme==='bmfile',sandbox:false}});
     win.on('maximize',()=>{send('win:state','maximized');});
+    // Minimised or hidden: the page pauses its decorative loops (v3.30.0).
+    for(const [ev,h] of [['minimize',true],['hide',true],['restore',false],['show',false]]) win.on(ev,()=>send('win:hidden',h));
     win.on('unmaximize',()=>{send('win:state','normal');});
     win.loadFile(path.join(__dirname,'src','index.html'),{query:flagQuery()});
     // CSP. 'unsafe-eval' was here on the claim that Three.js and dynamic
@@ -232,7 +234,11 @@ app.whenReady().then(()=>{
       win.on(ev, syncLiteVideo);
     // The pin and PiP make the Lite window always-on-top. The video window must
     // follow, or it drops behind the page and the picture disappears.
-    win.on('always-on-top-changed',(_e,top)=>{try{videoWin?.setAlwaysOnTop(!!top);}catch(_){}syncLiteVideo();});
+    // The picture window follows, from the window's state now rather than the
+    // event's: on Windows, making an owned window non-topmost also makes its
+    // OWNER non-topmost, so a late event saying false undid PiP (v3.30.1, on
+    // a real machine: the PiP window was not on top). Never false during PiP.
+    win.on('always-on-top-changed',()=>{try{videoWin?.setAlwaysOnTop(pipActive||win.isAlwaysOnTop());}catch(_){}syncLiteVideo();});
     win.on('minimize',()=>{try{videoWin?.hide();}catch(_){}});
     win.on('hide',()=>{try{videoWin?.hide();}catch(_){}});
     // bgWin stays null — code below uses bgWin?. so this is safe.
@@ -264,6 +270,8 @@ app.whenReady().then(()=>{
     const bgAlignTimer=setInterval(alignBg,600);
     win.on('closed',()=>clearInterval(bgAlignTimer));
     win.on('maximize',()=>{sync();send('win:state','maximized');});
+    // Minimised or hidden: the page pauses its decorative loops (v3.30.0).
+    for(const [ev,h] of [['minimize',true],['hide',true],['restore',false],['show',false]]) win.on(ev,()=>send('win:hidden',h));
     win.on('unmaximize',()=>{sync();send('win:state','normal');});
     win.loadFile(path.join(__dirname,'src','index.html'),{query:flagQuery()});
     // CSP. 'unsafe-eval' was here on the claim that Three.js and dynamic
@@ -533,6 +541,10 @@ function registerIpc(){
       if (bgWin && FLAGS.videoLayer === 'back') { try { bgWin.setBounds(bounds); } catch(_){} }
       win.setAlwaysOnTop(true);
       pipActive = true;
+      try { videoWin?.setAlwaysOnTop(true); } catch(_){}
+      // Held on top: once more as the transition settles, in case a late event
+      // or Windows' owner rule took it away (see always-on-top-changed).
+      for (const ms of [150, 600]) setTimeout(() => { if (!pipActive) return; for (const w of [bgWin, win, videoWin]) { try { if (w && !w.isDestroyed() && !w.isAlwaysOnTop()) w.setAlwaysOnTop(true); } catch(_){} } }, ms);
       send('win:pipState', true);
     } else {
       let prev = pipPrevBounds || { width: 1280, height: 780 };

@@ -52,6 +52,30 @@ function group(parent, cls, origin) {
   return g;
 }
 
+// The head turns about the neck, as on the 3D fox (fox3d.js, v3.30.1): each
+// point follows it by its height, none below y -1.85 (the chest), fully above
+// -1.35, so the chest stays put and the neck bends.
+const NECK = [0, -1.55, -0.1];
+function headWeight(y) { const t = Math.max(0, Math.min(1, (y + 1.85) / 0.5)); return t * t * (3 - 2 * t); }
+function turn(v, c, origin = true) {
+  const o = origin ? NECK : [0, 0, 0];
+  const x = v[0] - o[0], y = v[1] - o[1], z = v[2] - o[2];
+  const x1 = x * c.cy + z * c.sy, z1 = -x * c.sy + z * c.cy;
+  return [x1 + o[0], y * c.cp - z1 * c.sp + o[1], y * c.sp + z1 * c.cp + o[2]];
+}
+/** Turns the drawn fox's head: yaw and pitch in radians, pitch below 0 looks up. */
+export function poseFlat(svg, yaw, pitch) {
+  const F = svg?._facets; if (!F) return;
+  const c = { cy: Math.cos(yaw), sy: Math.sin(yaw), cp: Math.cos(pitch), sp: Math.sin(pitch) };
+  for (const f of F) {
+    const q = f.p3.map((v, i) => { const h = turn(v, c), w = f.w[i]; return [v[0] + (h[0] - v[0]) * w, v[1] + (h[1] - v[1]) * w, v[2] + (h[2] - v[2]) * w]; });
+    f.node.setAttribute('points', pts(q.map(to2)));
+    const wm = (f.w[0] + f.w[1] + f.w[2]) / 3, hn = turn(f.n, c, false);
+    const fill = shade(f.col, f.n.map((v, i) => v + (hn[i] - v) * wm), f.lit, svg._rim);
+    f.node.setAttribute('fill', fill); f.node.setAttribute('stroke', fill);
+  }
+}
+
 /** Builds the fox as an <svg> element. Exported for tests and previews. */
 export function buildFoxSVG() {
   const svg = document.createElementNS(NS, 'svg');
@@ -64,7 +88,7 @@ export function buildFoxSVG() {
   const parts = {};
   const add = (name, p, n, col, lit) => {
     if (rot(n)[2] <= 0) return;                       // facing away: hidden
-    (parts[name] = parts[name] || []).push({ p: p.map(to2), z: (rot(p[0])[2] + rot(p[1])[2] + rot(p[2])[2]) / 3, fill: shade(col, n, lit, rim) });
+    (parts[name] = parts[name] || []).push({ p: p.map(to2), p3: p, n, col, lit, z: (rot(p[0])[2] + rot(p[1])[2] + rot(p[2])[2]) / 3, fill: shade(col, n, lit, rim) });
   };
   for (const t of TRIANGLES) {
     const mat = MATERIAL_ORDER[t[12]], col = MATERIALS[mat].map(c => c / 255);
@@ -83,6 +107,8 @@ export function buildFoxSVG() {
     eye_r: group(body, 'gf-eye gf-eye-r', eyeAt('eye_r')),
     hat: group(body, 'gf-hat'),
   };
+  const facets = [];
+  svg._facets = facets; svg._rim = rim;
   for (const [name, list] of Object.entries(parts)) {
     const g = groups[name] || groups.head;
     list.sort((a, b) => a.z - b.z);
@@ -94,6 +120,9 @@ export function buildFoxSVG() {
       // thinner, the background showed through as light lines.
       e.setAttribute('stroke', f.fill); e.setAttribute('stroke-width', '2'); e.setAttribute('stroke-linejoin', 'round');
       g.appendChild(e);
+      const w = [0, 1, 2].map(i => headWeight(f.p3[i][1]));
+      if (w.some(Boolean)) facets.push({ node: e, p3: f.p3, n: f.n, col: f.col, lit: f.lit, w });   // the chest never moves
+
     }
   }
   return svg;
@@ -146,7 +175,9 @@ export class GeoFox {
     this._step = () => {
       this._raf = 0;
       this._cx += (this._tx - this._cx) * 0.12; this._cy += (this._ty - this._cy) * 0.12;
-      this.svg.style.transform = `perspective(900px) rotateY(${(this._cx * 9).toFixed(2)}deg) rotateX(${(-this._cy * 7).toFixed(2)}deg)`;
+      // The head turns towards the pointer, the chest stays (v3.30.1). The whole
+      // drawing used to tilt in 3D, so the fox swayed like a balloon.
+      poseFlat(this.svg, this._cx * 0.30, this._cy * 0.16);
       if (Math.abs(this._tx - this._cx) + Math.abs(this._ty - this._cy) > 0.002) this._raf = requestAnimationFrame(this._step);
     };
     window.addEventListener('mousemove', this._onMove, { passive: true });
@@ -168,9 +199,9 @@ export class GeoFox {
     requestAnimationFrame(() => {
       const fresh = buildFoxSVG();
       fresh.setAttribute('class', this.svg.getAttribute('class'));
-      fresh.style.transform = this.svg.style.transform;
       this.svg.replaceWith(fresh); this.svg = fresh;
       this.svg.classList.toggle('gf-hat-on', this._theme === 'snow');
+      if (this._cx || this._cy) poseFlat(this.svg, this._cx * 0.30, this._cy * 0.16);
     });
   }
   pause() { this._paused = true; this.svg.classList.add('gf-paused'); }
