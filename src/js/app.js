@@ -1,6 +1,6 @@
 import { createFox  } from './fox3d.js';
 import { buildFoxSVG } from './geofox.js';
-import { Visualizer, vizSettings, saveVizSettings, allVisualisers, setSharedAnalyser } from './visualizer.js';
+import { Visualizer, vizSettings, saveVizSettings, allVisualisers, setSharedAnalyser, setSharedArt } from './visualizer.js';
 import { AudioShadow } from './audio-shadow.js';   // the exact visualiser for audio mpv plays
 import './viz-settings.js';   // the visualiser settings panel
 import { ThemeFX    } from './theme-fx.js';
@@ -184,15 +184,8 @@ class BMPlayer {
     this.isLite = liteMode.isLiteMode();
     // 4. Sync the html class — the boot script may have got it wrong
     //    if main process perfInfo disagrees.
-    if (this.isLite) {
-      document.documentElement.classList.add('lite-mode');
-      const badge = el('lite-badge');
-      if (badge) badge.classList.remove('hidden');
-    } else {
-      document.documentElement.classList.remove('lite-mode');
-      const badge = el('lite-badge');
-      if (badge) badge.classList.add('hidden');
-    }
+    document.documentElement.classList.toggle('lite-mode', !!this.isLite);
+    this._markFx?.();   // the Pro/Lite switch (v3.33.0)
     // 5. React to user toggling the override in Preferences.
     liteMode.onChange((verdict, reason) => {
       this.isLite = verdict;
@@ -200,14 +193,10 @@ class BMPlayer {
       // the user that a restart is needed for the visual change to take
       // full effect. The CSS-level changes (backdrop-filter, shadows)
       // do apply immediately, which is a nice partial win.
-      if (verdict) {
-        document.documentElement.classList.add('lite-mode');
-        el('lite-badge')?.classList.remove('hidden');
-      } else {
-        document.documentElement.classList.remove('lite-mode');
-        el('lite-badge')?.classList.add('hidden');
-      }
-      this.showOSD(`Performance mode: ${verdict ? 'Lite' : 'Full'} (restart for full effect)`, 3500);
+      document.documentElement.classList.toggle('lite-mode', !!verdict);
+      this._markFx?.();
+      // The Pro/Lite switch says it its own way (v3.33.0).
+      if (!this._fxQuiet) this.showOSD(`Performance mode: ${verdict ? 'Lite' : 'Pro'} (restart for full effect)`, 3500);
       this._renderPerfInfo();
     });
   }
@@ -433,7 +422,7 @@ class BMPlayer {
       // ── v1.8.0: Theme Customizer ──
       'open-theme-customizer':()=>this._openThemeCustomizer(),
       'shortcuts':()=>this.toggleShortcuts(true),
-      'fx-auto':()=>this._setVisualFx('auto'),'fx-full':()=>this._setVisualFx('full'),'fx-lite':()=>this._setVisualFx('lite'),
+      'fx-auto':()=>this._switchFx('auto'),'fx-pro':()=>this._switchFx('pro'),'fx-lite':()=>this._switchFx('lite'),
       'audio-delay-p':()=>this.api?.adj.audioDelay(0.5),'audio-delay-m':()=>this.api?.adj.audioDelay(-0.5),'audio-delay-r':()=>this.api?.adj.resetAudio(),
       'aspect-auto':()=>cmd('set_property','video-aspect-override','-1'),'aspect-16:9':()=>cmd('set_property','video-aspect-override','16/9'),
       'aspect-4:3':()=>cmd('set_property','video-aspect-override','4/3'),'aspect-21:9':()=>cmd('set_property','video-aspect-override','21/9'),
@@ -535,7 +524,7 @@ class BMPlayer {
     this.abRepeat?.clear();
     this._renderBookmarksOnSeekbar();
     this.updatePlayIcon();this.setTime('time-current',0);this.setTime('time-total',0);this.setSeekPct(0);
-    const t=el('title-text');if(t)t.textContent='BM Player';
+    const t=el('title-text');if(t)t.textContent='';   // the name stays in the middle (v3.33.0)
     document.body.classList.remove('playing');document.documentElement.classList.remove('playing');
     // FULL TEARDOWN: _hasVideo used to stay true after a stop, so the next
     // switchDest('video') thought a video was still loaded and re-opened
@@ -577,7 +566,9 @@ class BMPlayer {
     window.addEventListener('unhandledrejection',e=>report('unhandled rejection:',e.reason));
     // The decorative loops follow the window too (v3.30.0, _syncEffects).
     document.addEventListener('visibilitychange',()=>this._syncEffects());
-    this._markFxMenu();
+    this._markFx();
+    el('fx-toggle')?.addEventListener('click',()=>this._switchFx(document.documentElement.classList.contains('lite-mode')?'pro':'lite'));
+    try{ const n=sessionStorage.getItem('bm_fx_note'); if(n){ sessionStorage.removeItem('bm_fx_note'); setTimeout(()=>this._fxNote(`Switched to ${n} mode`),400); } }catch(_){}
     // The visual mode hides the side pane (v3.31.0), and it slides back while the
     // pointer is at the left edge, so the other views are still a move away.
     document.addEventListener('mousemove',e=>{
@@ -977,7 +968,6 @@ class BMPlayer {
     const a=this.shadow?.load(this._currentFilePath,this.currentTime||0,!!this._lastPause);
     if(!a)return;
     this._shadowOn=true;setSharedAnalyser(a);
-    this._vizArtFor(this._currentFilePath);   // its album art, in the visual mode (v3.32.0)
     for(const v of [this.viz,this.musicViz]) if(v) v.analyser=a;
   }
   _stopShadow(){
@@ -998,6 +988,13 @@ class BMPlayer {
       const home=!!el('welcome-screen')?.classList.contains('active')&&!document.body.classList.contains('playing');
       const on=home&&!document.hidden&&!this._winHidden;
       for(const fx of [this.fox,this.themeFX,this.auroraFX]){ try{ if(on)fx?.resume?.();else fx?.pause?.(); }catch(_){} }
+      // The visualisers too (v3.33.0), when the window is minimised or hidden;
+      // only the ones that were running start again.
+      const away=document.hidden||!!this._winHidden;
+      for(const v of allVisualisers()){
+        if(away&&v.active){ v._awayPaused=true; v.stop(); }
+        else if(!away&&v._awayPaused){ v._awayPaused=false; v.start(); }
+      }
       this._fxOn=on;
     },0);
   }
@@ -1031,7 +1028,7 @@ class BMPlayer {
   _vizArtFor(fp,cover){
     const show=p=>{
       const url=p?fileURL(p):null;
-      for(const v of allVisualisers()) v.setArt?.(url);
+      setSharedArt(url);   // every visualiser follows it, even one made later
       const t=el('viz-art'); if(!t)return;
       t.classList.toggle('has-art',!!url); t.style.background=url?`center/cover no-repeat url("${url}")`:'';
     };
@@ -1039,20 +1036,37 @@ class BMPlayer {
     show(null);
     if(fp)this.api?.music?.art?.(fp)?.then?.(p=>{ if(fp===this._currentFilePath||window.bmMusic?.engineOwns?.()) show(p); }).catch?.(()=>{});
   }
-  // Visual effects, Automatic, Full or Lite (v3.32.0): the full app had no way
-  // to choose. Lite changes how the app starts (the flat fox, no fluid), so it
-  // reloads to apply at once when nothing plays, and otherwise from the next
-  // start, rather than cutting into a film.
-  async _setVisualFx(v){
+  // Pro or Lite (v3.33.0): the switch by the window buttons, and Tools,
+  // Visual effects (automatic, Pro, Lite). Lite changes how the app starts
+  // (the flat fox, no fluid), so with nothing playing it reloads, and says so
+  // after; during playback the look changes now and the rest at the next start.
+  async _switchFx(target){
     const { liteMode } = await import('./modules/lite-mode.js');
-    liteMode.setUserOverride(v==='auto'?null:v==='lite');
-    this._markFxMenu();
-    if(this.isPlaying||window.bmMusic?.engine?.el&&!window.bmMusic.engine.el.paused){ this.showOSD?.('Visual effects: '+v+', from the next start'); return; }
-    location.reload();
+    const playing=this.isPlaying||!!(window.bmMusic?.engine?.el&&!window.bmMusic.engine.el.paused);
+    this._fxQuiet=true;
+    const lite=liteMode.setUserOverride(target==='auto'?null:target==='lite');
+    this._fxQuiet=false;
+    const name=lite?'Lite':'Pro';
+    if(!playing){ try{sessionStorage.setItem('bm_fx_note',name);}catch(_){} location.reload(); return; }
+    this._markFx(); this._fxNote(`Switched to ${name} mode, fully from the next start`);
   }
-  _markFxMenu(){
+  _fxNote(text){
+    this._fxNoteEl?.remove();
+    const t=document.createElement('div'); t.className='fx-note'; t.setAttribute('role','status'); t.textContent=text;
+    document.body.appendChild(t); this._fxNoteEl=t;
+    requestAnimationFrame(()=>t.classList.add('show'));
+    setTimeout(()=>{ t.classList.remove('show'); setTimeout(()=>t.remove(),400); },2600);
+  }
+  _markFx(){
+    const lite=document.documentElement.classList.contains('lite-mode'), build=document.documentElement.classList.contains('lite-build');
+    const b=el('fx-toggle');
+    if(b){
+      b.textContent=lite?'Lite':'Pro'; b.classList.toggle('lite',lite); b.disabled=build;
+      b.title=build?'BM Player Lite always runs in Lite mode':`${lite?'Lite':'Pro'} mode. Press to switch to ${lite?'Pro':'Lite'}`;
+      b.setAttribute('aria-label',`Visual effects: ${lite?'Lite':'Pro'}. Press to switch`);
+    }
     let u=null; try{u=localStorage.getItem('bm_lite_user');}catch(_){}
-    const cur=u==='1'?'lite':u==='0'?'full':'auto';
+    const cur=u==='1'?'lite':u==='0'?'pro':'auto';
     document.querySelectorAll('.mr[data-a^="fx-"]').forEach(r=>r.classList.toggle('checked',r.dataset.a==='fx-'+cur));
   }
   // The pin button and the right-click menu's "Always on top" (v3.27.0).
@@ -1212,7 +1226,7 @@ class BMPlayer {
       if(p.name==='duration'){this.duration=p.data||0;this.setTime('time-total',this.duration);const tot=el('np-time-tot');if(tot)tot.textContent=fmtSec(this.duration);this._renderBookmarksOnSeekbar();}
       if(p.name==='volume'){const sl=el('volume-slider');if(sl)sl.value=p.data;const l=el('vol-label');if(l)l.textContent=Math.round(p.data);}
       if(p.name==='mute'){this._muted=!!p.data;this.updateMuteIcon(p.data);}
-      if(p.name==='media-title'){const t=el('title-text');if(t)t.textContent=p.data||'BM Player';const np=el('np-title');if(np)np.textContent=p.data||'Not Playing';
+      if(p.name==='media-title'){const t=el('title-text');if(t)t.textContent=p.data||'';const np=el('np-title');if(np)np.textContent=p.data||'Not Playing';
         // ── v1.8.0: sync mini player title ──
         const mt=el('mmp-title');if(mt)mt.textContent=p.data||'Not Playing';
         this._updateVizMeta();
@@ -1231,6 +1245,10 @@ class BMPlayer {
   updateVisualizerVisibility(tracks){
     const hasVideo=tracks.some(t=>t.type==='video');
     this._hasVideo=hasVideo;
+    // The album art, asked for whatever the audio analysis does (v3.33.0):
+    // it hung on the analyser starting before, and a test machine got none.
+    if(!hasVideo&&this._currentFilePath&&!window.bmMusic?.engineOwns?.())this._vizArtFor(this._currentFilePath);
+    else if(hasVideo)this._vizArtFor(null);
     // A song mpv plays (not the in-app engine) gets the exact visualiser.
     if(!hasVideo&&!window.bmMusic?.engineOwns?.()&&this._currentFilePath)this._startShadow();else this._stopShadow();
     if(hasVideo){
@@ -1389,7 +1407,7 @@ class BMPlayer {
     el('viz-btn-music')?.addEventListener('click',()=>this.switchDest('music'));
     el('pip-play')?.addEventListener('click',e=>{e.stopPropagation();this.togglePlay();});
     // Cycle visualiser modes by clicking the canvas — bars/radial/wave/particles
-    const modes=['bars','radial','wave','particles','fluid','neon','bubbles','milkdrop'];let mi=Math.max(0,modes.indexOf(vizSettings().style));
+    const modes=['bars','radial','wave','particles','fluid','flow','neon','bubbles','milkdrop'];let mi=Math.max(0,modes.indexOf(vizSettings().style));
     el('visualizer-canvas')?.addEventListener('click',()=>{
       if(!this._audioVizMode)return;
       mi=(mi+1)%modes.length;saveVizSettings({...vizSettings(),style:modes[mi]});allVisualisers().forEach(v=>v.setMode(modes[mi]));window.bmVizPanel?.sync?.();this.showOSD('Visualiser: '+modes[mi]);

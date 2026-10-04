@@ -742,3 +742,33 @@ html.lite-build .mr[data-a^="fx-"] { display: none; }
 /* A gallery image waiting for its thumbnail (gallery.js, v3.32.0): unseen, then faded in. */
 img.g-wait { opacity: 0; }
 .g-card img, .lb-strip-item img { transition: opacity .18s ease; }
+
+/* The title bar (v3.33.0): the name in the middle, a quiet wordmark, and the
+   left side for what is playing. The stacked-layers symbol is gone. */
+.titlebar { position: relative; }
+.tb-brand {
+  position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%);
+  font-family: var(--font-display, inherit); font-size: 12px; font-weight: 700;
+  letter-spacing: .16em; text-transform: uppercase; color: var(--text); opacity: .72;
+  pointer-events: none; white-space: nowrap;
+}
+.tb-title { max-width: calc(50% - 130px); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+@media (max-width: 720px) { .tb-brand { display: none; } }
+/* Pro or Lite, by the window buttons: press to switch. */
+.fx-pill {
+  -webkit-app-region: no-drag; align-self: center; height: 20px; margin-right: 8px; padding: 0 10px;
+  border-radius: 10px; cursor: pointer; font: 800 10px/1 var(--font-ui, inherit); letter-spacing: .1em; text-transform: uppercase;
+  color: var(--accent); background: color-mix(in srgb, var(--accent) 14%, transparent);
+  border: 1px solid color-mix(in srgb, var(--accent) 40%, transparent); transition: background .15s, color .15s;
+}
+.fx-pill:hover:not(:disabled) { background: color-mix(in srgb, var(--accent) 26%, transparent); }
+.fx-pill.lite { color: var(--text); background: color-mix(in srgb, var(--text) 8%, transparent); border-color: color-mix(in srgb, var(--text) 28%, transparent); }
+.fx-pill:disabled { cursor: default; opacity: .7; }
+/* "Switched to Lite mode" */
+.fx-note {
+  position: fixed; left: 50%; top: 52px; z-index: 9960; transform: translate(-50%, -8px);
+  padding: 9px 16px; border-radius: 10px; font-size: 13px; font-weight: 600; pointer-events: none;
+  color: var(--text); background: var(--surface2, var(--surface)); border: 1px solid var(--border);
+  box-shadow: 0 10px 30px rgba(0,0,0,.4); opacity: 0; transition: opacity .2s, transform .2s;
+}
+.fx-note.show { opacity: 1; transform: translate(-50%, 0); }

@@ -223,6 +223,8 @@ async _shrink(p){
     const out=await new Promise(r=>c.toBlob(r,'image/jpeg',0.84));
     const url=out?URL.createObjectURL(out):null;
     this._shrunk.set(p,url);
+    // Kept to 500 (v3.33.0): every one held its image in memory for good.
+    if(this._shrunk.size>500){ const [k,u]=this._shrunk.entries().next().value; this._shrunk.delete(k); if(u) URL.revokeObjectURL(u); }
     return url;
   }finally{ this._sq.active--; this._sq.wait.shift()?.(); }
 }

@@ -1,6 +1,6 @@
 /**
  * BM Player — Audio Visualizer
- * Modes: bars | radial | wave | particles | fluid (Smoke) | neon | bubbles | milkdrop | off
+ * Modes: bars | radial | wave | particles | fluid (Smoke) | flow (HD Flow) | neon | bubbles | milkdrop | off
  * Falls back to beautiful synthetic animation when no audio stream is available.
   *
  * NOTE: this class prefers a real AnalyserNode whenever one is attached, and
@@ -35,6 +35,12 @@ function loadMilkdrop () {
    it here; those that exist are given it directly. */
 let SHARED = null;
 export function setSharedAnalyser (a) { SHARED = a || null; }
+
+/* v3.33.0: the current album art, which every visualiser follows as it draws,
+   including one made after the song began. It no longer depends on the
+   audio analysis starting (a test machine where that failed showed none). */
+let ART = null;
+export function setSharedArt (url) { ART = url || null; }
 
 function hsl2rgb (h, s, l) {
   const k = n => (n + h * 12) % 12, a = s * Math.min(l, 1 - l);
@@ -106,7 +112,7 @@ export class Visualizer {
       if (this.ctx) { this.ctx.globalCompositeOperation = 'source-over'; this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height); }
     }
     this.mode = mode;
-    if (mode !== 'fluid') { this._fluid?.setMode('off'); if (this._fluidCanvas) this._fluidCanvas.style.display = 'none'; }
+    if (mode !== 'fluid' && mode !== 'flow') { this._fluid?.halt?.(); if (this._fluidCanvas) this._fluidCanvas.style.display = 'none'; }   // halt: hidden, so no fade (v3.33.0)
     if (mode !== 'milkdrop' && this._mdCanvas) this._mdCanvas.style.display = 'none';
     if (mode === 'off') { this.stop(); return; }
     if (!this.active) this.start();
@@ -124,7 +130,7 @@ export class Visualizer {
     this.canvas?.classList.remove('active');
     cancelAnimationFrame(this._raf);
     this.ctx?.clearRect(0, 0, this.canvas?.width, this.canvas?.height);
-    this._fluid?.setMode('off');
+    this._fluid?.halt?.();
     if (this._fluidCanvas) this._fluidCanvas.style.display = 'none';
     if (this._mdCanvas) this._mdCanvas.style.display = 'none';
   }
@@ -261,6 +267,7 @@ export class Visualizer {
       case 'neon':     drawNeon(this);     break;
       case 'bubbles':  drawBubbles(this);  break;
       case 'milkdrop': this._drawMilk();   break;
+      case 'flow':     this._drawFluid();  break;
       case 'fluid':    this._drawFluid();    break;
     }
   }
@@ -284,7 +291,16 @@ export class Visualizer {
     if (fc.style.width !== px(c.offsetWidth)) fc.style.width = px(c.offsetWidth);
     if (fc.style.height !== px(c.offsetHeight)) fc.style.height = px(c.offsetHeight);
     if (this._fluid.mode !== 'fluid') this._fluid.setMode('fluid');
-    this._feedFluid(this._getFreq());
+    // Smoke and HD Flow share the fluid: each sets it up its own way (v3.33.0).
+    if (this._fluidStyle !== this.mode) {
+      this._fluidStyle = this.mode;
+      const f = this._fluid; f._baseTier = f._baseTier || f._tier;
+      // HD Flow: neon threads on dark, not clouds. A fine brush, little dye per
+      // stroke, a quick fade and a gentle glow (it filled the screen at first).
+      if (this.mode === 'flow') { f.setQuality(f._baseTier === 'low' ? 'low' : 'high'); f.setFlow({ swirl: 2.6, trail: 0.7, radius: 0.35 }); f.setBloom(0.7); }
+      else { f.setQuality(f._baseTier); f.setFlow({ swirl: 1.7, trail: 0.42, radius: 0.6 }); f.setBloom(0); }
+    }
+    if (this.mode === 'flow') this._feedFlow(this._getFreq()); else this._feedFluid(this._getFreq());
   }
 
   _makeFluid () {
@@ -312,7 +328,9 @@ export class Visualizer {
   // filled with fluid before.
   _feedFluid (freq) {
     const f = this._fluid, n = freq.length, now = performance.now();
-    const band = (a, b) => { let t = 0; for (let i = a; i < b; i++) t += freq[i]; return t / Math.max(1, b - a) / 255; };
+    // Average and peak together (v3.33.0): a narrow sound, a pure tone, made
+    // only a small average over its part, once the analyser grew finer.
+    const band = (a, b) => { let t = 0, m = 0; for (let i = a; i < b; i++) { t += freq[i]; if (freq[i] > m) m = freq[i]; } return (t / Math.max(1, b - a) + m) / 2 / 255; };
     const cut = [0, 0.1, 0.3, 0.6, 1].map(c => Math.round(c * n));
     const lv = [0, 1, 2, 3].map(i => band(cut[i], Math.max(cut[i] + 1, cut[i + 1])));
     const st = this._fl || (this._fl = { last: 0, bassAvg: 0, splats: 0, drift: Math.random(), phase: [0, 1.7, 3.1, 4.4] });
@@ -330,6 +348,48 @@ export class Visualizer {
       f._splat(x, 0.04, side, up, this._rgb(v, i / 3, 0, st.drift, i).map(c => c * k), 0.22 + v * 0.32 + (beat ? 0.2 : 0));
       st.splats++;
     }
+  }
+
+  // ── HD FLOW (v3.33.0) ── Four emitters wander the screen and stir the fluid
+  // as they go, leaving their colour along the way, like a brush: faster and
+  // denser as their part of the sound gets louder, and a beat in the bass
+  // bursts. Strong swirl keeps the filaments fine, and the glow lights them.
+  _feedFlow (freq) {
+    const f = this._fluid, n = freq.length, now = performance.now();
+    const band = (a, b) => { let t = 0, m = 0; for (let i = a; i < b; i++) { t += freq[i]; if (freq[i] > m) m = freq[i]; } return (t / Math.max(1, b - a) + m) / 2 / 255; };
+    const cut = [0, 0.1, 0.3, 0.6, 1].map(c => Math.round(c * n));
+    const lv = [0, 1, 2, 3].map(i => band(cut[i], Math.max(cut[i] + 1, cut[i + 1])));
+    const st = this._fw || (this._fw = { t: now, last: 0, bassAvg: 0, splats: 0, drift: Math.random(),
+      em: Array.from({ length: 4 }, (_, i) => ({ ph: Math.random() * 50, fx: 0.5 + Math.random() * 0.4, fy: 0.4 + Math.random() * 0.4, ox: Math.random() * 6.28, oy: Math.random() * 6.28, x: 0.2 + i * 0.2, y: 0.5 })) });
+    const dt = Math.min(0.05, Math.max(0.001, (now - st.t) / 1000)); st.t = now;
+    st.bassAvg += (lv[0] - st.bassAvg) * 0.05; st.drift = (st.drift + 0.0006) % 1;
+    const quiet = this._loudness() < 0.01;
+    const beat = !quiet && lv[0] > 0.3 && lv[0] > st.bassAvg * 1.25 && now - (st.beatAt || 0) > 200;
+    if (beat) st.beatAt = now;
+    const due = now - st.last >= 22; if (due) st.last = now;   // about 45 strokes a second each
+    st.em.forEach((e, i) => {
+      const v = lv[i];
+      e.ph += dt * (0.5 + v * 1.8);   // sweeping: a moving brush draws a line, a still one a blob
+      const nx = 0.5 + 0.38 * Math.sin(e.ph * e.fx + e.ox) * Math.cos(e.ph * 0.27 + e.oy);
+      const ny = 0.5 + 0.36 * Math.sin(e.ph * e.fy + e.oy + i);
+      const dx = nx - e.x, dy = ny - e.y; e.x = nx; e.y = ny;
+      if (quiet || !due || v < 0.06) return;
+      const len = Math.hypot(dx, dy) || 1e-6, force = 1800 + v * 5200;
+      const col = this._rgb(v, i / 3, 0, st.drift, i).map(c => c * (0.09 + v * 0.22));
+      // Strokes along the way it came (up to three), sharing the dye, so a fast
+      // emitter leaves one continuous thread rather than dots.
+      const k = Math.min(3, Math.max(1, Math.ceil(len / 0.012)));
+      const part = col.map(c => c / Math.sqrt(k));
+      for (let j = 1; j <= k; j++) {
+        const t = j / k;
+        f._splat(e.x - dx * (1 - t), e.y - dy * (1 - t), dx / len * force, dy / len * force, part, 0.05 + v * 0.07);
+      }
+      st.splats++;
+      if (beat && i < 2) {
+        const a = Math.random() * Math.PI * 2;
+        f._splat(e.x, e.y, Math.cos(a) * 4200, Math.sin(a) * 4200, col.map(c => c * 1.3), 0.25);
+      }
+    });
   }
 
   // A dye colour (red, green, blue from 0 to 1) in the chosen colours. In
@@ -496,6 +556,7 @@ export class Visualizer {
 
     // The album art inside the ring (v3.32.0): turning with Spin, like a record,
     // and swelling a little with the bass.
+    if (this._artUrl !== ART) this.setArt(ART);   // follows the current art (v3.33.0)
     if (this._art) {
       const a = this._art, bass = ((freq[0] || 0) + (freq[1] || 0) + (freq[2] || 0)) / 765;
       const rr = baseR * 0.84 * (1 + bass * 0.05), k = Math.max(rr * 2 / a.naturalWidth, rr * 2 / a.naturalHeight);

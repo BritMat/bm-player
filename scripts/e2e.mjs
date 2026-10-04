@@ -57,7 +57,8 @@ catch { skip('Electron binary not installed (ELECTRON_SKIP_BINARY_DOWNLOAD?)'); 
 let _electron;
 try { ({ _electron } = await import('playwright-core')); } catch { skip('playwright-core not installed'); }
 
-const hard = setTimeout(() => { console.log('\n  DEADLINE: e2e ran too long'); process.exit(1); }, 100000);
+// Part C runs the full visuals and has grown past 100 s (v3.33.0): 180 s for it.
+const hard = setTimeout(() => { console.log('\n  DEADLINE: e2e ran too long'); process.exit(1); }, PART === 'c' ? 180000 : 100000);
 
 /* Fixtures, generated so nothing binary is committed. */
 const FIX = fs.mkdtempSync(path.join(os.tmpdir(), 'bm-e2e-'));
@@ -1111,13 +1112,18 @@ if (PART === 'c') {
       const lit = () => {
         const c = v.canvas, d = c.getContext('2d').getImageData(0, 0, c.width, c.height).data, W = c.width, H = c.height;
         let n = 0, edges = { l: 0, r: 0, t: 0, b: 0 };
-        for (let y = 0; y < H; y += 4) for (let x = 0; x < W; x += 4) {
-          if (d[(y * W + x) * 4 + 3] < 40) continue; n++;
+        for (let y = 0; y < H; y += 2) for (let x = 0; x < W; x += 2) {   // finer, so thin lines are not missed (v3.33.0)
+          if (d[(y * W + x) * 4 + 3] < 25) continue; n++;
           if (x < W * 0.15) edges.l++; if (x > W * 0.85) edges.r++; if (y < H * 0.15) edges.t++; if (y > H * 0.85) edges.b++;
         }
-        return { share: n / ((W / 4) * (H / 4)), edges };
+        return { share: n / ((W / 2) * (H / 2)), edges };
       };
+      const el2 = bmMusic.engine.el; el2.loop = true;
       for (const [style, key, list] of [['neon', '_neon', 'p'], ['bubbles', '_bub', 'b'], ['particles', '_pt', 'p']]) {
+        // Sound first (v3.33.0): playing, and loud enough to be heard, before
+        // a style is judged on what it draws.
+        if (el2.paused) await el2.play().catch(() => {});
+        for (let i = 0; i < 30 && !(v._loudness() > 0.01); i++) await new Promise(z => setTimeout(z, 100));
         v.setOptions({ style }); v.setMode(style);
         await new Promise(z => setTimeout(z, 2500));
         // what it has made in all: on screen, long-lived wisps outlast a short wait
@@ -1219,13 +1225,59 @@ if (PART === 'c') {
     await page.waitForTimeout(1500); await page.waitForFunction(() => window.bmApp, null, { timeout: 30000 }); await page.waitForTimeout(800);
     const lite = await page.evaluate(() => ({ cls: document.documentElement.classList.contains('lite-mode'), stored: localStorage.getItem('bm_lite_user') }));
     const tickLite = await tick();
-    await page.evaluate(() => document.querySelector('.mr[data-a="fx-full"]').click());
+    await page.evaluate(() => document.querySelector('.mr[data-a="fx-pro"]').click());
     await page.waitForTimeout(1500); await page.waitForFunction(() => window.bmApp, null, { timeout: 30000 }); await page.waitForTimeout(800);
     const full = await page.evaluate(() => ({ cls: document.documentElement.classList.contains('lite-mode'), stored: localStorage.getItem('bm_lite_user') }));
     if (rows !== 3) throw new Error(rows + ' visual effects rows in Tools');
     if (before.length !== 1) throw new Error('no choice ticked');
     if (!lite.cls || lite.stored !== '1' || tickLite[0] !== 'fx-lite') throw new Error('Lite did not take effect: ' + JSON.stringify({ lite, tickLite }));
-    if (full.cls || full.stored !== '0') throw new Error('Full did not take effect: ' + JSON.stringify(full));
+    if (full.cls || full.stored !== '0') throw new Error('Pro did not take effect: ' + JSON.stringify(full));
+    // The switch by the window buttons (v3.33.0): it says Pro or Lite, a
+    // press switches, and a note says so once the window has reloaded.
+    const pillPro = await page.evaluate(() => document.getElementById('fx-toggle')?.textContent);
+    await page.evaluate(() => document.getElementById('fx-toggle').click());
+    await page.waitForTimeout(1500); await page.waitForFunction(() => window.bmApp, null, { timeout: 30000 }); await page.waitForTimeout(700);
+    const after = await page.evaluate(() => ({ pill: document.getElementById('fx-toggle')?.textContent, lite: document.documentElement.classList.contains('lite-mode'), note: document.querySelector('.fx-note')?.textContent || '' }));
+    await page.evaluate(() => document.getElementById('fx-toggle').click());
+    await page.waitForTimeout(1500); await page.waitForFunction(() => window.bmApp, null, { timeout: 30000 }); await page.waitForTimeout(700);
+    const back = await page.evaluate(() => ({ pill: document.getElementById('fx-toggle')?.textContent, lite: document.documentElement.classList.contains('lite-mode') }));
+    if (pillPro !== 'Pro') throw new Error('the switch shows ' + pillPro + ' in Pro mode');
+    if (after.pill !== 'Lite' || !after.lite) throw new Error('the switch did not go to Lite: ' + JSON.stringify(after));
+    if (!/Switched to Lite mode/.test(after.note)) throw new Error('no note after switching: ' + JSON.stringify(after.note));
+    if (back.pill !== 'Pro' || back.lite) throw new Error('the switch did not come back to Pro: ' + JSON.stringify(back));
+  });
+
+  // The title bar (v3.33.0): no stacked-layers symbol, and the name in the
+  // middle of the window.
+  await step('the title bar has the name in the middle, and no stacked symbol', async () => {
+    const r = await page.evaluate(() => {
+      const b = document.querySelector('.tb-brand')?.getBoundingClientRect();
+      return { logo: !!document.querySelector('.tb-logo'), text: document.querySelector('.tb-brand')?.textContent, off: b ? Math.abs(b.left + b.width / 2 - innerWidth / 2) : 999 };
+    });
+    if (r.logo) throw new Error('the stacked-layers symbol is still there');
+    if (r.text !== 'BM Player') throw new Error('the title bar name is ' + r.text);
+    if (r.off > 4) throw new Error(`the name is ${r.off.toFixed(1)}px from the middle`);
+  });
+
+  // HD Flow (v3.33.0): the fluid with a glow, stirred by emitters that wander
+  // with the music. It strokes while music plays and stops when paused.
+  await step('HD Flow glows and moves with the music, and stops with it', async () => {
+    const r = await page.evaluate(async t => {
+      bmApp.switchDest('music'); bmMusic.play(t, 0); bmMusic.engine.el.loop = true; await new Promise(z => setTimeout(z, 1200));
+      bmApp.switchDest('video'); await new Promise(z => setTimeout(z, 700));
+      const v = bmApp.viz; v.setOptions({ style: 'flow' }); v.setMode('flow');
+      for (let i = 0; i < 30 && !(v._loudness() > 0.01); i++) await new Promise(z => setTimeout(z, 100));
+      await new Promise(z => setTimeout(z, 2500));
+      const playing = v._fw?.splats || 0, bloom = v._fluid?.bloom || 0;
+      bmMusic.engine.el.pause(); await new Promise(z => setTimeout(z, 500));
+      const a = v._fw?.splats || 0; await new Promise(z => setTimeout(z, 1500)); const b = v._fw?.splats || 0;
+      v.setOptions({ style: 'bars' }); v.setMode('bars'); bmMusic.engine?.stop?.();
+      return { fluid: !!v._fluid, bloom, playing, paused: b - a };
+    }, TONE);
+    if (!r.fluid) throw new Error('the fluid did not start');
+    if (!(r.bloom > 0)) throw new Error('no glow');
+    if (r.playing < 5) throw new Error('only ' + r.playing + ' strokes with music');
+    if (r.paused !== 0) throw new Error(r.paused + ' strokes while paused');
   });
 
   // The decorative loops (v3.30.0): the theme's background, the Flow fluid

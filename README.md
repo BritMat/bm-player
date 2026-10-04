@@ -51,9 +51,10 @@ read by BM Player's built-in updater. You don't need to download them.
   bubbles, forest fireflies, city lights in neon rain, falling cherry blossom, and
   more. And a 3D fox mascot.
 - Keyboard shortcuts for nearly everything: press ? (or F1) in the app for the list.
+- Pro or Lite, switched with one press of the button by the window controls.
 - An audio visualiser that shows the music as it plays, its real frequencies,
-  in eight styles, among them MilkDrop (the classic presets, through
-  butterchurn), Neon, Bubbles and Smoke, with the album art in Radial's
+  in nine styles, among them HD Flow (glowing fluid stirred by the music),
+  MilkDrop (the classic presets, through butterchurn), Neon, Bubbles and Smoke, with the album art in Radial's
   middle, and settings for its style,
   colours, sensitivity and bars. And subtitles in the font and colour you choose.
 - Plugins: themes and scripts you add yourself (see below).

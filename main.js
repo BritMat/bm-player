@@ -192,6 +192,7 @@ const IS_LITE_BUILD = (process.env.BM_LITE === '1')
 process.env.BM_LITE = IS_LITE_BUILD ? '1' : '0';
 
 app.whenReady().then(()=>{
+  setTimeout(() => { pruneCache('thumbs'); pruneCache('covers'); }, 30000).unref?.();   // v3.33.0
   try { protocol.handle('bmfile', serveBmFile); }
   catch (e) { console.error('[main] could not register bmfile://:', e); }
   registerIpc();
@@ -927,6 +928,23 @@ function cacheDir(sub){
   const d = path.join(app.getPath('userData'), sub);
   try { fs.mkdirSync(d, { recursive: true }); } catch(_) {}
   return d;
+}
+// The thumbnail and cover caches were never trimmed (v3.33.0): files unused
+// for 90 days go, and each cache is kept under 300 MB, oldest first. Run once,
+// half a minute after start, in the background.
+function pruneCache(sub, maxBytes = 300 * 1024 * 1024, maxDays = 90){
+  fs.promises.readdir(cacheDir(sub)).then(async names => {
+    const dir = cacheDir(sub), cut = Date.now() - maxDays * 86400000, files = [];
+    for (const n of names) {
+      try { const st = await fs.promises.stat(path.join(dir, n)); if (st.isFile()) files.push({ p: path.join(dir, n), t: Math.max(st.atimeMs, st.mtimeMs), size: st.size }); } catch(_) {}
+    }
+    files.sort((a, b) => a.t - b.t);
+    let total = files.reduce((s, f) => s + f.size, 0);
+    for (const f of files) {
+      if (f.t >= cut && total <= maxBytes) break;
+      try { await fs.promises.unlink(f.p); total -= f.size; } catch(_) {}
+    }
+  }).catch(() => {});
 }
 function cacheKey(){
   return crypto.createHash('sha1').update([...arguments].join('|')).digest('hex');

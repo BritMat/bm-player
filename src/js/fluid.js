@@ -203,8 +203,9 @@ const DISPLAY_FRAG = `
 precision highp float; precision highp sampler2D;
 varying vec2 vUv, vL, vR, vT, vB;
 uniform sampler2D uTexture;
+uniform sampler2D uBloom;   // the glow (v3.33.0), added when uBloomAmt is above 0
 uniform vec2 texelSize;
-uniform float uAlpha, uShading;
+uniform float uAlpha, uShading, uBloomAmt;
 void main () {
   vec3 c = texture2D(uTexture, vUv).rgb;
   if (uShading > 0.5) {
@@ -218,8 +219,34 @@ void main () {
     float diffuse = clamp(dot(n, vec3(0.0, 0.0, 1.0)) + 0.7, 0.7, 1.0);
     c *= diffuse;
   }
+  c += texture2D(uBloom, vUv).rgb * uBloomAmt;
   float a = max(c.r, max(c.g, c.b));
   gl_FragColor = vec4(c, a * uAlpha);
+}`;
+
+/* Bloom (v3.33.0), for the HD Flow visualiser: the bright parts of the dye,
+   at a quarter of its size, blurred, and added back over it, so thin
+   filaments glow. A 9-tap Gaussian from 5 reads, by linear filtering. */
+const BLOOM_PRE_FRAG = `
+precision mediump float; precision mediump sampler2D;
+varying vec2 vUv;
+uniform sampler2D uTexture;
+uniform float uThreshold;
+void main () {
+  vec3 c = texture2D(uTexture, vUv).rgb;
+  float br = max(c.r, max(c.g, c.b));
+  gl_FragColor = vec4(c * (max(0.0, br - uThreshold) / max(br, 0.0001)), 0.0);
+}`;
+const BLUR_FRAG = `
+precision mediump float; precision mediump sampler2D;
+varying vec2 vUv;
+uniform sampler2D uTexture;
+uniform vec2 uDir;
+void main () {
+  vec3 s = texture2D(uTexture, vUv).rgb * 0.2270270;
+  s += (texture2D(uTexture, vUv + uDir * 1.3846154).rgb + texture2D(uTexture, vUv - uDir * 1.3846154).rgb) * 0.3162162;
+  s += (texture2D(uTexture, vUv + uDir * 3.2307692).rgb + texture2D(uTexture, vUv - uDir * 3.2307692).rgb) * 0.0702703;
+  gl_FragColor = vec4(s, 0.0);
 }`;
 
 /* ─── GL helpers ─────────────────────────────────────────────────── */
@@ -266,6 +293,7 @@ class Program {
 
 export class FluidFX {
   constructor(canvas) {
+    (FluidFX.all || (FluidFX.all = new Set())).add(this);   // every instance, for diagnostics (v3.33.0)
     this.canvas = canvas;
     this.mode = 'off';
     this.paused = false;
@@ -375,6 +403,8 @@ export class FluidFX {
       pressure: new Program(gl, BASE_VERT, PRESSURE_FRAG),
       gradSub:  new Program(gl, BASE_VERT, GRADIENT_SUBTRACT_FRAG),
       display:  new Program(gl, BASE_VERT, DISPLAY_FRAG),
+      bloomPre: new Program(gl, BASE_VERT, BLOOM_PRE_FRAG),
+      blur:     new Program(gl, BASE_VERT, BLUR_FRAG),
     };
   }
 
@@ -452,8 +482,8 @@ export class FluidFX {
     const kill = t => { if (!t) return; try { gl.deleteTexture(t.texture); gl.deleteFramebuffer(t.fbo); } catch(_) {} };
     const killDouble = d => { if (!d) return; kill(d.read); kill(d.write); };
     killDouble(this.dye); killDouble(this.velocity); killDouble(this.pressure);
-    kill(this.divergence); kill(this.curlFBO);
-    this.dye = this.velocity = this.pressure = this.divergence = this.curlFBO = null;
+    kill(this.divergence); kill(this.curlFBO); kill(this.bloomA); kill(this.bloomB);
+    this.dye = this.velocity = this.pressure = this.divergence = this.curlFBO = this.bloomA = this.bloomB = null;
   }
 
   _initFramebuffers() {
@@ -469,6 +499,18 @@ export class FluidFX {
     this.divergence = this._createFBO(s.width, s.height, this.fmtR, gl.NEAREST);
     this.curlFBO    = this._createFBO(s.width, s.height, this.fmtR, gl.NEAREST);
     this.pressure   = this._createDouble(s.width, s.height, this.fmtR, gl.NEAREST);
+    if (this.bloom > 0) {   // a quarter of the dye's size (v3.33.0)
+      const b = this._dims(Math.max(64, Math.round(this.cfg.dye / 4)));
+      this.bloomA = this._createFBO(b.width, b.height, this.fmtRGBA, filter);
+      this.bloomB = this._createFBO(b.width, b.height, this.fmtRGBA, filter);
+    }
+  }
+
+  /** The glow over the dye, 0 for none (v3.33.0). Its buffers exist only while it is on. */
+  setBloom(v) {
+    const was = this.bloom > 0;
+    this.bloom = Math.max(0, +v || 0);
+    if (was !== this.bloom > 0 && this.dye) this._initFramebuffers();
   }
 
   _resize(force) {
@@ -605,6 +647,15 @@ export class FluidFX {
     if (PALETTES[theme]) this.theme = theme;
   }
   pause()  { this.paused = true;  this._stop(); }
+  /* Stop at once, no fade (v3.33.0): the visualiser's fluid, once its canvas
+     is hidden. setMode('off') lets the loop fade the picture out, about 74
+     frames of full simulation, drawn into a canvas no one could see (seven
+     seconds of it on a slow machine). The theme's background keeps its fade. */
+  halt() {
+    this.mode = 'off'; this._targetAlpha = 0; this._alpha = 0;
+    this._stop();
+    try { this._clearScreen(); } catch(_) {}
+  }
   resume() { this.paused = false; if (this.mode === 'fluid') this._start(); }
 
   /* The pointer's trail. It used the ambient splat size at a brighter colour
@@ -660,6 +711,22 @@ export class FluidFX {
 
   _render() {
     const gl = this.gl, P = this.progs;
+    let bloom = null;
+    if (this.bloom > 0 && this.bloomA) {
+      gl.disable(gl.BLEND);
+      P.bloomPre.bind();
+      gl.uniform1i(P.bloomPre.uniforms.uTexture, this.dye.read.attach(0));
+      gl.uniform1f(P.bloomPre.uniforms.uThreshold, 0.1);
+      this._blit(this.bloomA);
+      P.blur.bind();
+      for (let i = 1; i <= 2; i++) {   // twice, the second wider: a soft, wide glow
+        gl.uniform2f(P.blur.uniforms.uDir, this.bloomA.texelSizeX * i, 0);
+        gl.uniform1i(P.blur.uniforms.uTexture, this.bloomA.attach(0)); this._blit(this.bloomB);
+        gl.uniform2f(P.blur.uniforms.uDir, 0, this.bloomB.texelSizeY * i);
+        gl.uniform1i(P.blur.uniforms.uTexture, this.bloomB.attach(0)); this._blit(this.bloomA);
+      }
+      bloom = this.bloomA;
+    }
     gl.enable(gl.BLEND);
     gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
     P.display.bind();
@@ -667,10 +734,13 @@ export class FluidFX {
     gl.uniform1i(P.display.uniforms.uTexture, this.dye.read.attach(0));
     gl.uniform1f(P.display.uniforms.uAlpha, this._alpha);
     gl.uniform1f(P.display.uniforms.uShading, this._tier === 'low' ? 0 : 1);
+    gl.uniform1i(P.display.uniforms.uBloom, bloom ? bloom.attach(1) : this.dye.read.attach(1));
+    gl.uniform1f(P.display.uniforms.uBloomAmt, bloom ? this.bloom : 0);
     this._blit(null);
   }
 
   destroy() {
+    FluidFX.all?.delete(this);
     this._stop();
     this._disposeFramebuffers();
     window.removeEventListener('resize', this._onResize);

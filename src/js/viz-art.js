@@ -25,8 +25,10 @@ function bands(freq) {
   const out = [];
   for (let i = 0; i < 5; i++) {
     const a = cut[i], b = Math.max(a + 1, cut[i + 1]);
-    let s = 0; for (let j = a; j < b; j++) s += freq[j] || 0;
-    out.push(s / (b - a) / 255);
+    // Average and peak together (v3.33.0): a narrow sound, a pure tone, made
+    // only a small average over its part once the analyser grew finer.
+    let s = 0, m = 0; for (let j = a; j < b; j++) { const x = freq[j] || 0; s += x; if (x > m) m = x; }
+    out.push((s / (b - a) + m) / 2 / 255);
   }
   return out;
 }
