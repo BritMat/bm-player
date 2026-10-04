@@ -65,6 +65,46 @@ function tone(viz, i, n, v, set) {
 }
 const hsla = ([h, s, l], a) => `hsla(${Math.round(h)},${s}%,${Math.round(Math.min(92, l))}%,${a.toFixed(3)})`;
 
+// Sprites (v3.32.0): a glowing ring or dot drawn once into a small canvas, then
+// copied each frame. Stroking hundreds of arcs with a wide glow, and two full-
+// screen gradients, every frame, made Bubbles stutter on a real machine.
+// Sizes and colours come in steps, so there are a few dozen sprites at most.
+const SPRITES = new Map();
+function sprite(key, size, paint) {
+  let c = SPRITES.get(key);
+  if (!c) {
+    c = document.createElement('canvas'); c.width = c.height = Math.max(2, Math.ceil(size));
+    paint(c.getContext('2d'), c.width);
+    SPRITES.set(key, c);
+    if (SPRITES.size > 300) SPRITES.delete(SPRITES.keys().next().value);
+  }
+  return c;
+}
+const RB = [1.5, 2, 2.5, 3, 4, 5, 6, 7.5, 9, 11, 13, 16, 19, 23];   // bubble radii, in CSS pixels
+const nearestRB = r => { let k = 0; for (let i = 1; i < RB.length; i++) if (Math.abs(RB[i] - r) < Math.abs(RB[k] - r)) k = i; return k; };
+const step = col => [Math.round(col[0] / 4) * 4, col[1], Math.round(col[2] / 6) * 6];
+function ringSprite(col, rb, dpr) {
+  const r = RB[rb] * dpr, big = RB[rb] > 7, glow = (big ? 7 : 4) * dpr, n = Math.ceil((r + glow) * 2 + 2);
+  return sprite(`ring|${col.join(',')}|${rb}|${dpr}`, n, (g, w) => {
+    g.lineWidth = glow; g.strokeStyle = hsla(col, big ? 0.22 : 0.12); g.beginPath(); g.arc(w / 2, w / 2, r, 0, TAU); g.stroke();
+    g.lineWidth = 1.4 * dpr; g.strokeStyle = hsla([col[0], col[1], col[2] + 14], big ? 0.95 : 0.75); g.beginPath(); g.arc(w / 2, w / 2, r, 0, TAU); g.stroke();
+  });
+}
+function glowSprite(col) {
+  return sprite(`glow|${col.join(',')}`, 256, (g, w) => {
+    const gr = g.createRadialGradient(w / 2, w / 2, 0, w / 2, w / 2, w / 2);
+    gr.addColorStop(0, hsla(col, 1)); gr.addColorStop(1, 'rgba(0,0,0,0)'); g.fillStyle = gr; g.fillRect(0, 0, w, w);
+  });
+}
+function dotSprite(col, r) {
+  const n = Math.ceil(r * 4 + 2);
+  return sprite(`dot|${col.join(',')}|${r}`, n, (g, w) => {
+    const gr = g.createRadialGradient(w / 2, w / 2, 0, w / 2, w / 2, w / 2);
+    gr.addColorStop(0, hsla([col[0], col[1], col[2] + 18], 1)); gr.addColorStop(0.35, hsla(col, 0.85)); gr.addColorStop(1, hsla(col, 0));
+    g.fillStyle = gr; g.fillRect(0, 0, w, w);
+  });
+}
+
 // Fade what is there (the trails), and draw what comes next as added light.
 function fade(ctx, W, H, amount) {
   ctx.globalCompositeOperation = 'destination-out';
@@ -193,20 +233,22 @@ export function drawBubbles(viz) {
     st.made = (st.made || 0) + count;
     for (let j = 0; j < count && st.b.length < 900; j++) {
       const g = (Math.random() + Math.random() + Math.random() - 1.5) * S * 0.085;  // bunched about the column
-      st.b.push({ x: c.x + g, y: H + 12 * dpr, r: (1.5 + Math.random() * Math.random() * 13 * (0.4 + v)) * dpr,
+      const rb = nearestRB(1.5 + Math.random() * Math.random() * 13 * (0.4 + v));
+      st.b.push({ x: c.x + g, y: H + 12 * dpr, rb, r: RB[rb] * dpr,
         vy: -(S * (0.1 + v * 0.3) + Math.random() * S * 0.05), ph: Math.random() * TAU, fam, part: part[i] });
     }
     if (beat && fam === 0) for (let j = 0; j < 9 && st.b.length < 900; j++) {           // a cluster lets go
-      st.b.push({ x: c.x + (Math.random() - 0.5) * S * 0.12, y: H * (0.45 + Math.random() * 0.45), r: (6 + Math.random() * 14) * dpr,
+      const rb = nearestRB(6 + Math.random() * 14);
+      st.b.push({ x: c.x + (Math.random() - 0.5) * S * 0.12, y: H * (0.45 + Math.random() * 0.45), rb, r: RB[rb] * dpr,
         vy: -S * (0.15 + Math.random() * 0.15), ph: Math.random() * TAU, fam, part: part[i] });
     }
   });
   // Rise, sway a little, and go at the top.
-  const keep = [], groups = [[], [], [], []];
+  const keep = [];
   for (const b of st.b) {
     b.y += b.vy * dt; b.x += Math.sin(now / 700 + b.ph) * S * 0.02 * dt;
     if (b.y < -b.r * 2) continue;
-    keep.push(b); groups[b.fam * 2 + (b.r > 7 * dpr ? 1 : 0)].push(b);
+    keep.push(b);
   }
   st.b = keep;
   // A soft glow behind each colour, where its bubbles are.
@@ -214,19 +256,17 @@ export function drawBubbles(viz) {
     const v = (lv[fam ? 3 : 0] + lv[fam ? 4 : 1]) / 2; if (v < 0.05) continue;
     const xs = st.cols.filter((_, i) => i % 2 === fam).map(c => c.x), x = xs.reduce((a, b) => a + b, 0) / xs.length;
     const y = fam ? H * 0.35 : H * 0.7, R = S * (0.35 + v * 0.3);
-    const g = ctx.createRadialGradient(x, y, 0, x, y, R);
-    g.addColorStop(0, hsla(tone(viz, fam, 2, v, 'bubbles'), 0.1 + v * 0.12)); g.addColorStop(1, 'rgba(0,0,0,0)');
-    ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
+    ctx.globalAlpha = 0.1 + v * 0.12;
+    ctx.drawImage(glowSprite(step(tone(viz, fam, 2, v, 'bubbles'))), x - R, y - R, R * 2, R * 2);
+    ctx.globalAlpha = 1;
   }
-  // The rings: a faint wide one for the glow, a thin bright one on top.
-  groups.forEach((list, k) => {
-    if (!list.length) return;
-    const fam = k >> 1, big = k & 1, v = lv[fam ? 3 : 0], col = tone(viz, fam, 2, v, 'bubbles');
-    for (const [w, a] of [[(big ? 7 : 4) * dpr, big ? 0.22 : 0.12], [1.4 * dpr, big ? 0.95 : 0.75]]) {
-      ctx.strokeStyle = hsla(w > 2 * dpr ? col : [col[0], col[1], col[2] + 14], a); ctx.lineWidth = w;
-      ctx.beginPath(); for (const b of list) { ctx.moveTo(b.x + b.r, b.y); ctx.arc(b.x, b.y, b.r, 0, TAU); } ctx.stroke();
-    }
-  });
+  // The rings, from sprites: a faint wide glow and a thin bright line, drawn once.
+  const fcol = [0, 1].map(f => step(tone(viz, f, 2, lv[f ? 3 : 0], 'bubbles')));
+  const spr = [[], []];
+  for (const b of st.b) {
+    const c = spr[b.fam][b.rb] || (spr[b.fam][b.rb] = ringSprite(fcol[b.fam], b.rb, dpr));
+    ctx.drawImage(c, b.x - c.width / 2, b.y - c.height / 2);
+  }
   ctx.globalCompositeOperation = 'source-over';
 }
 
@@ -259,11 +299,16 @@ export function drawParticles(viz) {
     keep.push(p); groups[p.i * 2 + (p.life > 0.5 ? 1 : 0)].push(p);
   }
   st.p = keep;
+  // From sprites (v3.32.0): a soft dot per colour and size, faded by its life.
   groups.forEach((list, g) => {
     if (!list.length) return;
-    const i = g >> 1;
-    ctx.fillStyle = hsla(tone(viz, i, n, lv[i]), g & 1 ? 0.85 : 0.4);
-    ctx.beginPath(); for (const p of list) { const r = p.size * (0.4 + p.life * 0.6); ctx.moveTo(p.x + r, p.y); ctx.arc(p.x, p.y, r, 0, TAU); } ctx.fill();
+    const i = g >> 1, col = step(tone(viz, i, n, lv[i]));
+    ctx.globalAlpha = g & 1 ? 0.9 : 0.45;
+    for (const p of list) {
+      const r = Math.max(1, Math.round(p.size * (0.4 + p.life * 0.6))), c = dotSprite(col, r);
+      ctx.drawImage(c, p.x - c.width / 2, p.y - c.height / 2);
+    }
   });
+  ctx.globalAlpha = 1;
   ctx.globalCompositeOperation = 'source-over';
 }

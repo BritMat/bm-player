@@ -7,7 +7,7 @@
  * visualiser then shows the frequencies of what is playing. A file the page
  * cannot decode keeps the old animation.
  *
- * The analyser matches the in-app engine's (audio-engine.js): fftSize 256,
+ * The analyser matches the in-app engine's (audio-engine.js): fftSize 1024,
  * smoothing 0.8, so every visualiser setting behaves the same either way.
  */
 import { fileURL } from './util.js';
@@ -30,7 +30,7 @@ export class AudioShadow {
       this.ctx = new Ctx();
       const src = this.ctx.createMediaElementSource(this.el);
       this.analyser = this.ctx.createAnalyser();
-      this.analyser.fftSize = 256; this.analyser.smoothingTimeConstant = 0.8;
+      this.analyser.fftSize = 1024; this.analyser.smoothingTimeConstant = 0.8;
       // Measured, never heard: the analyser is pulled through a gain of zero.
       const silent = this.ctx.createGain(); silent.gain.value = 0;
       src.connect(this.analyser); this.analyser.connect(silent); silent.connect(this.ctx.destination);

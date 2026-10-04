@@ -21,6 +21,7 @@ function sync() {
   p.querySelectorAll('#vs-style button').forEach(b => b.classList.toggle('active', b.dataset.v === s.style));
   p.querySelectorAll('#vs-colors button').forEach(b => b.classList.toggle('active', b.dataset.v === s.colors));
   p.querySelectorAll('#vs-spin button').forEach(b => b.classList.toggle('active', (b.dataset.v === 'on') === (s.spin !== false)));
+  p.querySelectorAll('#vs-md-auto button').forEach(b => b.classList.toggle('active', +b.dataset.v === (s.mdAuto ?? 30)));
   for (const [id, key, , toUI, label] of SLIDERS) {
     const i = document.getElementById('vs-' + id), v = toUI(s[key]); if (i) i.value = v;
     const t = document.getElementById('vs-' + id + '-val'); if (t) t.textContent = label(v);
@@ -46,6 +47,9 @@ function wire() {
   p.querySelector('#vs-style')?.addEventListener('click', e => { const b = e.target.closest('button'); if (b) set({ style: b.dataset.v }); });
   p.querySelector('#vs-colors')?.addEventListener('click', e => { const b = e.target.closest('button'); if (b) set({ colors: b.dataset.v }); });
   p.querySelector('#vs-spin')?.addEventListener('click', e => { const b = e.target.closest('button'); if (b) set({ spin: b.dataset.v === 'on' }); });   // Radial (v3.30.1)
+  // MilkDrop (v3.32.0): how often the preset changes by itself, and the next one now.
+  p.querySelector('#vs-md-auto')?.addEventListener('click', e => { const b = e.target.closest('button'); if (b) set({ mdAuto: +b.dataset.v }); });
+  p.querySelector('#vs-md-next')?.addEventListener('click', () => { let n = null; for (const x of allVisualisers()) if (x.mode === 'milkdrop') n = x.mdNext(1.5) || n; if (n) window.bmApp?.showOSD?.(n); });
   for (const [id, key, fromUI] of SLIDERS) document.getElementById('vs-' + id)?.addEventListener('input', e => set({ [key]: fromUI(+e.target.value) }));
   document.getElementById('vs-reset')?.addEventListener('click', () => set({ ...VIZ_DEFAULTS }));
   document.addEventListener('mousedown', e => { if (!p.classList.contains('hidden') && !p.contains(e.target) && !e.target.closest('#viz-btn-settings, #mv-btn-settings')) close(); });

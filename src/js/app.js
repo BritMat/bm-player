@@ -175,7 +175,7 @@ class BMPlayer {
     // 2. Authoritative path — ask the main process for build flag + perf info.
     try {
       const info = await this.api?.app?.perfInfo?.();
-      if (info?.liteBuild) liteMode.setEnvFlag(1);
+      if (info?.liteBuild) { liteMode.setEnvFlag(1); document.documentElement.classList.add('lite-build'); }   // no effects choice there (v3.32.0)
       else if (info?.envLite) liteMode.setEnvFlag(1);
       // Stash the real CPU/RAM for the perf panel display.
       this._mainPerfInfo = info;
@@ -433,6 +433,7 @@ class BMPlayer {
       // ── v1.8.0: Theme Customizer ──
       'open-theme-customizer':()=>this._openThemeCustomizer(),
       'shortcuts':()=>this.toggleShortcuts(true),
+      'fx-auto':()=>this._setVisualFx('auto'),'fx-full':()=>this._setVisualFx('full'),'fx-lite':()=>this._setVisualFx('lite'),
       'audio-delay-p':()=>this.api?.adj.audioDelay(0.5),'audio-delay-m':()=>this.api?.adj.audioDelay(-0.5),'audio-delay-r':()=>this.api?.adj.resetAudio(),
       'aspect-auto':()=>cmd('set_property','video-aspect-override','-1'),'aspect-16:9':()=>cmd('set_property','video-aspect-override','16/9'),
       'aspect-4:3':()=>cmd('set_property','video-aspect-override','4/3'),'aspect-21:9':()=>cmd('set_property','video-aspect-override','21/9'),
@@ -576,6 +577,7 @@ class BMPlayer {
     window.addEventListener('unhandledrejection',e=>report('unhandled rejection:',e.reason));
     // The decorative loops follow the window too (v3.30.0, _syncEffects).
     document.addEventListener('visibilitychange',()=>this._syncEffects());
+    this._markFxMenu();
     // The visual mode hides the side pane (v3.31.0), and it slides back while the
     // pointer is at the left edge, so the other views are still a move away.
     document.addEventListener('mousemove',e=>{
@@ -975,6 +977,7 @@ class BMPlayer {
     const a=this.shadow?.load(this._currentFilePath,this.currentTime||0,!!this._lastPause);
     if(!a)return;
     this._shadowOn=true;setSharedAnalyser(a);
+    this._vizArtFor(this._currentFilePath);   // its album art, in the visual mode (v3.32.0)
     for(const v of [this.viz,this.musicViz]) if(v) v.analyser=a;
   }
   _stopShadow(){
@@ -1021,6 +1024,36 @@ class BMPlayer {
     if(this.isPlaying)return true;
     const e=window.bmMusic?.engine?.el;
     return !!(this._audioVizMode&&e&&!e.paused);
+  }
+  // The album art in the visual mode (v3.32.0): inside Radial's ring and in the
+  // tile by the title. A library song brings its cover; otherwise the main
+  // process looks (the file's own art, or a cover image beside it).
+  _vizArtFor(fp,cover){
+    const show=p=>{
+      const url=p?fileURL(p):null;
+      for(const v of allVisualisers()) v.setArt?.(url);
+      const t=el('viz-art'); if(!t)return;
+      t.classList.toggle('has-art',!!url); t.style.background=url?`center/cover no-repeat url("${url}")`:'';
+    };
+    if(cover){show(cover);return;}
+    show(null);
+    if(fp)this.api?.music?.art?.(fp)?.then?.(p=>{ if(fp===this._currentFilePath||window.bmMusic?.engineOwns?.()) show(p); }).catch?.(()=>{});
+  }
+  // Visual effects, Automatic, Full or Lite (v3.32.0): the full app had no way
+  // to choose. Lite changes how the app starts (the flat fox, no fluid), so it
+  // reloads to apply at once when nothing plays, and otherwise from the next
+  // start, rather than cutting into a film.
+  async _setVisualFx(v){
+    const { liteMode } = await import('./modules/lite-mode.js');
+    liteMode.setUserOverride(v==='auto'?null:v==='lite');
+    this._markFxMenu();
+    if(this.isPlaying||window.bmMusic?.engine?.el&&!window.bmMusic.engine.el.paused){ this.showOSD?.('Visual effects: '+v+', from the next start'); return; }
+    location.reload();
+  }
+  _markFxMenu(){
+    let u=null; try{u=localStorage.getItem('bm_lite_user');}catch(_){}
+    const cur=u==='1'?'lite':u==='0'?'full':'auto';
+    document.querySelectorAll('.mr[data-a^="fx-"]').forEach(r=>r.classList.toggle('checked',r.dataset.a==='fx-'+cur));
   }
   // The pin button and the right-click menu's "Always on top" (v3.27.0).
   toggleAlwaysOnTop(){
@@ -1356,7 +1389,7 @@ class BMPlayer {
     el('viz-btn-music')?.addEventListener('click',()=>this.switchDest('music'));
     el('pip-play')?.addEventListener('click',e=>{e.stopPropagation();this.togglePlay();});
     // Cycle visualiser modes by clicking the canvas — bars/radial/wave/particles
-    const modes=['bars','radial','wave','particles','fluid','neon','bubbles'];let mi=Math.max(0,modes.indexOf(vizSettings().style));
+    const modes=['bars','radial','wave','particles','fluid','neon','bubbles','milkdrop'];let mi=Math.max(0,modes.indexOf(vizSettings().style));
     el('visualizer-canvas')?.addEventListener('click',()=>{
       if(!this._audioVizMode)return;
       mi=(mi+1)%modes.length;saveVizSettings({...vizSettings(),style:modes[mi]});allVisualisers().forEach(v=>v.setMode(modes[mi]));window.bmVizPanel?.sync?.();this.showOSD('Visualiser: '+modes[mi]);

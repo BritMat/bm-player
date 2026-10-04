@@ -1,6 +1,6 @@
 /**
  * BM Player — Audio Visualizer
- * Modes: bars | radial | wave | particles | fluid (Smoke) | neon | bubbles | off
+ * Modes: bars | radial | wave | particles | fluid (Smoke) | neon | bubbles | milkdrop | off
  * Falls back to beautiful synthetic animation when no audio stream is available.
   *
  * NOTE: this class prefers a real AnalyserNode whenever one is attached, and
@@ -12,6 +12,23 @@
 
 import { FluidFX } from './fluid.js';
 import { drawNeon, drawBubbles, drawParticles } from './viz-art.js';   // v3.31.0
+
+/* MilkDrop (v3.32.0): butterchurn (MIT) plays the MilkDrop presets that
+   Poweramp and Winamp are known for, on a WebGL canvas over the visualiser's.
+   The presets come ready-built as functions (scripts/build-milkdrop.mjs), so
+   the app's policy against eval holds. Both load the first time the style is
+   chosen, and hear the same waveform as every other style. */
+let MD_LOAD = null;
+function loadMilkdrop () {
+  if (!MD_LOAD) MD_LOAD = new Promise((res, rej) => {
+    if (window.butterchurn) return res();
+    const s = document.createElement('script');
+    s.src = 'vendor/milkdrop/butterchurn.min.js';
+    s.onload = () => res(); s.onerror = () => rej(new Error('butterchurn did not load'));
+    document.head.appendChild(s);
+  }).then(() => import('../vendor/milkdrop/presets.js'));
+  return MD_LOAD;
+}
 
 /* v3.29.0: an analyser any visualiser falls back on, the audio shadow's while
    mpv plays a song (audio-shadow.js). One made after the song started finds
@@ -29,7 +46,7 @@ function hsl2rgb (h, s, l) {
    (the visual mode for audio and the music player's). Set in the panel that
    opens from their settings button (viz-settings.js). */
 const VIZ_KEY = 'bm_viz';
-export const VIZ_DEFAULTS = { style: 'bars', colors: 'auto', sensitivity: 1, bars: 80, smoothing: 0.8, spin: true };   // spin: Radial turns (v3.30.1)
+export const VIZ_DEFAULTS = { style: 'bars', colors: 'auto', sensitivity: 1, bars: 80, smoothing: 0.8, spin: true, mdAuto: 30 };   // mdAuto: seconds per MilkDrop preset, 0 for never (v3.32.0)   // spin: Radial turns (v3.30.1)
 export function vizSettings() {
   try { return { ...VIZ_DEFAULTS, ...JSON.parse(localStorage.getItem(VIZ_KEY) || '{}') }; } catch { return { ...VIZ_DEFAULTS }; }
 }
@@ -90,6 +107,7 @@ export class Visualizer {
     }
     this.mode = mode;
     if (mode !== 'fluid') { this._fluid?.setMode('off'); if (this._fluidCanvas) this._fluidCanvas.style.display = 'none'; }
+    if (mode !== 'milkdrop' && this._mdCanvas) this._mdCanvas.style.display = 'none';
     if (mode === 'off') { this.stop(); return; }
     if (!this.active) this.start();
   }
@@ -108,6 +126,7 @@ export class Visualizer {
     this.ctx?.clearRect(0, 0, this.canvas?.width, this.canvas?.height);
     this._fluid?.setMode('off');
     if (this._fluidCanvas) this._fluidCanvas.style.display = 'none';
+    if (this._mdCanvas) this._mdCanvas.style.display = 'none';
   }
 
   // How loud it is right now, 0 to 1, from the waveform (v3.31.0). The
@@ -241,6 +260,7 @@ export class Visualizer {
       case 'particles':drawParticles(this);break;
       case 'neon':     drawNeon(this);     break;
       case 'bubbles':  drawBubbles(this);  break;
+      case 'milkdrop': this._drawMilk();   break;
       case 'fluid':    this._drawFluid();    break;
     }
   }
@@ -341,6 +361,71 @@ export class Visualizer {
     return hsl2rgb(((h % 1) + 1) % 1, s, l);
   }
 
+  // ── MILKDROP (v3.32.0) ── Bars while it loads, and instead if WebGL 2 is
+  // missing or in Lite. Drawn at about 60% of the screen's pixels, at most
+  // 1280 by 720: MilkDrop is soft by nature, and it saves the GPU a lot.
+  _drawMilk () {
+    const { ctx, canvas } = this;
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    if (this._mdFailed || document.documentElement.classList.contains('lite-mode')) { this._drawBars(); return; }
+    if (!this._md) { this._makeMilk(); this._drawBars(); return; }
+    const mc = this._mdCanvas, c = this.canvas, px = v => v + 'px';
+    mc.style.display = '';
+    if (mc.style.left !== px(c.offsetLeft)) mc.style.left = px(c.offsetLeft);
+    if (mc.style.top !== px(c.offsetTop)) mc.style.top = px(c.offsetTop);
+    if (mc.style.width !== px(c.offsetWidth)) mc.style.width = px(c.offsetWidth);
+    if (mc.style.height !== px(c.offsetHeight)) mc.style.height = px(c.offsetHeight);
+    const w = Math.max(320, Math.min(1280, Math.round(c.offsetWidth * 0.6 * (window.devicePixelRatio || 1))));
+    const h = Math.max(180, Math.round(w * c.offsetHeight / Math.max(1, c.offsetWidth)));
+    if (w !== this._mdW || h !== this._mdH) { this._mdW = w; this._mdH = h; mc.width = w; mc.height = h; this._md.setRendererSize(w, h); }
+    const td = this._getTime(), b = this._mdBuf || (this._mdBuf = new Uint8Array(1024));
+    if (td.length >= 1024) b.set(td.subarray(0, 1024)); else for (let i = 0; i < 1024; i++) b[i] = td[Math.floor(i * td.length / 1024)];
+    const every = this.opts.mdAuto ?? 30;
+    if (every && performance.now() - this._mdAt > every * 1000) this.mdNext(2.5);
+    try { this._md.render({ audioLevels: { timeByteArray: b, timeByteArrayL: b, timeByteArrayR: b } }); }
+    catch (e) { console.warn('[BM Player] MilkDrop stopped, drawing bars:', e); this._mdFailed = true; mc.style.display = 'none'; }
+  }
+
+  _makeMilk () {
+    if (this._mdLoading) return;
+    this._mdLoading = true;
+    loadMilkdrop().then(mod => {
+      const fc = document.createElement('canvas');
+      fc.className = 'viz-milk-canvas';
+      fc.style.cssText = 'position:absolute;pointer-events:none;display:none;';
+      const z = getComputedStyle(this.canvas).zIndex; if (z && z !== 'auto') fc.style.zIndex = z;
+      this.canvas.parentNode.insertBefore(fc, this.canvas.nextSibling);
+      const bc = window.butterchurn?.default || window.butterchurn;
+      // butterchurn wants an audio context to build itself. It is given the
+      // sound frame by frame, so an offline one does: no device, no thread.
+      const actx = new OfflineAudioContext(2, 44100, 44100);
+      this._md = bc.createVisualizer(actx, fc, { width: 640, height: 360, pixelRatio: 1, textureRatio: 1 });
+      this._mdCanvas = fc; this._mdPresets = mod.PRESETS; this._mdNames = Object.keys(mod.PRESETS);
+      this.mdNext(0);
+    }).catch(e => { console.warn('[BM Player] MilkDrop unavailable, drawing bars:', e); this._mdFailed = true; });
+  }
+
+  /** Another MilkDrop preset, at random, blended over `blend` seconds. Its name, or null. */
+  mdNext (blend = 2.5) {
+    if (!this._md || !this._mdNames?.length) return null;
+    const names = this._mdNames; let i;
+    do { i = Math.floor(Math.random() * names.length); } while (names.length > 1 && names[i] === this._mdName);
+    this._mdName = names[i]; this._mdAt = performance.now();
+    try { this._md.loadPreset(this._mdPresets[this._mdName](), blend); }
+    catch (e) { console.warn('[BM Player] MilkDrop preset failed:', this._mdName, e); }
+    return this._mdName;
+  }
+
+  /** The album art for the middle of Radial (v3.32.0), or null for none. */
+  setArt (url) {
+    if (url === this._artUrl) return;
+    this._artUrl = url || null; this._art = null;
+    if (!url) return;
+    const im = new Image(); im.decoding = 'async';
+    im.onload = () => { if (this._artUrl === url) this._art = im; };
+    im.src = url;
+  }
+
   _drawBars () {
     const { ctx, canvas } = this;
     const { width: W, height: H } = canvas;
@@ -408,6 +493,19 @@ export class Visualizer {
     }
     ctx.fillStyle = this._rg;
     ctx.beginPath(); ctx.arc(cx, cy, baseR * 0.9, 0, Math.PI * 2); ctx.fill();
+
+    // The album art inside the ring (v3.32.0): turning with Spin, like a record,
+    // and swelling a little with the bass.
+    if (this._art) {
+      const a = this._art, bass = ((freq[0] || 0) + (freq[1] || 0) + (freq[2] || 0)) / 765;
+      const rr = baseR * 0.84 * (1 + bass * 0.05), k = Math.max(rr * 2 / a.naturalWidth, rr * 2 / a.naturalHeight);
+      ctx.save(); ctx.translate(cx, cy); if (t) ctx.rotate(t * 0.5);
+      ctx.beginPath(); ctx.arc(0, 0, rr, 0, Math.PI * 2); ctx.clip();
+      ctx.drawImage(a, -a.naturalWidth * k / 2, -a.naturalHeight * k / 2, a.naturalWidth * k, a.naturalHeight * k);
+      ctx.restore();
+      ctx.beginPath(); ctx.arc(cx, cy, rr, 0, Math.PI * 2);
+      ctx.lineWidth = 2 * (W / (this.canvas.clientWidth || W)); ctx.strokeStyle = 'rgba(255,255,255,0.35)'; ctx.stroke();
+    }
 
     // Faster (v3.30.1): each spoke's direction worked out once, not every frame,
     // and the ring turned by one rotation of the canvas.

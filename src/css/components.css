@@ -727,3 +727,18 @@ body.audio-viz:has(#controls-bar.faded) .viz-overlay { bottom: 0; }
    machine). The pointer at the left edge brings it back (app.js, sidebar-peek). */
 body.audio-viz .sidebar { transform: translateX(-100%); opacity: 0; pointer-events: none; }
 body.audio-viz.sidebar-peek .sidebar { transform: none; opacity: 1; pointer-events: auto; }
+
+/* MilkDrop's canvas, over the visualiser's (visualizer.js, v3.32.0). */
+.viz-milk-canvas { position: absolute; pointer-events: none; image-rendering: auto; }
+/* The visual mode's tile shows the album art when there is some (v3.32.0). */
+.viz-art.has-art .viz-art-ico { display: none; }
+/* Tools, Visual effects: the current choice ticked, and none in the Lite build. */
+.mr.checked::after { content: '\2713'; float: right; margin-left: 18px; color: var(--accent); }
+html.lite-build .mr[data-a^="fx-"] { display: none; }
+/* The MilkDrop Next button, in the visualiser settings. */
+.vs-next { margin-left: 8px; padding: 4px 12px; border-radius: 8px; border: 1px solid var(--border); background: transparent; color: var(--text); font: inherit; font-size: 12px; cursor: pointer; }
+.vs-next:hover { border-color: var(--accent); color: var(--accent); }
+
+/* A gallery image waiting for its thumbnail (gallery.js, v3.32.0): unseen, then faded in. */
+img.g-wait { opacity: 0; }
+.g-card img, .lb-strip-item img { transition: opacity .18s ease; }

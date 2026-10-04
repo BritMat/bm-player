@@ -79,8 +79,8 @@ async _browse(){
       t.className='lb-strip-item'+(i===this.lbIdx?' active':'');
       t.title=img.name;
       const im=document.createElement('img');
-      im.loading='lazy'; im.alt=''; im.src=fileURL(img.path);
-      this._thumb(img.path).then(c=>{ if(c) im.src=fileURL(c); });
+      im.loading='lazy'; im.alt=''; im.decoding='async';
+      this._thumbInto(im,img.path);
       t.appendChild(im);
       t.addEventListener('click',()=>this._openLB(i));
       frag.appendChild(t);
@@ -159,7 +159,7 @@ _renderPage(){
     card.setAttribute('role','button');
     card.setAttribute('aria-label',img.name);
     const im=document.createElement('img');
-    im.loading='lazy'; im.alt=img.name; im.src=fileURL(img.path);
+    im.loading='lazy'; im.alt=img.name; im.decoding='async';
     // A file deleted or renamed since the scan used to fail silently, leaving
     // a blank card with no explanation.
     im.addEventListener('error',()=>{
@@ -177,9 +177,7 @@ _renderPage(){
     card.addEventListener('click',open);
     card.addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();open();}});
     frag.appendChild(card);
-    // Swap in the cached OS thumbnail once it exists. Falls back silently to
-    // the original on platforms without a thumbnailer.
-    this._thumb(img.path).then(t=>{ if(t) im.src=fileURL(t); });
+    this._thumbInto(im,img.path);
   });
   g.appendChild(frag);
   this._page++;
@@ -196,6 +194,38 @@ _renderPage(){
 // Bounded concurrency. The page renders 120 cards at once and each one fired
 // its own IPC round-trip immediately, so the main process took 120 simultaneous
 // OS thumbnail requests — on a folder of RAWs that stalls it for seconds.
+// A card shows its thumbnail, never the original first (v3.32.0). It loaded the
+// full photo and swapped the thumbnail in later, so a page of large photos was
+// decoded in full, and loading the gallery dragged. Without the system's
+// thumbnailer (Linux) the thumbnail is made here, decoded and shrunk off the
+// main thread, two at a time. The original is the last resort.
+_thumbInto(im,p){
+  im.classList.add('g-wait');
+  this._thumb(p).then(async t=>{
+    let url=t?fileURL(t):null;
+    if(!url) url=await this._shrink(p).catch(()=>null);
+    im.src=url||fileURL(p);
+    im.classList.remove('g-wait');
+  });
+}
+async _shrink(p){
+  this._shrunk=this._shrunk||new Map();
+  if(this._shrunk.has(p)) return this._shrunk.get(p);
+  this._sq=this._sq||{active:0,wait:[]};
+  if(this._sq.active>=2) await new Promise(r=>this._sq.wait.push(r));
+  this._sq.active++;
+  try{
+    const size=Math.max(240,Math.round(this.thumbSize*2));
+    const blob=await (await fetch(fileURL(p))).blob();
+    const bmp=await createImageBitmap(blob,{resizeWidth:size,resizeQuality:'medium'});   // decoded off the main thread
+    const c=document.createElement('canvas'); c.width=bmp.width; c.height=bmp.height;
+    c.getContext('2d').drawImage(bmp,0,0); bmp.close?.();
+    const out=await new Promise(r=>c.toBlob(r,'image/jpeg',0.84));
+    const url=out?URL.createObjectURL(out):null;
+    this._shrunk.set(p,url);
+    return url;
+  }finally{ this._sq.active--; this._sq.wait.shift()?.(); }
+}
 async _thumb(p){
   if(!this.api?.gallery?.thumb) return null;
   this._thumbCache=this._thumbCache||new Map();

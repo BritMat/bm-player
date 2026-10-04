@@ -191,6 +191,7 @@ _applyTagsToNowPlaying(fp){
   if(ai&&m.cover){ ai.style.background='center/cover no-repeat url("'+fileURL(m.cover)+'")'; ai.innerHTML=''; }
   const mArt=el('mmp-art');
   if(mArt&&m.cover){ mArt.style.background='center/cover no-repeat url("'+fileURL(m.cover)+'")'; mArt.textContent=''; }
+  window.bmApp?._vizArtFor?.(fp, m.cover);   // the visual mode shows it too (v3.32.0)
 }
 // Tags were parsed and then thrown away outside the row label. Artist, album,
 // year and track number are all available — sorting by album then track number

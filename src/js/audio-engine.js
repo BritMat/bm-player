@@ -74,7 +74,7 @@ export class AudioEngine {
 
       this.gain = this.ctx.createGain();
       this.analyser = this.ctx.createAnalyser();
-      this.analyser.fftSize = 256;
+      this.analyser.fftSize = 1024;   // 1024 (v3.32.0): MilkDrop reads 1024 samples
       this.analyser.smoothingTimeConstant = 0.8;
 
       // source -> f0 -> f1 -> ... -> f9 -> gain -> analyser -> speakers

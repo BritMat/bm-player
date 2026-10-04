@@ -24,6 +24,7 @@
  */
 
 import fs from 'node:fs';
+import zlib from 'node:zlib';   // the PNG fixtures (v3.32.0)
 import os from 'node:os';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
@@ -84,6 +85,16 @@ try {
   execFileSync('ffmpeg', ['-loglevel', 'error', '-y', '-f', 'lavfi', '-i', 'sine=frequency=1500:duration=20', TONE1500], { timeout: 20000, stdio: 'ignore', windowsHide: true });
   if (!fs.existsSync(TONE1500)) TONE1500 = null;
 } catch { TONE1500 = null; }
+// A plain PNG writer (v3.32.0), for an album cover and a large photo.
+function writePng(file, w, h, px) {
+  const row = w * 3 + 1, raw = Buffer.alloc(row * h);
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) { const [r, g, b] = px(x, y), o = y * row + 1 + x * 3; raw[o] = r; raw[o + 1] = g; raw[o + 2] = b; }
+  const T = Array.from({ length: 256 }, (_, n) => { let c = n; for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1; return c >>> 0; });
+  const crc = b => { let c = 0xffffffff; for (const x of b) c = T[(c ^ x) & 255] ^ (c >>> 8); return (c ^ 0xffffffff) >>> 0; };
+  const chunk = (t, d) => { const l = Buffer.alloc(4); l.writeUInt32BE(d.length); const td = Buffer.concat([Buffer.from(t), d]); const c = Buffer.alloc(4); c.writeUInt32BE(crc(td)); return Buffer.concat([l, td, c]); };
+  const ih = Buffer.alloc(13); ih.writeUInt32BE(w, 0); ih.writeUInt32BE(h, 4); ih[8] = 8; ih[9] = 2;
+  fs.writeFileSync(file, Buffer.concat([Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]), chunk('IHDR', ih), chunk('IDAT', zlib.deflateSync(raw, { level: 1 })), chunk('IEND', Buffer.alloc(0))]));
+}
 let VIDEO = null;
 try {
   VIDEO = path.join(FIX, 'clip #1.mp4');
@@ -1131,6 +1142,90 @@ if (PART === 'c') {
     const e = r.particles.edges;
     if (!(e.l && e.r && e.t && e.b)) throw new Error('Particles does not reach every edge: ' + JSON.stringify(e));
     console.log(`      (lit: neon ${(r.neon.share * 100).toFixed(1)}%, bubbles ${(r.bubbles.share * 100).toFixed(1)}%, particles ${(r.particles.share * 100).toFixed(1)}%, at every edge)`);
+  });
+
+  // MilkDrop (v3.32.0): butterchurn plays the presets, which come ready-built,
+  // so nothing is evaluated: a security-policy violation would mean an eval.
+  await step('MilkDrop plays its presets, with nothing evaluated', async () => {
+    const r = await page.evaluate(async t => {
+      window.__csp = []; document.addEventListener('securitypolicyviolation', e => window.__csp.push(e.violatedDirective));
+      bmApp.switchDest('music'); bmMusic.play(t, 0); await new Promise(z => setTimeout(z, 1200));
+      bmApp.switchDest('video'); await new Promise(z => setTimeout(z, 700));
+      const v = bmApp.viz; v.setOptions({ style: 'milkdrop', mdAuto: 0 }); v.setMode('milkdrop');
+      for (let i = 0; i < 60 && !v._md && !v._mdFailed; i++) await new Promise(z => setTimeout(z, 250));
+      await new Promise(z => setTimeout(z, 1500));
+      const first = v._mdName, next = v.mdNext(0); await new Promise(z => setTimeout(z, 600));
+      let lit = 0;
+      if (v._md) {
+        v._drawMilk();   // drawn now, read now: the WebGL buffer is still there
+        const c = document.createElement('canvas'); c.width = 64; c.height = 36; const x = c.getContext('2d'); x.drawImage(v._mdCanvas, 0, 0, 64, 36);
+        const d = x.getImageData(0, 0, 64, 36).data; for (let i = 0; i < d.length; i += 4) if (d[i] + d[i + 1] + d[i + 2] > 30) lit++;
+      }
+      const out = { ok: !!v._md, failed: !!v._mdFailed, presets: v._mdNames?.length || 0, first, next, lit, csp: window.__csp.slice() };
+      v.setOptions({ style: 'bars', mdAuto: 30 }); v.setMode('bars'); bmMusic.engine?.stop?.();
+      return out;
+    }, TONE);
+    if (!r.ok || r.failed) throw new Error('MilkDrop did not start');
+    if (r.csp.length) throw new Error('the security policy blocked: ' + r.csp.join(', '));
+    if (r.presets < 50) throw new Error('only ' + r.presets + ' presets');
+    if (!r.next || r.next === r.first) throw new Error('Next did not change the preset');
+    if (!(r.lit > 0)) throw new Error('MilkDrop drew nothing');
+    console.log(`      (${r.presets} presets, now: ${r.next.slice(0, 40)})`);
+  });
+
+  // Album art (v3.32.0): a song with a cover beside it shows the art inside
+  // Radial's ring and in the tile by the title.
+  await step('Radial shows the album art in its middle', async () => {
+    const dir = path.join(FIX, 'album'); fs.mkdirSync(dir, { recursive: true });
+    const song = path.join(dir, 'song.wav'); fs.copyFileSync(TONE, song);
+    writePng(path.join(dir, 'cover.png'), 96, 96, (x, y) => [x * 2, y * 2, 200]);
+    await page.evaluate(f => bmApp.playMedia([f]), song); await page.waitForTimeout(3500);
+    const r = await page.evaluate(async () => {
+      const v = bmApp.viz; v.setOptions({ style: 'radial' }); v.setMode('radial');
+      for (let i = 0; i < 20 && !v._art; i++) await new Promise(z => setTimeout(z, 200));
+      const out = { art: v._art?.naturalWidth || 0, tile: !!document.getElementById('viz-art')?.classList.contains('has-art') };
+      v.setOptions({ style: 'bars' }); v.setMode('bars'); bmApp.stop();
+      return out;
+    });
+    if (r.art !== 96) throw new Error('no album art in the visualiser');
+    if (!r.tile) throw new Error('the tile by the title has no art');
+  });
+
+  // The gallery (v3.32.0): a card shows a thumbnail, never the original first,
+  // which made a page of large photos slow to load.
+  await step('the gallery shows thumbnails, not the full photos', async () => {
+    const big = path.join(FIX, 'big photo.png');
+    writePng(big, 2400, 1600, (x, y) => [(x >> 3) & 255, (y >> 3) & 255, 120]);
+    const r = await page.evaluate(async p => {
+      const g = window.bmGallery, im = document.createElement('img');
+      g._thumbInto(im, p);
+      for (let i = 0; i < 80 && im.classList.contains('g-wait'); i++) await new Promise(z => setTimeout(z, 100));
+      if (!im.complete) await new Promise(z => { im.onload = z; im.onerror = z; });
+      return { w: im.naturalWidth, original: /big%20photo|big photo/.test(decodeURIComponent(im.src)) };
+    }, big);
+    if (r.original) throw new Error('the card loaded the full photo');
+    if (!(r.w > 0 && r.w <= 800)) throw new Error(`the thumbnail is ${r.w}px wide`);
+    console.log(`      (a 2400px photo shown at ${r.w}px)`);
+  });
+
+  // Visual effects (v3.32.0): Tools has Automatic, Full and Lite, the current
+  // one ticked. Choosing one with nothing playing reloads to apply it.
+  await step('Tools offers the visual effects, and Lite and Full take effect', async () => {
+    await page.evaluate(() => { bmApp.stop(); bmMusic.engine?.stop?.(); });
+    const tick = () => page.evaluate(() => [...document.querySelectorAll('.mr[data-a^="fx-"]')].filter(r => r.classList.contains('checked')).map(r => r.dataset.a));
+    const rows = await page.evaluate(() => document.querySelectorAll('.mr[data-a^="fx-"]').length);
+    const before = await tick();
+    await page.evaluate(() => document.querySelector('.mr[data-a="fx-lite"]').click());
+    await page.waitForTimeout(1500); await page.waitForFunction(() => window.bmApp, null, { timeout: 30000 }); await page.waitForTimeout(800);
+    const lite = await page.evaluate(() => ({ cls: document.documentElement.classList.contains('lite-mode'), stored: localStorage.getItem('bm_lite_user') }));
+    const tickLite = await tick();
+    await page.evaluate(() => document.querySelector('.mr[data-a="fx-full"]').click());
+    await page.waitForTimeout(1500); await page.waitForFunction(() => window.bmApp, null, { timeout: 30000 }); await page.waitForTimeout(800);
+    const full = await page.evaluate(() => ({ cls: document.documentElement.classList.contains('lite-mode'), stored: localStorage.getItem('bm_lite_user') }));
+    if (rows !== 3) throw new Error(rows + ' visual effects rows in Tools');
+    if (before.length !== 1) throw new Error('no choice ticked');
+    if (!lite.cls || lite.stored !== '1' || tickLite[0] !== 'fx-lite') throw new Error('Lite did not take effect: ' + JSON.stringify({ lite, tickLite }));
+    if (full.cls || full.stored !== '0') throw new Error('Full did not take effect: ' + JSON.stringify(full));
   });
 
   // The decorative loops (v3.30.0): the theme's background, the Flow fluid

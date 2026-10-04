@@ -81,6 +81,7 @@ contextBridge.exposeInMainWorld('api',{
     thumb: (f,size)=>inv('gallery:thumb',f,size),
   },
   music:{
+    art: f=>inv('media:art',f),   // the album art for one file (v3.32.0)
     tags: paths=>inv('music:tags',paths),
   },
   showContextMenu:()=>inv('show-context-menu'),

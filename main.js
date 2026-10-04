@@ -806,12 +806,34 @@ function registerIpc(){
     try{
       if(!filePath || !fs.existsSync(filePath)) return null;
       const st = fs.statSync(filePath);
-      const out = path.join(cacheDir('thumbs'), cacheKey(filePath, st.size, st.mtimeMs, size) + '.png');
+      // JPEG (v3.32.0): a photo thumbnail as PNG was slow to write and large to load.
+      const out = path.join(cacheDir('thumbs'), cacheKey(filePath, st.size, st.mtimeMs, size) + '.jpg');
       if (fs.existsSync(out)) return out;
       const img = await nativeImage.createThumbnailFromPath(filePath, { width: size, height: size });
       if (!img || img.isEmpty()) return null;
-      fs.writeFileSync(out, img.toPNG());
+      fs.writeFileSync(out, img.toJPEG(84));
       return out;
+    }catch(_){ return null; }
+  });
+
+  // The album art for one file (v3.32.0): its own, embedded (read as the tags
+  // are, kept in the same covers cache), or a cover image beside it: cover,
+  // folder, front or album, as .jpg, .png or .webp. A path, or null.
+  ipcMain.handle('media:art', async (_, fp) => {
+    try{
+      if (typeof fp !== 'string' || !fp || !fs.existsSync(fp)) return null;
+      try{
+        const md = await require('music-metadata').parseFile(fp, { duration: false, skipCovers: false });
+        const pic = md.common && md.common.picture && md.common.picture[0];
+        if (pic && pic.data) {
+          const ext = (pic.format || 'image/jpeg').split('/').pop().replace('jpeg','jpg');
+          const cp = path.join(cacheDir('covers'), cacheKey(fp, pic.data.length) + '.' + ext);
+          if (!fs.existsSync(cp)) fs.writeFileSync(cp, pic.data);
+          return cp;
+        }
+      }catch(_){}
+      const dir = path.dirname(fp), hit = fs.readdirSync(dir).find(n => /^(cover|folder|front|album)\.(jpe?g|png|webp)$/i.test(n));
+      return hit ? path.join(dir, hit) : null;
     }catch(_){ return null; }
   });
 
