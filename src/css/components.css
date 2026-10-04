@@ -723,4 +723,7 @@ html.bm-layered.playing body:not(.audio-viz) #player-view { background: transpar
    side pane slides away, as it does for a film. */
 body.audio-viz .viz-overlay { transition: bottom .28s ease; }
 body.audio-viz:has(#controls-bar.faded) .viz-overlay { bottom: 0; }
-html.is-max body.audio-viz .sidebar { transform: translateX(-100%); opacity: 0; pointer-events: none; }
+/* v3.31.0: in the visual mode always, not only maximised (it stayed, on a real
+   machine). The pointer at the left edge brings it back (app.js, sidebar-peek). */
+body.audio-viz .sidebar { transform: translateX(-100%); opacity: 0; pointer-events: none; }
+body.audio-viz.sidebar-peek .sidebar { transform: none; opacity: 1; pointer-events: auto; }

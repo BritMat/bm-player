@@ -1,6 +1,6 @@
 /**
  * BM Player — Audio Visualizer
- * Modes: bars | radial | wave | particles | fluid | off
+ * Modes: bars | radial | wave | particles | fluid (Smoke) | neon | bubbles | off
  * Falls back to beautiful synthetic animation when no audio stream is available.
   *
  * NOTE: this class prefers a real AnalyserNode whenever one is attached, and
@@ -11,6 +11,7 @@
 */
 
 import { FluidFX } from './fluid.js';
+import { drawNeon, drawBubbles, drawParticles } from './viz-art.js';   // v3.31.0
 
 /* v3.29.0: an analyser any visualiser falls back on, the audio shadow's while
    mpv plays a song (audio-shadow.js). One made after the song started finds
@@ -82,6 +83,11 @@ export class Visualizer {
   setOptions (o) { this.opts = { ...this.opts, ...o }; }
 
   setMode (mode) {
+    // A new style starts clean: no trails or state from the last (v3.31.0).
+    if (mode !== this.mode) {
+      this._neon = this._bub = this._pt = null;
+      if (this.ctx) { this.ctx.globalCompositeOperation = 'source-over'; this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height); }
+    }
     this.mode = mode;
     if (mode !== 'fluid') { this._fluid?.setMode('off'); if (this._fluidCanvas) this._fluidCanvas.style.display = 'none'; }
     if (mode === 'off') { this.stop(); return; }
@@ -102,6 +108,18 @@ export class Visualizer {
     this.ctx?.clearRect(0, 0, this.canvas?.width, this.canvas?.height);
     this._fluid?.setMode('off');
     if (this._fluidCanvas) this._fluidCanvas.style.display = 'none';
+  }
+
+  // How loud it is right now, 0 to 1, from the waveform (v3.31.0). The
+  // spectrum fades out slowly after a pause (its smoothing, counted in frames),
+  // the waveform goes flat at once: this is what tells the drawing styles that
+  // the music stopped, so they make nothing new.
+  _loudness () {
+    if (this._ldTick === this._tick) return this._ld;
+    const d = this._getTime(); let s = 0;
+    for (let i = 0; i < d.length; i++) { const x = (d[i] - 128) / 128; s += x * x; }
+    this._ldTick = this._tick; this._ld = Math.sqrt(s / Math.max(1, d.length));
+    return this._ld;
   }
 
   // The analyser to read: this visualiser's own (the in-app engine's), or
@@ -220,7 +238,9 @@ export class Visualizer {
       case 'bars':     this._drawBars();     break;
       case 'radial':   this._drawRadial();   break;
       case 'wave':     this._drawWave();     break;
-      case 'particles':this._drawParticles();break;
+      case 'particles':drawParticles(this);break;
+      case 'neon':     drawNeon(this);     break;
+      case 'bubbles':  drawBubbles(this);  break;
       case 'fluid':    this._drawFluid();    break;
     }
   }
@@ -276,6 +296,7 @@ export class Visualizer {
     const cut = [0, 0.1, 0.3, 0.6, 1].map(c => Math.round(c * n));
     const lv = [0, 1, 2, 3].map(i => band(cut[i], Math.max(cut[i] + 1, cut[i + 1])));
     const st = this._fl || (this._fl = { last: 0, bassAvg: 0, splats: 0, drift: Math.random(), phase: [0, 1.7, 3.1, 4.4] });
+    if (this._loudness() < 0.01) return;                 // silent or paused: no puffs
     st.bassAvg += (lv[0] - st.bassAvg) * 0.04; st.drift = (st.drift + 0.0006) % 1;
     if (now - st.last < 40) return;                       // about 25 puffs a second
     st.last = now;
@@ -456,52 +477,4 @@ export class Visualizer {
   }
 
   // ── PARTICLES ───────────────────────────────────────
-  _drawParticles () {
-    const { ctx, canvas } = this;
-    const { width: W, height: H } = canvas;
-    const freq  = this._getFreq();
-    const avg   = freq.reduce((a, b) => a + b, 0) / freq.length / 255;
-
-    ctx.fillStyle = 'rgba(0,0,0,0.12)';
-    ctx.fillRect(0, 0, W, H);
-
-    // Spawn particles
-    if (this._tick % 2 === 0) {
-      const bass = freq[2] / 255;
-      const count = 1 + Math.floor(bass * 4);
-      for (let i = 0; i < count; i++) {
-        this._particles.push({
-          x: W / 2 + (Math.random() - 0.5) * 80 * bass,
-          y: H / 2 + (Math.random() - 0.5) * 80 * bass,
-          vx: (Math.random() - 0.5) * 3 * (1 + avg * 3),
-          vy: (Math.random() - 0.5) * 3 * (1 + avg * 3) - 1.5,
-          life: 1.0,
-          hue: 200 + Math.random() * 140,
-          v: bass, pos: Math.random(),
-          size: 1 + Math.random() * 4 * bass,
-        });
-      }
-    }
-
-    // Update & draw particles
-    this._particles = this._particles.filter(p => {
-      p.x    += p.vx;
-      p.y    += p.vy;
-      p.vy   += 0.04;
-      p.life -= 0.018;
-      if (p.life <= 0) return false;
-
-      ctx.beginPath();
-      ctx.arc(p.x, p.y, p.size * p.life, 0, Math.PI * 2);
-      ctx.fillStyle = this._col(p.hue, 100, 70, p.v, p.pos, p.life * 0.9);
-      ctx.shadowColor= this._col(p.hue, 100, 70, p.v, p.pos, 0.5);
-      ctx.shadowBlur = p.size * 3;
-      ctx.fill();
-      ctx.shadowBlur = 0;
-      return true;
-    });
-
-    // Cap particles
-    if (this._particles.length > 400) this._particles.splice(0, 60);
-  }
 }

@@ -159,10 +159,7 @@ class BMPlayer {
     this.wireTV();
     if(this.alwaysOnTop){this.api?.win.alwaysTop(true);el('mi-always-top')?.classList.add('active-opt');}
     window.addEventListener('contextmenu',e=>{e.preventDefault();this._openCtxPanel(e.clientX,e.clientY);});
-    // is-max on the page (v3.30.1): maximised is BM Player's full screen, and
-    // the visual mode hides the side pane there.
-    this.api?.win.onState?.(s=>{const b=el('btn-maximize');if(b)setIcon(b,s==='maximized'?'restore':'maximize');document.documentElement.classList.toggle('is-max',s==='maximized');});
-    this.api?.win.isMax?.()?.then?.(m=>document.documentElement.classList.toggle('is-max',!!m)).catch?.(()=>{});
+    this.api?.win.onState?.(s=>{const b=el('btn-maximize');if(b)setIcon(b,s==='maximized'?'restore':'maximize');});
   }
   /**
    * v1.9.0 — Lite mode bootstrap.
@@ -579,6 +576,13 @@ class BMPlayer {
     window.addEventListener('unhandledrejection',e=>report('unhandled rejection:',e.reason));
     // The decorative loops follow the window too (v3.30.0, _syncEffects).
     document.addEventListener('visibilitychange',()=>this._syncEffects());
+    // The visual mode hides the side pane (v3.31.0), and it slides back while the
+    // pointer is at the left edge, so the other views are still a move away.
+    document.addEventListener('mousemove',e=>{
+      const b=document.body;
+      if(!b.classList.contains('audio-viz')){b.classList.remove('sidebar-peek');return;}
+      if(e.clientX<18)b.classList.add('sidebar-peek');else if(e.clientX>96)b.classList.remove('sidebar-peek');
+    },{passive:true});
     this.api?.win?.onHidden?.(h=>{this._winHidden=!!h;this._syncEffects();});
   }
 
@@ -1352,7 +1356,7 @@ class BMPlayer {
     el('viz-btn-music')?.addEventListener('click',()=>this.switchDest('music'));
     el('pip-play')?.addEventListener('click',e=>{e.stopPropagation();this.togglePlay();});
     // Cycle visualiser modes by clicking the canvas — bars/radial/wave/particles
-    const modes=['bars','radial','wave','particles','fluid'];let mi=Math.max(0,modes.indexOf(vizSettings().style));
+    const modes=['bars','radial','wave','particles','fluid','neon','bubbles'];let mi=Math.max(0,modes.indexOf(vizSettings().style));
     el('visualizer-canvas')?.addEventListener('click',()=>{
       if(!this._audioVizMode)return;
       mi=(mi+1)%modes.length;saveVizSettings({...vizSettings(),style:modes[mi]});allVisualisers().forEach(v=>v.setMode(modes[mi]));window.bmVizPanel?.sync?.();this.showOSD('Visualiser: '+modes[mi]);

@@ -52,7 +52,8 @@ read by BM Player's built-in updater. You don't need to download them.
   more. And a 3D fox mascot.
 - Keyboard shortcuts for nearly everything: press ? (or F1) in the app for the list.
 - An audio visualiser that shows the music as it plays, its real frequencies,
-  with a Fluid style the music moves and colours, and settings for its style,
+  in seven styles (among them Neon, glowing lanterns trailing light, Bubbles and
+  Smoke), and settings for its style,
   colours, sensitivity and bars. And subtitles in the font and colour you choose.
 - Plugins: themes and scripts you add yourself (see below).
 - Lite mode for weak hardware: lighter visuals, switched on automatically on

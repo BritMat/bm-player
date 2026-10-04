@@ -1082,6 +1082,57 @@ if (PART === 'c') {
     if (!(r.turning > 0)) throw new Error('Radial did not turn with Spin on');
   });
 
+  // The artistic styles (v3.31.0): Neon (wandering lanterns trailing glowing
+  // wisps), Bubbles (glowing rings rising in columns) and Particles, which
+  // stayed in a small patch in the middle and now reaches every edge. Each
+  // draws with music, and with the music paused nothing new is made. And the
+  // visual mode hides the side pane, which comes back at the left edge.
+  await step('Neon, Bubbles and Particles draw with the music, Particles fills the screen, the side pane hides', async () => {
+    await page.evaluate(async t => { bmApp.switchDest('music'); bmMusic.play(t, 0); await new Promise(z => setTimeout(z, 1200)); bmApp.switchDest('video'); await new Promise(z => setTimeout(z, 800)); }, TONE);
+    await page.mouse.move(600, 300); await page.waitForTimeout(300);
+    const paneHidden = await page.evaluate(() => +getComputedStyle(document.querySelector('.sidebar')).opacity);
+    await page.mouse.move(4, 300); await page.waitForTimeout(400);
+    const panePeek = await page.evaluate(() => +getComputedStyle(document.querySelector('.sidebar')).opacity);
+    await page.mouse.move(600, 300); await page.waitForTimeout(400);
+    const paneBack = await page.evaluate(() => +getComputedStyle(document.querySelector('.sidebar')).opacity);
+    const r = await page.evaluate(async () => {
+      const v = bmApp.viz, out = {};
+      const lit = () => {
+        const c = v.canvas, d = c.getContext('2d').getImageData(0, 0, c.width, c.height).data, W = c.width, H = c.height;
+        let n = 0, edges = { l: 0, r: 0, t: 0, b: 0 };
+        for (let y = 0; y < H; y += 4) for (let x = 0; x < W; x += 4) {
+          if (d[(y * W + x) * 4 + 3] < 40) continue; n++;
+          if (x < W * 0.15) edges.l++; if (x > W * 0.85) edges.r++; if (y < H * 0.15) edges.t++; if (y > H * 0.85) edges.b++;
+        }
+        return { share: n / ((W / 4) * (H / 4)), edges };
+      };
+      for (const [style, key, list] of [['neon', '_neon', 'p'], ['bubbles', '_bub', 'b'], ['particles', '_pt', 'p']]) {
+        v.setOptions({ style }); v.setMode(style);
+        await new Promise(z => setTimeout(z, 2500));
+        // what it has made in all: on screen, long-lived wisps outlast a short wait
+        const playing = lit(), made = v[key]?.made || 0;
+        bmMusic.engine.el.pause(); await new Promise(z => setTimeout(z, 600));
+        const paused = v[key]?.made || 0; await new Promise(z => setTimeout(z, 1500));
+        const after = (v[key]?.made || 0) - paused;
+        bmMusic.engine.el.play(); await new Promise(z => setTimeout(z, 600));
+        out[style] = { share: playing.share, edges: playing.edges, made, after };
+      }
+      v.setOptions({ style: 'bars' }); v.setMode('bars'); bmMusic.engine?.stop?.();
+      return out;
+    });
+    if (paneHidden > 0.05) throw new Error('the side pane shows in the visual mode');
+    if (panePeek < 0.95) throw new Error('the side pane did not come back at the left edge');
+    if (paneBack > 0.05) throw new Error('the side pane did not hide again');
+    for (const [style, x] of Object.entries(r)) {
+      if (!(x.share > 0.004)) throw new Error(`${style} drew nothing with music playing`);
+      if (!(x.made > 0)) throw new Error(`${style} made nothing with music playing`);
+      if (x.after !== 0) throw new Error(`${style} made ${x.after} more with the music paused`);
+    }
+    const e = r.particles.edges;
+    if (!(e.l && e.r && e.t && e.b)) throw new Error('Particles does not reach every edge: ' + JSON.stringify(e));
+    console.log(`      (lit: neon ${(r.neon.share * 100).toFixed(1)}%, bubbles ${(r.bubbles.share * 100).toFixed(1)}%, particles ${(r.particles.share * 100).toFixed(1)}%, at every edge)`);
+  });
+
   // The decorative loops (v3.30.0): the theme's background, the Flow fluid
   // and the fox animate only on the home screen, in a window that is not
   // minimised. Behind a playing video they ran on at 50 to 90 frames a
