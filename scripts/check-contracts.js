@@ -843,6 +843,14 @@ for (const cfg of ['electron-builder.yml', 'electron-builder.lite.yml']) {
     if (!/hasShadow\s*:\s*false/.test(bgNew)) err('windows', 'main.js: the picture window must have hasShadow:false');
     if (/resizable\s*:\s*false/.test(bgNew)) err('windows', 'main.js: the picture window must stay resizable (resizable:false pins its size, and it must follow the controls window)');
   }
+  // BM Player Lite's picture window too (v3.35.0): without these Windows 11 drew
+  // its frame over the video, a translucent layer in Lite only.
+  const liteNew = (mainSrc.match(/videoWin\s*=\s*new BaseWindow\(\{[\s\S]*?\}\);/) || [])[0] || '';
+  if (!liteNew) err('windows', 'main.js: the Lite picture window (videoWin = new BaseWindow) was not found');
+  else for (const [opt, why] of [['thickFrame', 'Windows drew its frame over the video'], ['hasShadow', 'a shadow over the page'], ['roundedCorners', 'rounded corners showed the page behind']])
+    if (!new RegExp(opt + '\\s*:\\s*false').test(liteNew)) err('windows', `main.js: the Lite picture window must have ${opt}:false (${why})`);
+  for (const [opt, why] of [['roundedCorners', 'rounded corners showed the page behind']])
+    if (bgNew && !new RegExp(opt + '\\s*:\\s*false').test(bgNew)) err('windows', `main.js: the picture window must have ${opt}:false (${why})`);
   for (const m of mainSrc.matchAll(/new BrowserWindow\(\{[^;]*?transparent\s*:\s*true[^;]*?\}\)/g))
     if (/backgroundMaterial/.test(m[0])) err('windows', 'main.js: a transparent window has backgroundMaterial, which stopped it being transparent on Windows (v3.26.1)');
 }

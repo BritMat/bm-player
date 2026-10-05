@@ -1243,7 +1243,10 @@ class BMPlayer {
     this.api?.mpv.onMediaProps?.(props=>{this._mProps=props;});
   }
   updateVisualizerVisibility(tracks){
-    const hasVideo=tracks.some(t=>t.type==='video');
+    // Cover art is not video (v3.35.0): mpv lists a song's cover (its own, or a
+    // cover.png beside it) as a video track marked albumart, and the song was
+    // taken for a video: no visual mode, no art. GitHub's Linux run caught it.
+    const hasVideo=tracks.some(t=>t.type==='video'&&!t.albumart);
     this._hasVideo=hasVideo;
     // The album art, asked for whatever the audio analysis does (v3.33.0):
     // it hung on the analyser starting before, and a test machine got none.

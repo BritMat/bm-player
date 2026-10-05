@@ -225,8 +225,12 @@ app.whenReady().then(()=>{
     win.once('ready-to-show',boot);
     setTimeout(boot,4000);
     win.on('closed',()=>{killMpv();try{videoWin?.destroy();}catch(_){}app.exit(0);});
+    // thickFrame:false and roundedCorners:false, as bgWin has had since v3.26.2
+    // (v3.35.0): without them Windows 11 drew its frame over the borderless
+    // picture window, a translucent layer over the video in BM Player Lite only,
+    // and Windows 11 and macOS rounded its corners, showing the page behind.
     videoWin=new BaseWindow({parent:win,show:false,frame:false,transparent:false,backgroundColor:'#000000',
-      focusable:false,skipTaskbar:true,hasShadow:false,resizable:false,movable:false,minimizable:false,maximizable:false,
+      focusable:false,skipTaskbar:true,hasShadow:false,thickFrame:false,roundedCorners:false,resizable:false,movable:false,minimizable:false,maximizable:false,
       title:'BM Player Lite video'});
     // Clicks and the pointer pass through to the page underneath, which owns
     // every control, as bgWin does in the full layout.
@@ -1155,6 +1159,10 @@ function startMpv(exe, minimalArgs){
     // own default there now; the list falls back to gpu, then direct3d.
     MPV_VO ? `--vo=${MPV_VO}` : (IS_WIN ? '--vo=gpu-next,gpu,direct3d,' : (IS_LINUX ? '--vo=gpu,xv,x11,' : '--vo=gpu,')),
     ...(MPV_AO ? [`--ao=${MPV_AO}`] : []),
+    // A song's cover art is not a video (v3.35.0): mpv showed a cover beside
+    // the file, or one inside it, as a picture, and BM Player took the song for
+    // a video. BM Player shows the art itself, in the visual mode.
+    '--audio-display=no',
     '--volume=100',
   ];
   const extraArgs = [

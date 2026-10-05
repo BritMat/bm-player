@@ -1,7 +1,7 @@
 {
   "name": "bm-player",
   "productName": "BM Player",
-  "version": "3.34.0",
+  "version": "3.35.0",
   "description": "A professional media player powered by mpv \u2014 TV/IPTV, gallery, music library with tag reading, and a PDF suite",
   "main": "main.js",
   "scripts": {

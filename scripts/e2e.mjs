@@ -1230,10 +1230,16 @@ if (PART === 'c') {
     const r = await page.evaluate(async () => {
       const v = bmApp.viz; v.setOptions({ style: 'radial' }); v.setMode('radial');
       for (let i = 0; i < 20 && !v._art; i++) await new Promise(z => setTimeout(z, 200));
-      const out = { art: v._art?.naturalWidth || 0, tile: !!document.getElementById('viz-art')?.classList.contains('has-art') };
+      // mpv adds the cover beside the song as a track marked albumart, a moment
+      // later: the song must stay a song, art and all (v3.35.0, GitHub's run).
+      await new Promise(z => setTimeout(z, 1500));
+      const out = { art: v._art?.naturalWidth || 0, tile: !!document.getElementById('viz-art')?.classList.contains('has-art'),
+        video: bmApp._hasVideo, viz: document.body.classList.contains('audio-viz') };
       v.setOptions({ style: 'bars' }); v.setMode('bars'); bmApp.stop();
       return out;
     });
+    if (r.video) throw new Error('the song was taken for a video (its cover art counted as one)');
+    if (!r.viz) throw new Error('the song left the visual mode');
     if (r.art !== 96) throw new Error('no album art in the visualiser');
     if (!r.tile) throw new Error('the tile by the title has no art');
   });
