@@ -345,6 +345,47 @@ if (PART === 'a') {
     console.log(`      (${r.rows.length} rows with nothing playing: ${r.rows.join(', ')})`);
   });
 
+  // Readable menus in every theme (v3.34.0). In Light the dropdowns were dark
+  // with dark text, 1.04 to 1, readable only under the pointer, from colours
+  // fixed in index.html. Every row and every menu-strip label must reach 4.5
+  // to 1. Colours are resolved by the browser (painted onto one pixel, any
+  // notation, any transparency), transitions off, from each theme's page colour.
+  await step('every theme\'s menus are readable', async () => {
+    await page.addStyleTag({ content: '*, *::before, *::after { transition: none !important; animation-duration: 0s !important; }' });
+    const r = await page.evaluate(async () => {
+      const cv = document.createElement('canvas'); cv.width = cv.height = 1; const g = cv.getContext('2d', { willReadFrequently: true });
+      const px = () => { const d = g.getImageData(0, 0, 1, 1).data; return [d[0], d[1], d[2]]; };
+      const lum = c => { const f = v => { v /= 255; return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4; }; return 0.2126 * f(c[0]) + 0.7152 * f(c[1]) + 0.0722 * f(c[2]); };
+      const ratio = el => {
+        const chain = []; for (let e = el; e; e = e.parentElement) chain.unshift(e);
+        g.fillStyle = getComputedStyle(document.documentElement).getPropertyValue('--bg').trim() || '#808080'; g.fillRect(0, 0, 1, 1);
+        for (const e of chain) { g.fillStyle = getComputedStyle(e).backgroundColor; g.fillRect(0, 0, 1, 1); }
+        const bg = px(); g.fillStyle = getComputedStyle(el).color; g.fillRect(0, 0, 1, 1); const fg = px();
+        const a = lum(fg), b = lum(bg); return (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05);
+      };
+      const themes = [...new Set([...document.querySelectorAll('[data-theme]')].map(e => e.dataset.theme).filter(Boolean))];
+      const out = {};
+      for (const t of themes) {
+        bmApp.applyTheme(t); await new Promise(z => setTimeout(z, 60));
+        let rows = 99, labels = 99;
+        for (const drop of document.querySelectorAll('.mi-drop')) {
+          drop.style.display = 'flex';
+          for (const row of drop.querySelectorAll('.mr')) if (row.offsetHeight) rows = Math.min(rows, ratio(row));
+          drop.style.display = '';
+        }
+        for (const l of document.querySelectorAll('.menu-toolbar .mi-label')) if (l.offsetHeight) labels = Math.min(labels, ratio(l));
+        out[t] = [+rows.toFixed(2), +labels.toFixed(2)];
+      }
+      bmApp.applyTheme('dark');
+      return out;
+    });
+    const bad = Object.entries(r).filter(([, [rows, labels]]) => rows < 4.5 || labels < 4.5);
+    if (Object.keys(r).length < 10) throw new Error('only ' + Object.keys(r).length + ' themes found');
+    if (bad.length) throw new Error('hard to read: ' + bad.map(([t, [a, b]]) => `${t} rows ${a} labels ${b}`).join(', '));
+    const all = Object.values(r).flat();
+    console.log(`      (${Object.keys(r).length} themes, lowest contrast ${Math.min(...all).toFixed(2)} to 1)`);
+  });
+
   // The keyboard shortcuts list (v3.30.0): ? opens it, the Tools menu too,
   // and Esc closes it without also stopping playback.
   await step('the keyboard shortcuts list opens with ? and from Tools, and Esc only closes it', async () => {
@@ -999,7 +1040,7 @@ if (PART === 'c') {
       bmApp.applyTheme('dark');
       return out;
     });
-    const keep = { dark: 'off', light: 'off', dracula: 'blood', snow: 'snow' };
+    const keep = { dark: 'off', dracula: 'blood', snow: 'snow' };   // light has its own scene since v3.34.0
     for (const [t, v] of Object.entries(r)) {
       if (keep[t]) { if (v.mode !== keep[t]) throw new Error(`${t} changed: ${v.mode}, expected ${keep[t]}`); continue; }
       if (v.mode !== 'scene:' + t || !v.scene) throw new Error(`${t} has no scene of its own: ${JSON.stringify(v)}`);
@@ -1268,14 +1309,15 @@ if (PART === 'c') {
       const v = bmApp.viz; v.setOptions({ style: 'flow' }); v.setMode('flow');
       for (let i = 0; i < 30 && !(v._loudness() > 0.01); i++) await new Promise(z => setTimeout(z, 100));
       await new Promise(z => setTimeout(z, 2500));
-      const playing = v._fw?.splats || 0, bloom = v._fluid?.bloom || 0;
+      const playing = v._fw?.splats || 0, bloom = v._fluid?.bloom || 0, neon = !!v._fluid?.neon, halo = !!v._fluid?.bloomC;
       bmMusic.engine.el.pause(); await new Promise(z => setTimeout(z, 500));
       const a = v._fw?.splats || 0; await new Promise(z => setTimeout(z, 1500)); const b = v._fw?.splats || 0;
       v.setOptions({ style: 'bars' }); v.setMode('bars'); bmMusic.engine?.stop?.();
-      return { fluid: !!v._fluid, bloom, playing, paused: b - a };
+      return { fluid: !!v._fluid, bloom, neon, halo, playing, paused: b - a };
     }, TONE);
     if (!r.fluid) throw new Error('the fluid did not start');
     if (!(r.bloom > 0)) throw new Error('no glow');
+    if (!r.neon || !r.halo) throw new Error('not neon, or no wide halo (v3.34.0): ' + JSON.stringify(r));
     if (r.playing < 5) throw new Error('only ' + r.playing + ' strokes with music');
     if (r.paused !== 0) throw new Error(r.paused + ' strokes while paused');
   });

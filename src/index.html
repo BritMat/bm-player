@@ -90,7 +90,7 @@
     /* ═══ MENU TOOLBAR - Fixed position right after titlebar (32px) ═══ */
     .menu-toolbar{
       position:fixed!important;top:32px!important;left:48px!important;right:0!important;height:30px!important;
-      display:flex!important;align-items:center!important;background:#0f131f;
+      display:flex!important;align-items:center!important;background:var(--surface);
       border-bottom:1px solid var(--border);padding:0 8px!important;
       z-index:8900!important;-webkit-app-region:no-drag;gap:1px;margin:0!important;box-sizing:border-box!important;
       line-height:1!important;font-size:0!important
@@ -98,7 +98,7 @@
     .menu-toolbar::before,.menu-toolbar::after{content:none!important;display:none!important}
     .mi{position:relative!important;height:100%!important;display:flex!important;align-items:center!important}
     .mi-label{
-      padding:0 10px!important;font-size:12.5px;color:#8b95a5;height:100%;
+      padding:0 10px!important;font-size:12.5px;color:color-mix(in srgb, var(--text) 70%, var(--surface));height:100%;
       display:flex!important;align-items:center;border-radius:5px;cursor:pointer;
       transition:all 0.12s ease;font-weight:500
     }
@@ -107,9 +107,9 @@
     /* Dropdown Menus */
     .mi-drop{
       position:absolute;top:100%;left:0;min-width:230px;
-      background:#151a28;border:1px solid var(--border);
+      background:var(--menu-bg);border:1px solid var(--border);
       border-radius:10px;padding:6px;display:none;flex-direction:column;
-      z-index:99999;box-shadow:0 16px 48px rgba(0,0,0,.6),0 0 1px rgba(255,255,255,.05)
+      z-index:99999;box-shadow:0 16px 48px var(--menu-shadow-c, rgba(0,0,0,.6)),0 0 1px rgba(255,255,255,.05)
     }
     .mi:hover>.mi-drop{display:flex!important}
     .mr{
@@ -256,13 +256,13 @@
     .dash-action-btn:hover{transform:translateY(-1px);box-shadow:0 4px 12px color-mix(in srgb, var(--accent) 30%, transparent)}
     .dash-count{font-size:11px;color:var(--text-muted);margin-left:auto}
     .dash-select{
-      padding:5px 10px;background:#151a28;color:var(--text);
+      padding:5px 10px;background:var(--surface2);color:var(--text);
       border:1px solid var(--border);border-radius:5px;font-size:12px
     }
     
     /* Gallery View */
     .gallery-toolbar{display:flex;align-items:center;gap:8px;margin-left:auto}
-    .view-mode-group{display:flex;background:#151a28;border-radius:5px;padding:2px}
+    .view-mode-group{display:flex;background:var(--surface2);border-radius:5px;padding:2px}
     .vm-btn{
       padding:4px 8px;border:none;background:none;color:var(--text-muted);
       cursor:pointer;font-size:13px;border-radius:3px
@@ -316,7 +316,7 @@
     .np-art-wrap{position:relative;text-align:center}
     .np-art{
       width:140px;height:140px;margin:0 auto;border-radius:12px;
-      background:#151a28;display:flex;align-items:center;
+      background:var(--surface2);display:flex;align-items:center;
       justify-content:center;font-size:40px;color:var(--accent)
     }
     .np-meta{text-align:center}
@@ -325,12 +325,12 @@
     .np-format{font-size:10px;color:var(--text-muted);margin-top:4px}
     .np-seek-wrap{display:flex;align-items:center;gap:6px}
     .np-time{font-size:10px;color:var(--text-muted);width:30px}
-    .np-seek-track{flex:1;height:4px;background:#1a2035;border-radius:2px;position:relative}
+    .np-seek-track{flex:1;height:4px;background:var(--bar-bg);border-radius:2px;position:relative}
     .np-seek-fill{height:100%;background:var(--accent);border-radius:2px;width:0%}
     .np-controls{display:flex;justify-content:center;gap:8px}
     .np-ctrl-btn{
       width:32px;height:32px;border-radius:50%;border:none;
-      background:#151a28;color:var(--text);cursor:pointer;font-size:13px
+      background:var(--surface2);color:var(--text);cursor:pointer;font-size:13px
     }
     .np-ctrl-btn:hover{background:var(--accent);color:var(--on-accent)}
     .np-vol-row{display:flex;align-items:center;gap:6px;font-size:12px}
@@ -348,27 +348,27 @@
     .pdf-ctrl-group{display:flex;align-items:center;gap:4px}
     .pdf-ctrl-btn{
       width:28px;height:28px;border-radius:5px;border:1px solid var(--border);
-      background:#151a28;color:var(--text);cursor:pointer;font-size:14px
+      background:var(--surface2);color:var(--text);cursor:pointer;font-size:14px
     }
     .pdf-ctrl-btn:hover{border-color:var(--accent);color:var(--accent)}
     .pdf-ctrl-btn:disabled{opacity:.35;cursor:not-allowed}
     .pdf-page-field{display:flex;align-items:center;gap:4px;font-size:12px;color:var(--text)}
     .pdf-page-field input{
-      width:45px;padding:4px;background:#151a28;border:1px solid var(--border);
+      width:45px;padding:4px;background:var(--surface2);border:1px solid var(--border);
       border-radius:4px;color:var(--text);text-align:center;font-size:12px
     }
     .pdf-page-sep{color:var(--text-muted)}
     .pdf-zoom-label{font-size:11px;color:#8b95a5;min-width:36px;text-align:center}
     .pdf-search-wrap{display:flex;align-items:center;gap:4px;margin-left:auto}
     .pdf-search-input{
-      padding:5px 10px;background:#151a28;border:1px solid var(--border);
+      padding:5px 10px;background:var(--surface2);border:1px solid var(--border);
       border-radius:5px;color:var(--text);font-size:12px;width:160px
     }
     .pdf-search-count{font-size:10px;color:var(--text-muted)}
     .pdf-filename{font-size:12px;color:#8b95a5;margin-left:8px}
     .pdf-edit-toolbar{
       padding:8px 16px;border-bottom:1px solid var(--border);
-      background:#0a0e17
+      background:var(--bg2)
     }
     .pdf-edit-label{font-size:11px;font-weight:600;color:var(--text-muted);margin-right:8px}
     .pdf-edit-hint{font-size:10px;color:#4a5568;margin-left:auto}
@@ -392,7 +392,7 @@
     }
     .pdf-stamp-input{
       position:fixed;z-index:99999;display:flex;gap:6px;
-      padding:8px;background:#1a2035;border:1px solid var(--border);
+      padding:8px;background:var(--surface2);border:1px solid var(--border);
       border-radius:8px
     }
     .pdf-stamp-input input{

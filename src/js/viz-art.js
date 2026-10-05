@@ -62,7 +62,7 @@ function tone(viz, i, n, v, set) {
     case 'mono':    return [0, 0, 70 + v * 25];
     default:
       if (set === 'bubbles') return i % 2 ? [140, 90, 52 + v * 10] : [16, 100, 52 + v * 8];   // green and orange
-      return [[240, 268, 296, 326, 352][Math.round(pos * 4)] ?? 280, 92, 60 + v * 12];       // blue to red, through violet and pink
+      return [[240, 268, 296, 326, 352][Math.round(pos * 4)] ?? 280, 100, 56 + v * 12];      // blue to red, through violet and pink: full saturation (v3.34.0)
   }
 }
 const hsla = ([h, s, l], a) => `hsla(${Math.round(h)},${s}%,${Math.round(Math.min(92, l))}%,${a.toFixed(3)})`;
@@ -98,11 +98,16 @@ function glowSprite(col) {
     gr.addColorStop(0, hsla(col, 1)); gr.addColorStop(1, 'rgba(0,0,0,0)'); g.fillStyle = gr; g.fillRect(0, 0, w, w);
   });
 }
+// Neon (v3.34.0): a white-hot centre, a fully saturated ring, and a wide soft
+// halo three times its size. Soft pastel dots read as dull, not as neon.
 function dotSprite(col, r) {
-  const n = Math.ceil(r * 4 + 2);
+  const n = Math.ceil(r * 6 + 2);
   return sprite(`dot|${col.join(',')}|${r}`, n, (g, w) => {
     const gr = g.createRadialGradient(w / 2, w / 2, 0, w / 2, w / 2, w / 2);
-    gr.addColorStop(0, hsla([col[0], col[1], col[2] + 18], 1)); gr.addColorStop(0.35, hsla(col, 0.85)); gr.addColorStop(1, hsla(col, 0));
+    gr.addColorStop(0, 'rgba(255,255,255,1)');
+    gr.addColorStop(0.1, hsla([col[0], 100, 74], 1));
+    gr.addColorStop(0.24, hsla([col[0], 100, 58], 0.7));
+    gr.addColorStop(1, hsla([col[0], 100, 50], 0));
     g.fillStyle = gr; g.fillRect(0, 0, w, w);
   });
 }

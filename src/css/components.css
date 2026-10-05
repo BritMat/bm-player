@@ -772,3 +772,34 @@ img.g-wait { opacity: 0; }
   box-shadow: 0 10px 30px rgba(0,0,0,.4); opacity: 0; transition: opacity .2s, transform .2s;
 }
 .fx-note.show { opacity: 1; transform: translate(-50%, 0); }
+
+/* A chosen menu option (v3.34.0): normal text, a little bolder, with an accent
+   bar and tint. In the accent colour it was hard to read on dark menus. */
+.mr.active-opt { color: var(--text) !important; font-weight: 600; box-shadow: inset 2px 0 0 var(--accent); background: color-mix(in srgb, var(--accent) 12%, transparent); }
+.mr.active-opt:hover { color: var(--on-accent) !important; }
+
+/* Light (v3.34.0): more than plain white. A porcelain page with washes of
+   lavender, peach and sky, its own morning scene (theme-scenes.js), frosted
+   bars and soft shadows for what is raised. */
+[data-theme="light"] .theme-fx-canvas { opacity: 1; }
+html[data-theme="light"] body,
+html[data-theme="light"] #welcome-screen {
+  background:
+    radial-gradient(1100px 700px at 8% 0%, rgba(124,108,255,.15), transparent 60%),
+    radial-gradient(900px 640px at 96% 14%, rgba(255,140,105,.13), transparent 60%),
+    radial-gradient(1000px 700px at 50% 112%, rgba(0,170,220,.13), transparent 60%),
+    linear-gradient(180deg, #f7f8fd, #edf0f8);
+}
+html[data-theme="light"] .titlebar,
+html[data-theme="light"] .menu-toolbar { background: rgba(255,255,255,.74); backdrop-filter: blur(16px) saturate(1.4); border-bottom: 1px solid rgba(30,40,80,.07); }
+html[data-theme="light"] .sidebar { background: rgba(255,255,255,.68); backdrop-filter: blur(16px) saturate(1.3); box-shadow: 1px 0 0 rgba(30,40,80,.07); }
+html[data-theme="light"] .mi-drop { box-shadow: 0 14px 40px rgba(30,40,80,.16), 0 2px 6px rgba(30,40,80,.06); }
+html.lite-mode[data-theme="light"] .titlebar,
+html.lite-mode[data-theme="light"] .menu-toolbar,
+html.lite-mode[data-theme="light"] .sidebar { background: rgba(255,255,255,.95); }
+
+/* Text on the music visualiser's overlay (v3.34.0): the overlay is dark in every
+   theme, so its text is white; it took the theme's text colour and in Light was
+   dark on dark ("No track selected"). */
+.music-viz-overlay .mv-title { color: #fff; text-shadow: 0 1px 8px rgba(0,0,0,.6); }
+.music-viz-overlay .mv-artist { color: rgba(255,255,255,.78); }

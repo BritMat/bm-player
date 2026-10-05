@@ -14,7 +14,7 @@
  */
 // Northern is the Flow theme: the fluid it had before v3.27.0, with its own
 // controls (flow-settings.js), so it is not a scene (v3.28.0).
-export const SCENE_THEMES = ['ocean', 'forest', 'cyberpunk', 'midnight', 'sakura', 'sunset', 'golden', 'lavender', 'glass'];
+export const SCENE_THEMES = ['ocean', 'forest', 'cyberpunk', 'midnight', 'sakura', 'sunset', 'golden', 'lavender', 'glass', 'light'];
 
 const TIER = { low: 0.5, medium: 1, high: 1.5 };
 const TAU = Math.PI * 2;
@@ -465,7 +465,46 @@ function glass(w, h, q, sp) {
   };
 }
 
-const SCENES = { ocean, forest, cyberpunk, midnight, sakura, sunset, golden, lavender, glass };
+// Light (v3.34.0): a bright morning, so the theme is more than plain white.
+// Soft pastel orbs (lavender, peach, sky, mint, honey) drift slowly up through
+// large washes of colour, with a few warm glints. Over a light page, so it
+// paints with low alpha instead of adding light as the dark scenes do.
+function light(w, h, q, sp) {
+  const tints = ['140,120,255', '255,150,120', '90,180,255', '110,210,180', '255,190,100'];
+  const orbSpr = tints.map(rgb => glow(40, rgb, 0.5));
+  const washSpr = tints.map(rgb => glow(160, rgb, 0.2));
+  const glint = glow(5, '255,196,110', 0.9);
+  let orbs, washes, glints;
+  const fill = () => {
+    orbs = Array.from({ length: count(24, q) }, (_, i) => ({ x: rnd(0, w), y: rnd(0, h), r: rnd(10, 44), vy: rnd(-14, -5), ph: rnd(0, TAU), c: i % tints.length, a: rnd(0.25, 0.55) }));
+    washes = Array.from({ length: 4 }, (_, i) => ({ x: rnd(0.1, 0.9) * w, y: rnd(0.1, 0.9) * h, ph: rnd(0, TAU), c: i % tints.length, s: rnd(2.2, 3.4) }));
+    glints = Array.from({ length: count(16, q) }, () => ({ x: rnd(0, w), y: rnd(0, h), ph: rnd(0, TAU) }));
+  };
+  fill();
+  return {
+    resize(W, H) { w = W; h = H; fill(); },
+    frame(ctx, W, H, dt, t) {
+      ctx.save();
+      for (const m of washes) {
+        const x = m.x + Math.sin(t * 0.05 * sp + m.ph) * w * 0.08, y = m.y + Math.cos(t * 0.04 * sp + m.ph) * h * 0.06, R = 160 * m.s;
+        ctx.globalAlpha = 0.85; ctx.drawImage(washSpr[m.c], x - R, y - R, R * 2, R * 2);
+      }
+      for (const o of orbs) {
+        o.y += o.vy * dt * sp; o.x += Math.sin(t * 0.3 * sp + o.ph) * 6 * dt * sp;
+        if (o.y < -o.r * 2) { o.y = h + o.r * 2; o.x = rnd(0, w); }
+        ctx.globalAlpha = o.a * (0.8 + 0.2 * Math.sin(t * 0.7 + o.ph));
+        const R = o.r * 1.6; ctx.drawImage(orbSpr[o.c], o.x - R, o.y - R, R * 2, R * 2);
+      }
+      for (const g of glints) {
+        const a = Math.sin(t * 1.2 * sp + g.ph); if (a < 0.3) continue;
+        ctx.globalAlpha = a * 0.85; ctx.drawImage(glint, g.x - 5, g.y - 5);
+      }
+      ctx.restore();
+    },
+  };
+}
+
+const SCENES = { ocean, forest, cyberpunk, midnight, sakura, sunset, golden, lavender, glass, light };
 
 /** A scene for a theme, sized to the canvas, or null for a theme without one. */
 export function createScene(name, w, h, tier = 'medium') {

@@ -45,6 +45,8 @@ const TIER = {
   low:    { sim: 64,  dye: 256,  iterations: 4,  dissipation: 1.4, velDissipation: 0.35, curl: 18, radius: 0.30, fps: 30 },
   medium: { sim: 128, dye: 512,  iterations: 12, dissipation: 1.0, velDissipation: 0.25, curl: 26, radius: 0.25, fps: 60 },
   high:   { sim: 192, dye: 1024, iterations: 20, dissipation: 0.9, velDissipation: 0.20, curl: 30, radius: 0.22, fps: 60 },
+  // HD Flow on a strong machine (v3.34.0): dye close to the screen's own size.
+  ultra:  { sim: 256, dye: 2048, iterations: 20, dissipation: 0.9, velDissipation: 0.20, curl: 30, radius: 0.2,  fps: 60 },
 };
 
 /* ─── Shaders (GLSL ES 1.00 — valid under both WebGL1 and WebGL2) ─── */
@@ -204,11 +206,12 @@ precision highp float; precision highp sampler2D;
 varying vec2 vUv, vL, vR, vT, vB;
 uniform sampler2D uTexture;
 uniform sampler2D uBloom;   // the glow (v3.33.0), added when uBloomAmt is above 0
+uniform sampler2D uBloom2;  // and its wide halo (v3.34.0)
 uniform vec2 texelSize;
-uniform float uAlpha, uShading, uBloomAmt;
+uniform float uAlpha, uShading, uBloomAmt, uNeon, uExposure;
 void main () {
   vec3 c = texture2D(uTexture, vUv).rgb;
-  if (uShading > 0.5) {
+  if (uShading > 0.5 && uNeon < 0.5) {
     vec3 lc = texture2D(uTexture, vL).rgb;
     vec3 rc = texture2D(uTexture, vR).rgb;
     vec3 tc = texture2D(uTexture, vT).rgb;
@@ -219,7 +222,14 @@ void main () {
     float diffuse = clamp(dot(n, vec3(0.0, 0.0, 1.0)) + 0.7, 0.7, 1.0);
     c *= diffuse;
   }
-  c += texture2D(uBloom, vUv).rgb * uBloomAmt;
+  c += (texture2D(uBloom, vUv).rgb + texture2D(uBloom2, vUv).rgb * 1.4) * uBloomAmt;
+  if (uNeon > 0.5) {
+    // Neon (v3.34.0): the dye runs past white; compress it so the brightest
+    // parts burn white-hot and the rest keeps its full colour, a little richer.
+    c = vec3(1.0) - exp(-c * uExposure);
+    float l = dot(c, vec3(0.2126, 0.7152, 0.0722));
+    c = clamp(mix(vec3(l), c, 1.3), 0.0, 1.0);
+  }
   float a = max(c.r, max(c.g, c.b));
   gl_FragColor = vec4(c, a * uAlpha);
 }`;
@@ -482,8 +492,8 @@ export class FluidFX {
     const kill = t => { if (!t) return; try { gl.deleteTexture(t.texture); gl.deleteFramebuffer(t.fbo); } catch(_) {} };
     const killDouble = d => { if (!d) return; kill(d.read); kill(d.write); };
     killDouble(this.dye); killDouble(this.velocity); killDouble(this.pressure);
-    kill(this.divergence); kill(this.curlFBO); kill(this.bloomA); kill(this.bloomB);
-    this.dye = this.velocity = this.pressure = this.divergence = this.curlFBO = this.bloomA = this.bloomB = null;
+    kill(this.divergence); kill(this.curlFBO); kill(this.bloomA); kill(this.bloomB); kill(this.bloomC); kill(this.bloomD);
+    this.dye = this.velocity = this.pressure = this.divergence = this.curlFBO = this.bloomA = this.bloomB = this.bloomC = this.bloomD = null;
   }
 
   _initFramebuffers() {
@@ -503,10 +513,16 @@ export class FluidFX {
       const b = this._dims(Math.max(64, Math.round(this.cfg.dye / 4)));
       this.bloomA = this._createFBO(b.width, b.height, this.fmtRGBA, filter);
       this.bloomB = this._createFBO(b.width, b.height, this.fmtRGBA, filter);
+      const w = this._dims(Math.max(32, Math.round(this.cfg.dye / 16)));   // the wide halo (v3.34.0)
+      this.bloomC = this._createFBO(w.width, w.height, this.fmtRGBA, filter);
+      this.bloomD = this._createFBO(w.width, w.height, this.fmtRGBA, filter);
     }
   }
 
   /** The glow over the dye, 0 for none (v3.33.0). Its buffers exist only while it is on. */
+  /** Neon: high-range dye, tone-mapped, no shading (v3.34.0). */
+  setNeon(on, exposure = 1.4) { this.neon = !!on; this.exposure = exposure; }
+
   setBloom(v) {
     const was = this.bloom > 0;
     this.bloom = Math.max(0, +v || 0);
@@ -725,6 +741,17 @@ export class FluidFX {
         gl.uniform2f(P.blur.uniforms.uDir, 0, this.bloomB.texelSizeY * i);
         gl.uniform1i(P.blur.uniforms.uTexture, this.bloomB.attach(0)); this._blit(this.bloomA);
       }
+      // The wide halo: the tight glow, smaller still, blurred again.
+      if (this.bloomC) {
+        gl.uniform2f(P.blur.uniforms.uDir, this.bloomA.texelSizeX, 0);
+        gl.uniform1i(P.blur.uniforms.uTexture, this.bloomA.attach(0)); this._blit(this.bloomC);
+        for (let i = 1; i <= 2; i++) {
+          gl.uniform2f(P.blur.uniforms.uDir, this.bloomC.texelSizeX * i, 0);
+          gl.uniform1i(P.blur.uniforms.uTexture, this.bloomC.attach(0)); this._blit(this.bloomD);
+          gl.uniform2f(P.blur.uniforms.uDir, 0, this.bloomD.texelSizeY * i);
+          gl.uniform1i(P.blur.uniforms.uTexture, this.bloomD.attach(0)); this._blit(this.bloomC);
+        }
+      }
       bloom = this.bloomA;
     }
     gl.enable(gl.BLEND);
@@ -735,7 +762,10 @@ export class FluidFX {
     gl.uniform1f(P.display.uniforms.uAlpha, this._alpha);
     gl.uniform1f(P.display.uniforms.uShading, this._tier === 'low' ? 0 : 1);
     gl.uniform1i(P.display.uniforms.uBloom, bloom ? bloom.attach(1) : this.dye.read.attach(1));
+    gl.uniform1i(P.display.uniforms.uBloom2, bloom && this.bloomC ? this.bloomC.attach(2) : this.dye.read.attach(2));
     gl.uniform1f(P.display.uniforms.uBloomAmt, bloom ? this.bloom : 0);
+    gl.uniform1f(P.display.uniforms.uNeon, this.neon ? 1 : 0);
+    gl.uniform1f(P.display.uniforms.uExposure, this.exposure || 1.4);
     this._blit(null);
   }
 

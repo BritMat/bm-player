@@ -297,8 +297,10 @@ export class Visualizer {
       const f = this._fluid; f._baseTier = f._baseTier || f._tier;
       // HD Flow: neon threads on dark, not clouds. A fine brush, little dye per
       // stroke, a quick fade and a gentle glow (it filled the screen at first).
-      if (this.mode === 'flow') { f.setQuality(f._baseTier === 'low' ? 'low' : 'high'); f.setFlow({ swirl: 2.6, trail: 0.7, radius: 0.35 }); f.setBloom(0.7); }
-      else { f.setQuality(f._baseTier); f.setFlow({ swirl: 1.7, trail: 0.42, radius: 0.6 }); f.setBloom(0); }
+      // HD Flow (v3.34.0): Ultra (dye 2048) on a strong machine, neon (high-range
+      // dye, tone-mapped) and a two-level glow. It looked dull and soft before.
+      if (this.mode === 'flow') { f.setQuality({ high: 'ultra', medium: 'high' }[f._baseTier] || 'low'); f.setFlow({ swirl: 2.6, trail: 0.7, radius: 0.35 }); f.setNeon(true, 1.4); f.setBloom(0.6); }
+      else { f.setQuality(f._baseTier); f.setFlow({ swirl: 1.7, trail: 0.42, radius: 0.6 }); f.setNeon(false); f.setBloom(0); }
     }
     if (this.mode === 'flow') this._feedFlow(this._getFreq()); else this._feedFluid(this._getFreq());
   }
@@ -375,7 +377,7 @@ export class Visualizer {
       const dx = nx - e.x, dy = ny - e.y; e.x = nx; e.y = ny;
       if (quiet || !due || v < 0.06) return;
       const len = Math.hypot(dx, dy) || 1e-6, force = 1800 + v * 5200;
-      const col = this._rgb(v, i / 3, 0, st.drift, i).map(c => c * (0.09 + v * 0.22));
+      const col = this._rgb(v, i / 3, 0, st.drift, i).map(c => c * (0.3 + v * 0.9));   // high range: the tone map shapes it (v3.34.0)
       // Strokes along the way it came (up to three), sharing the dye, so a fast
       // emitter leaves one continuous thread rather than dots.
       const k = Math.min(3, Math.max(1, Math.ceil(len / 0.012)));
