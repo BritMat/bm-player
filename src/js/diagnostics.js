@@ -12,6 +12,7 @@
 
 import { perf } from './perf.js';
 import { AudioEngine } from './audio-engine.js';
+import { MD, MD_SCALES, vizSettings } from './visualizer.js';
 
 /** Probe WebGL without leaving a context lying around. */
 function probeWebGL() {
@@ -73,7 +74,8 @@ export async function collectDiagnostics(api) {
     generated: new Date().toISOString(),
     main: null,
     renderer: {
-      perfTier: perf.tier,
+      // and where it came from (v3.36.0): a tier stuck on low went unnoticed for weeks
+      perfTier: perf.tier + (perf._session ? ' (this run only, Lite mode)' : perf.chosen ? ' (chosen in Fluid Settings)' : ' (detected)'),
       liteMode: document.documentElement.classList.contains('lite-mode'),
       theme: document.documentElement.getAttribute('data-theme'),
       devicePixelRatio: window.devicePixelRatio,
@@ -89,6 +91,21 @@ export async function collectDiagnostics(api) {
       engineActive: !!window.bmMusic?.engineOwns?.(),
       codecs: probeCodecs(),
     },
+    // v3.36.0: what the fluid and MilkDrop settled on, on this machine. Each
+    // steps its quality down by itself when frames are slow, and without this
+    // nobody could tell that it had.
+    visuals: (() => {
+      const app = window.bmApp, one = f => (f && f._tier && f.canvas) ? `${f._tier}${f.lowered ? ' (stepped down: frames were slow)' : ''}, ${f.canvas.width}x${f.canvas.height}${f.frames ? '' : ', not drawn yet'}` : null;
+      try {
+        return {
+          themeFluid: app?._fluidIsGPU ? one(app.auroraFX) : null,
+          vizFluid: one(app?.viz?._fluid),
+          style: app?.viz ? `${vizSettings().style}, canvas ${app.viz.canvas?.width}x${app.viz.canvas?.height}` : null,
+          beats: app?.viz?.beat ? `${app.viz.beat.n} heard since the app started` : null,
+          milkdrop: MD.set ? `${Math.round(MD_SCALES[MD.level] * 100)}% of the picture${MD.level > MD.start ? ' (stepped down: three presets running were slow)' : ''}` : null,
+        };
+      } catch (_) { return {}; }
+    })(),
     features: {
       fluidGPU: !!window.bmApp?._fluidIsGPU,
       fox: window.bmApp?.fox ? (window.bmApp.fox.describe?.() || window.bmApp.fox.kind || 'present') : 'none',
@@ -153,6 +170,11 @@ export function formatDiagnostics(d) {
   row('renderer', d.webgl.renderer);
   row('half-float targets', d.webgl.halfFloatRenderable + (d.webgl.halfFloatRenderable ? '' : '  (fluid sim falls back)'));
   row('fluid sim on GPU', d.features.fluidGPU);
+  if (d.visuals?.themeFluid) row('fluid, home screen', d.visuals.themeFluid);
+  if (d.visuals?.vizFluid) row('fluid, visualiser', d.visuals.vizFluid);
+  if (d.visuals?.milkdrop) row('milkdrop drawn at', d.visuals.milkdrop);
+  if (d.visuals?.style) row('visualiser', d.visuals.style);
+  if (d.visuals?.beats) row('beats', d.visuals.beats);
   row('fox', d.features.fox);
   row('color-mix()', d.features.colorMix);
   if (m?.gpu?.auxAttributes) row('gpu status', JSON.stringify(m.gpu.auxAttributes).slice(0, 120));

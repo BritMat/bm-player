@@ -894,6 +894,37 @@ for (const cfg of ['electron-builder.yml', 'electron-builder.lite.yml']) {
   }
 }
 
+/* ── The quality tier is the user's to save, nobody else's ────────────
+   Lite mode called perf.setTier('low'), which keeps the tier, so one press of
+   the Pro/Lite switch left the whole app on Low for good (v3.36.0: the fluid
+   at 256 pixels and 30 frames a second on a machine that could do far more).
+   Code that wants a tier for now uses setSessionTier. setTier with a tier
+   written into the code is that mistake again. */
+for (const { file, text } of rendererSrc) {
+  for (const m of strip(text).matchAll(/\.setTier\(\s*(['"`])(\w+)\1/g))
+    err('quality', `${file}: setTier('${m[2]}') saves a tier the user did not choose. Use setSessionTier for a tier that should last this run only`);
+}
+
+/* ── The MilkDrop set and its list say the same ───────────────────────
+   src/vendor/milkdrop/presets.js is generated from the names in
+   scripts/milkdrop-presets.json (v3.36.0). One changed without the other
+   would ship a set nobody chose. */
+{
+  const listFile = path.join(ROOT, 'scripts', 'milkdrop-presets.json'), built = path.join(ROOT, 'src', 'vendor', 'milkdrop', 'presets.js');
+  if (fs.existsSync(listFile) && fs.existsSync(built)) {
+    let names = [];
+    try { names = JSON.parse(fs.readFileSync(listFile, 'utf8')); } catch (e) { err('milkdrop', 'scripts/milkdrop-presets.json is not valid JSON: ' + e.message); }
+    const text = fs.readFileSync(built, 'utf8');
+    const have = new Set([...text.matchAll(/^("(?:[^"\\]|\\.)*"):\(\)=>Object\.assign\(/gm)].map(m => JSON.parse(m[1])));
+    const missing = names.filter(n => !have.has(n)), extra = [...have].filter(n => !names.includes(n));
+    if (missing.length) err('milkdrop', `${missing.length} preset(s) in the list are not in presets.js (run scripts/build-milkdrop.mjs): ${missing.slice(0, 3).join(', ')}`);
+    if (extra.length) err('milkdrop', `${extra.length} preset(s) in presets.js are not in the list: ${extra.slice(0, 3).join(', ')}`);
+    if (names.length && names.length < 30) err('milkdrop', `only ${names.length} presets in the list`);
+  } else if (fs.existsSync(built)) err('milkdrop', 'scripts/milkdrop-presets.json is missing: it says which presets presets.js holds');
+  // The review file (build-milkdrop --all) holds all 395 presets, two megabytes of them: it must not ship.
+  if (fs.existsSync(path.join(ROOT, 'src', 'vendor', 'milkdrop', 'all-presets.js'))) err('milkdrop', 'src/vendor/milkdrop/all-presets.js is a review file and would ship with the app: delete it');
+}
+
 if (warns.length) {
   console.log('\n\x1b[33mWARNINGS\x1b[0m');
   for (const [cat, msgs] of Object.entries(group(warns))) {

@@ -52,11 +52,14 @@ read by BM Player's built-in updater. You don't need to download them.
   more. And a 3D fox mascot.
 - Keyboard shortcuts for nearly everything: press ? (or F1) in the app for the list.
 - Pro or Lite, switched with one press of the button by the window controls.
-- An audio visualiser that shows the music as it plays, its real frequencies,
-  in nine styles, among them HD Flow (glowing fluid stirred by the music),
-  MilkDrop (the classic presets, through butterchurn), Neon, Bubbles and Smoke, with the album art in Radial's
-  middle, and settings for its style,
-  colours, sensitivity and bars. And subtitles in the font and colour you choose.
+- An audio visualiser that shows the music as it plays, its real frequencies
+  and its beat, in nine styles, among them HD Flow (a fluid stirred by the
+  music, and by your pointer, drawn as neon lines in the screen's own pixels),
+  MilkDrop (a chosen set of the classic presets, through butterchurn), Neon,
+  Bubbles and Smoke, with the album art in Radial's middle, and settings for
+  its style, colours, sensitivity and bars. The heavier styles step their
+  quality down by themselves on a machine that cannot keep up. And subtitles
+  in the font and colour you choose.
 - Plugins: themes and scripts you add yourself (see below).
 - Lite mode for weak hardware: lighter visuals, switched on automatically on
   low-spec machines and available as a setting in any build.
@@ -110,3 +113,7 @@ package manager.
 The MilkDrop style uses [butterchurn](https://github.com/jberg/butterchurn) and
 [butterchurn-presets](https://github.com/jberg/butterchurn-presets), both MIT
 licensed (src/vendor/milkdrop/LICENSE.txt).
+
+The fluid (behind the home screen, and in the Smoke and HD Flow styles) follows
+the method of [WebGL Fluid Simulation](https://github.com/PavelDoGreat/WebGL-Fluid-Simulation)
+by Pavel Dobryakov, MIT licensed (src/vendor/webgl-fluid/LICENSE.txt).

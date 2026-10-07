@@ -716,6 +716,11 @@ function registerIpc(){
     cpuCount: os.cpus()?.length || null,
     totalMemGB: Math.round(os.totalmem() / 1024 / 1024 / 1024 * 10) / 10,
     freeMemGB: Math.round(os.freemem() / 1024 / 1024 / 1024 * 10) / 10,
+    // The refresh rate of the screen the window is on (v3.36.0), which a page
+    // cannot ask for. The fluid and MilkDrop lower their quality when frames
+    // come slowly, and on a 30 Hz screen (a 4K set on an old cable, some
+    // docks) they come 33 ms apart on the fastest machine there is.
+    displayHz: (() => { try { return Math.round(screen.getDisplayMatching(win.getBounds()).displayFrequency) || null; } catch (_) { return null; } })(),
   }));
   // Everything a bug report needs, in one place: versions, where mpv was
   // found (or wasn't), GPU status, cache sizes, and what the window is

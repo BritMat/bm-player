@@ -18,7 +18,13 @@ export const QUALITY_TIERS = {
   high:   { label: 'High (dedicated GPU)',               density: 340, speedScale: 1.2,  glow: 1.25, trail: 1.15 },
 };
 
-const STORAGE_KEY = 'bm_perf_quality';
+// v3.36.0: only what the user chose in Fluid Settings is kept, under a new
+// key. Until v3.35.0 Lite mode wrote 'low' under the old key, for good, so
+// one press of the Pro/Lite switch left the app on Low even back in Pro:
+// the fluid at 256 pixels and 30 frames a second on a machine that could do
+// far more. Found in a real machine's diagnostics ("perf tier low" on an i7).
+const STORAGE_KEY = 'bm_perf_quality_user';
+const LEGACY_KEY  = 'bm_perf_quality';
 const CUSTOM_KEY  = 'bm_perf_custom';
 
 /**
@@ -31,22 +37,39 @@ const CUSTOM_KEY  = 'bm_perf_custom';
  * more conservative of the two verdicts wins — defaulting DOWN on
  * uncertainty is the right failure mode for this app's stated priority.
  */
-function autoDetectTier() {
-  const cores = navigator.hardwareConcurrency || 4;
-  const mem   = navigator.deviceMemory || 8; // assume capable if unknown
-
+export function autoDetectTier(cores = navigator.hardwareConcurrency || 4, mem = navigator.deviceMemory || 8, exact = false) {
   if (mem <= 4 || cores <= 2) return 'low';
-  if (mem <= 8 || cores <= 4) return 'medium';
+  // navigator.deviceMemory never says more than 8, so from the page "8" means
+  // 8 GB or more, and "mem <= 8" made High unreachable on any machine
+  // (v3.36.0). Only the main process's real figure (exact) can say "just 8".
+  if (cores <= 4 || (exact && mem <= 8)) return 'medium';
   return 'high';
 }
 
 class PerfSettings {
   constructor() {
     this._listeners = [];
-    const saved = localStorage.getItem(STORAGE_KEY);
-    this.tier = (saved && QUALITY_TIERS[saved]) ? saved : autoDetectTier();
+    this.chosen = false;      // the user picked this tier in Fluid Settings
+    this._session = null;     // a tier for this run only, never saved (Lite mode)
+    this.refreshMs = 0;       // the time between two refreshes of the screen, 0 while not known (setRefresh)
+    let saved = null;
+    try {
+      saved = localStorage.getItem(STORAGE_KEY);
+      // The old key: 'medium' and 'high' can only have been the user's choice
+      // and are kept. 'low' cannot be told from Lite mode's, and is dropped.
+      const old = localStorage.getItem(LEGACY_KEY);
+      if (old !== null) {
+        if (!saved && (old === 'medium' || old === 'high')) { saved = old; localStorage.setItem(STORAGE_KEY, old); }
+        localStorage.removeItem(LEGACY_KEY);
+      }
+    } catch (_) {}
+    if (saved && QUALITY_TIERS[saved]) { this._base = saved; this.chosen = true; }
+    else this._base = autoDetectTier();
     this._customOverrides = this._loadCustom();
   }
+
+  /** The tier in effect: this run's (Lite mode), else the user's or the detected one. */
+  get tier() { return this._session || this._base; }
 
   _loadCustom() {
     try { return JSON.parse(localStorage.getItem(CUSTOM_KEY)) || {}; }
@@ -62,14 +85,40 @@ class PerfSettings {
     return { ...base, ...this._customOverrides };
   }
 
+  /** The user's choice, from Fluid Settings: kept. */
   setTier(tier) {
     if (!QUALITY_TIERS[tier]) return;
-    this.tier = tier;
+    this._base = tier; this.chosen = true;
     this._customOverrides = {};   // switching preset clears manual tweaks
-    localStorage.setItem(STORAGE_KEY, tier);
+    try { localStorage.setItem(STORAGE_KEY, tier); } catch (_) {}
     this._saveCustom();
     this._notify();
   }
+
+  /** A tier for this run only, never saved: Lite mode's 'low'. null lifts it. */
+  setSessionTier(tier) {
+    const was = this.tier;
+    this._session = QUALITY_TIERS[tier] ? tier : null;
+    if (this.tier !== was) this._notify();
+  }
+
+  /** The main process knows the real RAM and core count: detect again, unless the user chose. */
+  refine({ cores, memGB } = {}) {
+    if (this.chosen || !cores || !memGB) return;
+    const t = autoDetectTier(cores, memGB, true);
+    if (t === this._base) return;
+    const was = this.tier; this._base = t;
+    if (this.tier !== was) this._notify();
+  }
+
+  /**
+   * The screen's refresh rate in Hz, from the main process (the page cannot
+   * ask). What steps quality down when frames are slow (the fluid, MilkDrop)
+   * must not take a slow screen for a slow machine: on a 30 Hz one, frames come
+   * 33 ms apart whatever draws them. Anything that is not a plausible rate
+   * means "not known".
+   */
+  setRefresh(hz) { this.refreshMs = (hz >= 20 && hz <= 1000) ? 1000 / hz : 0; }
 
   /** Manual per-field tweak (density/speedScale/glow/trail), layered on top of the current tier. */
   setCustom(field, value) {

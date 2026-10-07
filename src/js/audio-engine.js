@@ -77,12 +77,24 @@ export class AudioEngine {
       this.analyser.fftSize = 1024;   // 1024 (v3.32.0): MilkDrop reads 1024 samples
       this.analyser.smoothingTimeConstant = 0.8;
 
-      // source -> f0 -> f1 -> ... -> f9 -> gain -> analyser -> speakers
+      // v3.36.0: the visualiser hears the music as it is, whatever the volume.
+      //   source -> f0 -> ... -> f9 -+-> gain -> speakers              the sound
+      //                              +-> analyser -> tap (0) -> speakers   the measurement
+      // The analyser used to sit after the volume, and the volume was the audio
+      // element's own, which is applied before any of this: at a low volume
+      // every visualiser shrank, and mute stopped them dead. Volume and mute
+      // now live in the gain, after the point the analyser listens at. (The tap
+      // is silent, and there so the analyser is always being fed.)
       let node = this.source;
       for (const f of this.filters) { node.connect(f); node = f; }
       node.connect(this.gain);
-      this.gain.connect(this.analyser);
-      this.analyser.connect(this.ctx.destination);
+      this.gain.connect(this.ctx.destination);
+      this.tap = this.ctx.createGain();
+      this.tap.gain.value = 0;
+      node.connect(this.analyser);
+      this.analyser.connect(this.tap);
+      this.tap.connect(this.ctx.destination);
+      this._vol = 1; this._muted = false;
 
       this._wireElement();
       this.available = true;
@@ -176,14 +188,26 @@ export class AudioEngine {
   get duration()    { return this.el && isFinite(this.el.duration) ? this.el.duration : 0; }
   get paused()      { return this.el ? this.el.paused : true; }
 
-  /** Volume is 0-130 to match mpv's scale; above 100 uses the gain node. */
+  /** Volume is 0-130 to match mpv's scale. All of it is the gain node's (v3.36.0). */
   setVolume(v) {
     if (!this.available) return;
-    const pct = Math.max(0, Math.min(130, Number(v) || 0));
-    this.el.volume = Math.min(1, pct / 100);
-    this.gain.gain.value = pct > 100 ? pct / 100 : 1;
+    this._vol = Math.max(0, Math.min(130, Number(v) || 0)) / 100;
+    this._applyGain();
   }
-  setMuted(on) { if (this.available) this.el.muted = !!on; }
+  setMuted(on) { if (this.available) { this._muted = !!on; this._applyGain(); } }
+  _applyGain() {
+    const g = this._muted ? 0 : this._vol, p = this.gain.gain;
+    try {
+      // While sound is running, a short glide: a jump in gain is heard as a
+      // click. Before it runs there is nothing to click, and a glide set now
+      // would be played out when the first song starts, from full volume. So
+      // then the value is set outright, with nothing left scheduled that could
+      // override it.
+      const t = this.ctx.currentTime;
+      if (this.ctx.state === 'running') { p.cancelScheduledValues(t); p.setTargetAtTime(g, t, 0.015); }
+      else { p.cancelScheduledValues(0); p.value = g; }
+    } catch (_) { p.value = g; }
+  }
   setSpeed(rate) {
     if (!this.available) return;
     this.el.preservesPitch = true;

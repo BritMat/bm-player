@@ -57,8 +57,9 @@ catch { skip('Electron binary not installed (ELECTRON_SKIP_BINARY_DOWNLOAD?)'); 
 let _electron;
 try { ({ _electron } = await import('playwright-core')); } catch { skip('playwright-core not installed'); }
 
-// Part C runs the full visuals and has grown past 100 s (v3.33.0): 180 s for it.
-const hard = setTimeout(() => { console.log('\n  DEADLINE: e2e ran too long'); process.exit(1); }, PART === 'c' ? 180000 : 100000);
+// Part C runs the full visuals and has grown past 100 s (v3.33.0), and to about 120 s with
+// the lost-picture checks (v3.36.0): 240 s for it.
+const hard = setTimeout(() => { console.log('\n  DEADLINE: e2e ran too long'); process.exit(1); }, PART === 'c' ? 240000 : 100000);
 
 /* Fixtures, generated so nothing binary is committed. */
 const FIX = fs.mkdtempSync(path.join(os.tmpdir(), 'bm-e2e-'));
@@ -1118,8 +1119,9 @@ if (PART === 'c') {
       bmApp.switchDest('music'); bmMusic.play(t, 0); await new Promise(z => setTimeout(z, 1200));
       bmApp.switchDest('video'); await new Promise(z => setTimeout(z, 900));
       const v = bmApp.viz; const bar = document.getElementById('controls-bar');
-      bar.classList.add('faded'); await new Promise(z => setTimeout(z, 500));
-      const band = Math.round(innerHeight - document.querySelector('.viz-overlay').getBoundingClientRect().bottom);
+      // The row slides down over 0.28 s, counted in drawn frames: on a machine that draws few of them it takes longer.
+      bar.classList.add('faded');
+      let band = 999; for (let i = 0; i < 30 && band > 2; i++) { await new Promise(z => setTimeout(z, 100)); band = Math.round(innerHeight - document.querySelector('.viz-overlay').getBoundingClientRect().bottom); }
       document.documentElement.classList.add('is-max'); await new Promise(z => setTimeout(z, 600));
       const pane = +getComputedStyle(document.querySelector('.sidebar')).opacity;
       document.documentElement.classList.remove('is-max');
@@ -1142,12 +1144,15 @@ if (PART === 'c') {
   // visual mode hides the side pane, which comes back at the left edge.
   await step('Neon, Bubbles and Particles draw with the music, Particles fills the screen, the side pane hides', async () => {
     await page.evaluate(async t => { bmApp.switchDest('music'); bmMusic.play(t, 0); await new Promise(z => setTimeout(z, 1200)); bmApp.switchDest('video'); await new Promise(z => setTimeout(z, 800)); }, TONE);
-    await page.mouse.move(600, 300); await page.waitForTimeout(300);
-    const paneHidden = await page.evaluate(() => +getComputedStyle(document.querySelector('.sidebar')).opacity);
-    await page.mouse.move(4, 300); await page.waitForTimeout(400);
-    const panePeek = await page.evaluate(() => +getComputedStyle(document.querySelector('.sidebar')).opacity);
-    await page.mouse.move(600, 300); await page.waitForTimeout(400);
-    const paneBack = await page.evaluate(() => +getComputedStyle(document.querySelector('.sidebar')).opacity);
+    // The pane fades over a quarter of a second, counted in drawn frames: it is
+    // given up to three seconds to get there, for a machine that draws few.
+    const pane = async there => { let o = -1; for (let i = 0; i < 30; i++) { await page.waitForTimeout(100); o = await page.evaluate(() => +getComputedStyle(document.querySelector('.sidebar')).opacity); if (i >= 2 && there(o)) break; } return o; };
+    await page.mouse.move(600, 300);
+    const paneHidden = await pane(o => o <= 0.05);
+    await page.mouse.move(4, 300);
+    const panePeek = await pane(o => o >= 0.95);
+    await page.mouse.move(600, 300);
+    const paneBack = await pane(o => o <= 0.05);
     const r = await page.evaluate(async () => {
       const v = bmApp.viz, out = {};
       const lit = () => {
@@ -1166,7 +1171,10 @@ if (PART === 'c') {
         if (el2.paused) await el2.play().catch(() => {});
         for (let i = 0; i < 30 && !(v._loudness() > 0.01); i++) await new Promise(z => setTimeout(z, 100));
         v.setOptions({ style }); v.setMode(style);
-        await new Promise(z => setTimeout(z, 2500));
+        // Two and a half seconds, and at least 70 drawn frames: a style moves by
+        // the frame, and a machine that draws few of them a second had not yet
+        // carried its particles to the sides (nine seconds at the most).
+        { const k0 = v._tick, t0 = performance.now(); while (performance.now() - t0 < 2500 || (v._tick - k0 < 70 && performance.now() - t0 < 9000)) await new Promise(z => setTimeout(z, 100)); }
         // what it has made in all: on screen, long-lived wisps outlast a short wait
         const playing = lit(), made = v[key]?.made || 0;
         bmMusic.engine.el.pause(); await new Promise(z => setTimeout(z, 600));
@@ -1208,16 +1216,65 @@ if (PART === 'c') {
         const c = document.createElement('canvas'); c.width = 64; c.height = 36; const x = c.getContext('2d'); x.drawImage(v._mdCanvas, 0, 0, 64, 36);
         const d = x.getImageData(0, 0, 64, 36).data; for (let i = 0; i < d.length; i += 4) if (d[i] + d[i + 1] + d[i + 2] > 30) lit++;
       }
-      const out = { ok: !!v._md, failed: !!v._mdFailed, presets: v._mdNames?.length || 0, first, next, lit, csp: window.__csp.slice() };
+      // v3.36.0: in the screen's own pixels (times the size it settled on), and every preset loads
+      const { MD, MD_SCALES } = await import('./js/visualizer.js');
+      const size = v._md ? { w: v._mdW, want: v._mdSize()[0], full: Math.round(v.canvas.offsetWidth * devicePixelRatio), share: MD_SCALES[v._mdLevel()] } : null;
+      const bad = [];
+      if (v._md) for (const n of v._mdNames) { try { const p = v._mdPresets[n](); if (typeof p.init_eqs !== 'function' || typeof p.frame_eqs !== 'function') bad.push(n); } catch (e) { bad.push(n + ': ' + e.message); } }
+      // v3.36.0: the graphics card takes its picture away (as a driver restart
+      // does). It makes itself a new canvas and plays on, where it stayed black.
+      let lost = null;
+      if (v._md) {
+        const old = v._mdCanvas, ext = old.getContext('webgl2')?.getExtension('WEBGL_lose_context');
+        if (ext) {
+          ext.loseContext();
+          for (let i = 0; i < 80 && (!v._md || v._mdCanvas === old); i++) await new Promise(z => setTimeout(z, 100));
+          // A new picture starts black, and on a plain tone some presets stay dark
+          // for a while (the first look, above, still had the last preset's
+          // picture in it): up to four presets, three seconds each.
+          let lit2 = 0; const tried = [];
+          for (let p = 0; p < 4 && !lit2 && v._md && v._mdCanvas !== old; p++) {
+            if (p) v.mdNext(0);
+            tried.push(v._mdName);
+            for (let i = 0; i < 15 && !lit2; i++) {
+              await new Promise(z => setTimeout(z, 200));
+              v._drawMilk();
+              const c = document.createElement('canvas'); c.width = 64; c.height = 36; const x = c.getContext('2d'); x.drawImage(v._mdCanvas, 0, 0, 64, 36);
+              const d = x.getImageData(0, 0, 64, 36).data; for (let k = 0; k < d.length; k += 4) if (d[k] + d[k + 1] + d[k + 2] > 30) lit2++;
+            }
+          }
+          lost = { back: !!v._md, fresh: !!v._mdCanvas && v._mdCanvas !== old, gone: !old.isConnected, lit: lit2, tried, canvases: document.querySelectorAll('.viz-milk-canvas').length, failed: !!v._mdFailed };
+        }
+      }
+      const out = { ok: !!v._md, failed: !!v._mdFailed, presets: v._mdNames?.length || 0, first, next, lit, size, bad, lost, csp: window.__csp.slice() };
+      // And a card that takes every new picture away at once: it does not go on
+      // making canvases for good. After four in a row it draws bars.
+      if (lost?.back && lost.fresh) {
+        let made = 0;
+        for (let n = 0; n < 6 && v._md && !v._mdFailed; n++) {
+          const cur = v._mdCanvas; made++;
+          cur.getContext('webgl2').getExtension('WEBGL_lose_context').loseContext();
+          for (let i = 0; i < 80 && !v._mdFailed && (!v._md || v._mdCanvas === cur); i++) await new Promise(z => setTimeout(z, 100));
+        }
+        await new Promise(z => setTimeout(z, 300));
+        out.gaveUp = { failed: !!v._mdFailed, more: made, canvases: document.querySelectorAll('.viz-milk-canvas').length, bars: v._inked === true };
+        v._mdFailed = false; v._mdLost = 0;   // as it was found
+      }
       v.setOptions({ style: 'bars', mdAuto: 30 }); v.setMode('bars'); bmMusic.engine?.stop?.();
       return out;
     }, TONE);
+    if (r.lost && !(r.lost.back && r.lost.fresh && r.lost.gone && r.lost.canvases === 1 && !r.lost.failed)) throw new Error('after the graphics card took its picture away MilkDrop did not start again: ' + JSON.stringify(r.lost));
+    if (r.gaveUp && !(r.gaveUp.failed && r.gaveUp.more === 3 && r.gaveUp.canvases === 0 && r.gaveUp.bars)) throw new Error('a picture lost four times in a row should end in bars, with no canvas left: ' + JSON.stringify(r.gaveUp));
+    if (r.lost && !(r.lost.lit > 0)) throw new Error('MilkDrop started again after losing its picture, and drew nothing (tried: ' + r.lost.tried.join(' | ').slice(0, 200) + ')');
     if (!r.ok || r.failed) throw new Error('MilkDrop did not start');
     if (r.csp.length) throw new Error('the security policy blocked: ' + r.csp.join(', '));
-    if (r.presets < 50) throw new Error('only ' + r.presets + ' presets');
+    if (r.presets < 30) throw new Error('only ' + r.presets + ' presets');
+    if (r.bad.length) throw new Error('presets that are not ready-built: ' + r.bad.slice(0, 3).join(', '));
     if (!r.next || r.next === r.first) throw new Error('Next did not change the preset');
     if (!(r.lit > 0)) throw new Error('MilkDrop drew nothing');
-    console.log(`      (${r.presets} presets, now: ${r.next.slice(0, 40)})`);
+    if (r.size.w !== r.size.want) throw new Error(`MilkDrop is drawn ${r.size.w} across, not ${r.size.want}`);
+    if (r.size.w < r.size.full * r.size.share * 0.95 && r.size.full * r.size.share <= 1920) throw new Error(`MilkDrop is drawn ${r.size.w} across a picture of ${r.size.full} pixels at a share of ${r.size.share}`);
+    console.log(`      (${r.presets} presets, drawn ${r.size.w} across a picture of ${r.size.full}, now: ${r.next.slice(0, 40)}${r.lost ? ', and it started again after losing its picture' : ', losing its picture could not be tried here'})`);
   });
 
   // Album art (v3.32.0): a song with a cover beside it shows the art inside
@@ -1306,26 +1363,108 @@ if (PART === 'c') {
     if (r.off > 4) throw new Error(`the name is ${r.off.toFixed(1)}px from the middle`);
   });
 
-  // HD Flow (v3.33.0): the fluid with a glow, stirred by emitters that wander
-  // with the music. It strokes while music plays and stops when paused.
-  await step('HD Flow glows and moves with the music, and stops with it', async () => {
+  // HD Flow (v3.33.0, rebuilt in v3.36.0): the fluid drawn as glowing contour
+  // lines, stirred by emitters that wander with the music. It draws while music
+  // plays and stops when paused. What is on the screen is looked at too: lines
+  // on a dark picture. The version before filled the screen with a pale fog on
+  // a machine left on the Low tier, and every check here still passed.
+  await step('HD Flow is neon lines that move with the music, and stops with it', async () => {
     const r = await page.evaluate(async t => {
       bmApp.switchDest('music'); bmMusic.play(t, 0); bmMusic.engine.el.loop = true; await new Promise(z => setTimeout(z, 1200));
       bmApp.switchDest('video'); await new Promise(z => setTimeout(z, 700));
       const v = bmApp.viz; v.setOptions({ style: 'flow' }); v.setMode('flow');
       for (let i = 0; i < 30 && !(v._loudness() > 0.01); i++) await new Promise(z => setTimeout(z, 100));
-      await new Promise(z => setTimeout(z, 2500));
-      const playing = v._fw?.splats || 0, bloom = v._fluid?.bloom || 0, neon = !!v._fluid?.neon, halo = !!v._fluid?.bloomC;
+      await new Promise(z => setTimeout(z, 800));
+      const f = v._fluid;
+      if (!f) { v.setOptions({ style: 'bars' }); v.setMode('bars'); bmMusic.engine?.stop?.(); return { fluid: false }; }
+      // the clock: what the fluid was moved on by, against the time that passed
+      let moved = 0, steps = 0; const feed = f.onFrame; f.onFrame = (dt, now) => { moved += dt; steps++; return feed(dt, now); };
+      const t0 = performance.now(); await new Promise(z => setTimeout(z, 1700)); const passed = (performance.now() - t0) / 1000; f.onFrame = feed;
+      const playing = v._fw?.splats || 0, bloom = f?.bloom || 0, neon = !!f?.neon && f.edge > 0, halo = (f?.bloomLevels?.length || 0) >= 2 && !!f?.shaded;
+      // what is seen: drawn now, read now
+      f._render(); const blending = f.gl.isEnabled(f.gl.BLEND);
+      const c = document.createElement('canvas'); c.width = 160; c.height = 90; const x = c.getContext('2d'); x.drawImage(v._fluidCanvas, 0, 0, 160, 90);
+      const d = x.getImageData(0, 0, 160, 90).data; let lit = 0, bright = 0;
+      for (let i = 0; i < d.length; i += 4) { const m = Math.max(d[i], d[i + 1], d[i + 2]) * d[i + 3] / 255; if (m > 40) lit++; if (m > 150) bright++; }
+      const info = { level: f._tier, levels: (f._ladder || []).map(l => l.name), dye: [f.dye.width, f.dye.height], canvas: [f.canvas.width, f.canvas.height], scale: f.cfg.dyeScale, fast: !!f._fastSplat, renderer: f.rendererName() };
+      // The graphics card takes the picture away and gives it back, as a driver
+      // restart does (v3.36.0): the fluid stops, builds itself again with its
+      // lines and its glow, and carries on.
+      let back = null;
+      const lose = f.gl.getExtension('WEBGL_lose_context');
+      if (lose) {
+        lose.loseContext(); await new Promise(z => setTimeout(z, 300));
+        const stopped = !f._raf;
+        lose.restoreContext();
+        for (let i = 0; i < 50 && !f._raf; i++) await new Promise(z => setTimeout(z, 100));
+        const n0 = f.frames || 0; await new Promise(z => setTimeout(z, 1500));
+        let lit2 = 0;
+        if (f._raf && f.dye) {
+          f._render(); x.clearRect(0, 0, 160, 90); x.drawImage(v._fluidCanvas, 0, 0, 160, 90);
+          const d2 = x.getImageData(0, 0, 160, 90).data;
+          for (let i = 0; i < d2.length; i += 4) if (Math.max(d2[i], d2[i + 1], d2[i + 2]) * d2[i + 3] / 255 > 40) lit2++;
+        }
+        back = { stopped, running: !!f._raf, frames: (f.frames || 0) - n0, lit: lit2 / (160 * 90), lines: !!f.progs.shade && !!f.shaded, glow: (f.bloomLevels?.length || 0) >= 2, lost: f.gl.isContextLost() };
+      }
       bmMusic.engine.el.pause(); await new Promise(z => setTimeout(z, 500));
       const a = v._fw?.splats || 0; await new Promise(z => setTimeout(z, 1500)); const b = v._fw?.splats || 0;
+      // The pointer stirs it (v3.36.0), with the music paused too: moving over
+      // the picture adds to the fluid, and moving beside it does not.
+      const rc = v.canvas.getBoundingClientRect(), move = (px, py) => window.dispatchEvent(new PointerEvent('pointermove', { clientX: px, clientY: py }));
+      // one after another with no wait between, so a slow machine's long frames cannot come between two moves
+      v._stirAt = null; const s0 = f.splats || 0;
+      for (let i = 0; i < 12; i++) move(rc.left + rc.width * (0.3 + i * 0.03), rc.top + rc.height * (0.4 + i * 0.01));
+      const s1 = f.splats || 0;
+      for (let i = 0; i < 6; i++) move(rc.left - 40 - i * 6, rc.top + 20 + i * 6);
+      const s2 = f.splats || 0;
+      // a pixel at a time, as a fast screen reports a slow pointer: each step is too small to count, and they add up
+      v._stirAt = null;
+      for (let i = 0; i < 40; i++) move(Math.round(rc.left + rc.width * 0.5) + i, Math.round(rc.top + rc.height * 0.5));
+      const stir = { over: s1 - s0, beside: s2 - s1, small: (f.splats || 0) - s2, high: Math.round(rc.height) };
       v.setOptions({ style: 'bars' }); v.setMode('bars'); bmMusic.engine?.stop?.();
-      return { fluid: !!v._fluid, bloom, neon, halo, playing, paused: b - a };
+      return { fluid: !!f, bloom, neon, halo, playing, paused: b - a, lit: lit / (160 * 90), bright, blending, moved, steps, passed, back, stir, ...info };
     }, TONE);
     if (!r.fluid) throw new Error('the fluid did not start');
     if (!(r.bloom > 0)) throw new Error('no glow');
-    if (!r.neon || !r.halo) throw new Error('not neon, or no wide halo (v3.34.0): ' + JSON.stringify(r));
+    if (!r.neon || !r.halo) throw new Error('no contour lines, or no glow built from them: ' + JSON.stringify(r));
     if (r.playing < 5) throw new Error('only ' + r.playing + ' strokes with music');
     if (r.paused !== 0) throw new Error(r.paused + ' strokes while paused');
+    if (r.levels.join() !== 'hd,high,medium,low') throw new Error('its quality levels are ' + r.levels.join());
+    if (Math.abs(r.dye[0] - r.canvas[0] * r.scale) > 2) throw new Error(`at the ${r.level} level the dye is ${r.dye[0]} across for a canvas of ${r.canvas[0]}`);
+    if (r.blending) throw new Error('the picture is blended over the last one again: frames can pile up into a fog');
+    if (!(r.lit > 0.0005)) throw new Error('nothing to be seen: ' + (r.lit * 100).toFixed(2) + '% of the picture is lit');
+    if (r.lit > 0.5) throw new Error((r.lit * 100).toFixed(0) + '% of the picture is lit: a wash, not lines');
+    // on a machine fast enough to tell (20 frames a second), the fluid keeps to the clock
+    if (r.steps / r.passed >= 20 && Math.abs(r.moved / r.passed - 1) > 0.15) throw new Error(`in ${r.passed.toFixed(2)} s the fluid moved on ${r.moved.toFixed(2)} s`);
+    if (r.stir.over !== 11) throw new Error(`the pointer moved over the picture 12 times and stirred the fluid ${r.stir.over} times, not 11`);
+    if (r.stir.beside !== 0) throw new Error(`the pointer stirred the fluid ${r.stir.beside} times from beside the picture`);
+    if (!(r.stir.small >= 12)) throw new Error(`forty steps of the pointer, a pixel each over a picture ${r.stir.high} pixels high, stirred the fluid ${r.stir.small} times: a fast screen's small steps must add up`);
+    if (r.back && !(r.back.stopped && r.back.running && r.back.frames > 0 && r.back.lines && r.back.glow && !r.back.lost && r.back.lit > 0.0005)) throw new Error('after the graphics card took the picture away and gave it back, HD Flow did not carry on: ' + JSON.stringify(r.back));
+    console.log(`      (${r.level} level, dye ${r.dye.join('x')}, ${(r.steps / r.passed).toFixed(0)} frames a second, ${(r.lit * 100).toFixed(1)}% lit, ${r.bright} bright, fast splats ${r.fast ? 'yes' : 'no'}; ${r.renderer.slice(0, 50)}${r.back ? `; carried on after losing its picture, ${(r.back.lit * 100).toFixed(1)}% lit ${r.back.frames} frames on` : ''})`);
+  });
+
+  // v3.36.0: the music view's visualiser stopped drawing once its view was
+  // left. It went on, 72 times a second, into a canvas no one could see.
+  await step('a visualiser whose view is hidden draws nothing', async () => {
+    const r = await page.evaluate(async t => {
+      const { allVisualisers } = await import('./js/visualizer.js');
+      bmApp.switchDest('music'); bmMusic.play(t, 0); bmMusic.engine.el.loop = true; await new Promise(z => setTimeout(z, 1500));
+      const mv = allVisualisers().find(v => v.canvas?.id === 'music-visualizer-canvas');
+      if (!mv) return { none: true };
+      const shown0 = mv._tick; await new Promise(z => setTimeout(z, 700)); const shown = mv._tick - shown0;
+      bmApp.switchDest('video'); await new Promise(z => setTimeout(z, 500));
+      const hid0 = mv._tick; await new Promise(z => setTimeout(z, 900)); const hidden = mv._tick - hid0;
+      const main = bmApp.viz, main0 = main._tick; await new Promise(z => setTimeout(z, 600)); const mainDrew = main._tick - main0;
+      const size = { canvas: main.canvas.width, want: Math.round(main.canvas.offsetWidth * main._scale()), scale: main._scale(), dpr: devicePixelRatio };
+      bmMusic.engine?.stop?.();
+      return { active: mv.active, shown, hidden, mainDrew, size };
+    }, TONE);
+    if (r.none) { console.log('      (no music-view visualiser in this mode)'); return; }
+    if (r.active && !(r.shown > 0)) throw new Error('the music view\'s visualiser did not draw while its view was shown');
+    if (r.hidden !== 0) throw new Error(`the music view's visualiser drew ${r.hidden} frames while hidden`);
+    if (!(r.mainDrew > 0)) throw new Error('the visual mode\'s own visualiser is not drawing');
+    if (Math.abs(r.size.canvas - r.size.want) > 1) throw new Error(`the visualiser's canvas is ${r.size.canvas} across, not ${r.size.want} (the screen's own pixels)`);
+    console.log(`      (hidden: 0 frames, shown: ${r.shown}; canvas ${r.size.canvas} px for a scale of ${r.size.scale.toFixed(2)})`);
   });
 
   // The decorative loops (v3.30.0): the theme's background, the Flow fluid

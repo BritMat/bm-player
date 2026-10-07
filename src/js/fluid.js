@@ -14,6 +14,24 @@
  *
  * Everything is capability-probed. If half-float render targets aren't
  * available the constructor throws, and app.js falls back to ThemeFX.
+ *
+ * The solver and its shaders follow Pavel Dobryakov's WebGL Fluid Simulation
+ * (MIT, Copyright (c) 2017 Pavel Dobryakov,
+ * https://github.com/PavelDoGreat/WebGL-Fluid-Simulation), and so does the
+ * bloom since v3.36.0. Its licence is in src/vendor/webgl-fluid/LICENSE.txt.
+ *
+ * v3.36.0, for the HD Flow visualiser and for every use of this engine:
+ *   - splats are drawn only where they land (scissored, added by blending).
+ *     Each one was a pass over the whole dye buffer, a dozen of them a frame
+ *   - time: a step is as long as the time since the last drawn frame. It was
+ *     the time since the last screen refresh, so on a 144 Hz screen the fluid
+ *     ran three times too slow, and five times at the 30-a-second tier
+ *   - quality steps down by itself when frames are slow (the governor)
+ *   - a shading pass that draws the dye as glowing contour lines, with markers,
+ *     and a bloom pyramid, both off unless a caller asks
+ * Tried and not kept: cubic (Catmull-Rom, limited) advection for the dye. The
+ * limiter flattens peaks into terraces, and the contour lines then drew every
+ * terrace. Plain bilinear advection gives a smooth cloud and clean lines.
  */
 
 import { perf } from './perf.js';
@@ -95,7 +113,26 @@ void main () {
   gl_FragColor = vec4(base + splat, 1.0);
 }`;
 
-/* Semi-Lagrangian advection: trace backwards along the velocity field. */
+/* The same blob, added by blending inside a scissor box (v3.36.0): nothing is
+   read back, and only the pixels it reaches are shaded. */
+const SPLAT_ADD_FRAG = `
+precision highp float;
+varying vec2 vUv;
+uniform float aspectRatio, radius;
+uniform vec3 color;
+uniform vec2 point;
+void main () {
+  vec2 p = vUv - point.xy;
+  p.x *= aspectRatio;
+  gl_FragColor = vec4(exp(-dot(p, p) / radius) * color, 0.0);
+}`;
+
+/* Semi-Lagrangian advection: trace backwards along the velocity field.
+   Where the graphics card can blend between the texels of these buffers by
+   itself (nearly all can), it does (v3.36.0): two reads a pixel. The blend
+   worked out by hand, eight reads, is kept for the cards that cannot
+   (MANUAL_FILTERING). The dye is the largest buffer there is, so this pass is
+   one of the two most costly of a frame. */
 const ADVECTION_FRAG = `
 precision highp float; precision highp sampler2D;
 varying vec2 vUv;
@@ -103,6 +140,7 @@ uniform sampler2D uVelocity, uSource;
 uniform vec2 texelSize, dyeTexelSize;
 uniform float dt, dissipation;
 
+#ifdef MANUAL_FILTERING
 vec4 bilerp (sampler2D sam, vec2 uv, vec2 tsize) {
   vec2 st = uv / tsize - 0.5;
   vec2 iuv = floor(st);
@@ -113,9 +151,15 @@ vec4 bilerp (sampler2D sam, vec2 uv, vec2 tsize) {
   vec4 d = texture2D(sam, (iuv + vec2(1.5, 1.5)) * tsize);
   return mix(mix(a, b, fuv.x), mix(c, d, fuv.x), fuv.y);
 }
+#endif
 void main () {
+#ifdef MANUAL_FILTERING
   vec2 coord = vUv - dt * bilerp(uVelocity, vUv, texelSize).xy * texelSize;
   vec4 result = bilerp(uSource, coord, dyeTexelSize);
+#else
+  vec2 coord = vUv - dt * texture2D(uVelocity, vUv).xy * texelSize;
+  vec4 result = texture2D(uSource, coord);
+#endif
   float decay = 1.0 + dissipation * dt;
   gl_FragColor = result / decay;
 }`;
@@ -200,13 +244,14 @@ void main () {
 }`;
 
 /* Cheap fake lighting from the dye gradient — gives the smoke volume
-   without a second render pass. */
+   without a second render pass. With uNeon the picture comes ready-shaded
+   (SHADE_FRAG), the glow is added, and the result is tone-mapped: the dye runs
+   past white, so the hottest parts burn white and the rest keeps its colour. */
 const DISPLAY_FRAG = `
 precision highp float; precision highp sampler2D;
 varying vec2 vUv, vL, vR, vT, vB;
 uniform sampler2D uTexture;
-uniform sampler2D uBloom;   // the glow (v3.33.0), added when uBloomAmt is above 0
-uniform sampler2D uBloom2;  // and its wide halo (v3.34.0)
+uniform sampler2D uBloom;   // the glow, added when uBloomAmt is above 0
 uniform vec2 texelSize;
 uniform float uAlpha, uShading, uBloomAmt, uNeon, uExposure;
 void main () {
@@ -222,41 +267,95 @@ void main () {
     float diffuse = clamp(dot(n, vec3(0.0, 0.0, 1.0)) + 0.7, 0.7, 1.0);
     c *= diffuse;
   }
-  c += (texture2D(uBloom, vUv).rgb + texture2D(uBloom2, vUv).rgb * 1.4) * uBloomAmt;
+  c += texture2D(uBloom, vUv).rgb * uBloomAmt;
   if (uNeon > 0.5) {
-    // Neon (v3.34.0): the dye runs past white; compress it so the brightest
-    // parts burn white-hot and the rest keeps its full colour, a little richer.
     c = vec3(1.0) - exp(-c * uExposure);
     float l = dot(c, vec3(0.2126, 0.7152, 0.0722));
-    c = clamp(mix(vec3(l), c, 1.3), 0.0, 1.0);
+    c = clamp(mix(vec3(l), c, 1.25), 0.0, 1.0);
+    // A grain of noise, under one step of 8-bit colour: a soft glow on a dark
+    // screen otherwise shows as bands.
+    c += (fract(sin(dot(gl_FragCoord.xy, vec2(12.9898, 78.233))) * 43758.5453) - 0.5) / 255.0;
   }
   float a = max(c.r, max(c.g, c.b));
   gl_FragColor = vec4(c, a * uAlpha);
 }`;
 
-/* Bloom (v3.33.0), for the HD Flow visualiser: the bright parts of the dye,
-   at a quarter of its size, blurred, and added back over it, so thin
-   filaments glow. A 9-tap Gaussian from 5 reads, by linear filtering. */
+/* The neon look (v3.36.0), one pass before the glow, so the glow comes from
+   what is seen. The dye is a smooth cloud. This draws it as contour lines,
+   the way a map draws a hill: a thin bright line wherever the dye's density
+   crosses a level, the levels a fixed ratio apart (uOctaves doublings). The
+   distance to the nearest level is worked out in pixels (the level's value
+   over how fast it changes here), so every line is the same width however
+   steep or shallow the cloud, and stays sharp at the screen's own resolution
+   even when the dye is kept at half of it. Inner lines are hotter. As the dye
+   fades its levels move inwards, so the lines are never still. The cloud's
+   body shows faintly (uFill). Then the markers: a bright ring at each emitter. */
+const SHADE_FRAG = `
+precision highp float; precision highp sampler2D;
+varying vec2 vUv, vL, vR, vT, vB;
+uniform sampler2D uTexture;
+uniform float uEdge, uFill, uAspect, uMarkSize, uLevel0, uOctaves, uWidth;
+uniform vec3 uMarkPos[6];      // x, y, strength
+uniform vec3 uMarkCol[6];
+float top (vec3 v) { return max(v.r, max(v.g, v.b)); }
+void main () {
+  vec3 c = texture2D(uTexture, vUv).rgb;
+  float d = top(c);
+  // The body, held back where the dye is dense: a thick patch stays a dim haze
+  // with its lines showing through, not a solid slab of colour.
+  vec3 lit = c * (uFill / (1.0 + d * 0.4));
+  if (uEdge > 0.0 && d > uLevel0 * 0.6) {
+    vec2 g = vec2(top(texture2D(uTexture, vR).rgb) - top(texture2D(uTexture, vL).rgb),
+                  top(texture2D(uTexture, vT).rgb) - top(texture2D(uTexture, vB).rgb)) * 0.5;
+    float q = log2(d / uLevel0) / uOctaves;                       // which level this is, as a number
+    float gq = length(g) / (d * 0.6931 * uOctaves);               // and how fast that changes, per pixel
+    float dist = abs(fract(q + 0.5) - 0.5) / max(gq, 0.0005);     // pixels to the nearest level
+    float line = 1.0 - smoothstep(uWidth * 0.5, uWidth * 0.5 + 1.2, dist);
+    line *= smoothstep(-0.45, 0.0, q);                            // nothing below the first level
+    line *= smoothstep(0.004, 0.02, gq);                          // nor on a flat: there the faintest ripple would draw stripes
+    float heat = clamp(0.5 + q * 0.4, 0.4, 1.8);                  // inner lines are hotter
+    lit += c / d * (line * uEdge * heat);
+  }
+  // Nested ifs, no early exits from the loop: the plainest form a shader translator can be given.
+  for (int k = 0; k < 6; k++) {
+    if (uMarkPos[k].z > 0.0) {
+      vec2 p = vUv - uMarkPos[k].xy; p.x *= uAspect;
+      float r2 = dot(p, p) / (uMarkSize * uMarkSize);
+      if (r2 <= 5.0) {                                            // further out there is nothing to see: nearly every pixel stops here
+        float r = sqrt(r2);
+        float q2 = (r - 1.0) * 3.2;
+        lit += uMarkCol[k] * ((exp(-q2 * q2) * 1.6 + exp(-r * r * 9.0) * 2.4) * uMarkPos[k].z);
+      }
+    }
+  }
+  gl_FragColor = vec4(lit, 1.0);
+}`;
+
+/* Bloom, as in the WebGL Fluid Simulation: keep what is bright (with a soft
+   knee, so nothing pops in), then halve it again and again, and add the
+   levels back up. Small levels are wide glows, large ones tight. */
 const BLOOM_PRE_FRAG = `
 precision mediump float; precision mediump sampler2D;
 varying vec2 vUv;
 uniform sampler2D uTexture;
-uniform float uThreshold;
+uniform vec3 curve;
+uniform float threshold;
 void main () {
   vec3 c = texture2D(uTexture, vUv).rgb;
   float br = max(c.r, max(c.g, c.b));
-  gl_FragColor = vec4(c * (max(0.0, br - uThreshold) / max(br, 0.0001)), 0.0);
+  float rq = clamp(br - curve.x, 0.0, curve.y);
+  rq = curve.z * rq * rq;
+  c *= max(rq, br - threshold) / max(br, 0.0001);
+  gl_FragColor = vec4(min(c, vec3(24.0)), 0.0);
 }`;
-const BLUR_FRAG = `
+const BLOOM_BLUR_FRAG = `
 precision mediump float; precision mediump sampler2D;
-varying vec2 vUv;
+varying vec2 vL, vR, vT, vB;
 uniform sampler2D uTexture;
-uniform vec2 uDir;
+uniform float uGain;
 void main () {
-  vec3 s = texture2D(uTexture, vUv).rgb * 0.2270270;
-  s += (texture2D(uTexture, vUv + uDir * 1.3846154).rgb + texture2D(uTexture, vUv - uDir * 1.3846154).rgb) * 0.3162162;
-  s += (texture2D(uTexture, vUv + uDir * 3.2307692).rgb + texture2D(uTexture, vUv - uDir * 3.2307692).rgb) * 0.0702703;
-  gl_FragColor = vec4(s, 0.0);
+  vec4 sum = texture2D(uTexture, vL) + texture2D(uTexture, vR) + texture2D(uTexture, vT) + texture2D(uTexture, vB);
+  gl_FragColor = sum * 0.25 * uGain;
 }`;
 
 /* ─── GL helpers ─────────────────────────────────────────────────── */
@@ -319,6 +418,12 @@ export class FluidFX {
     // so Dark and Light keep their look. Multipliers on the tier's values,
     // applied where they are used: the tier table itself is shared.
     this.flow = { palette: null, intensity: 1, radius: 1, swirl: 1, trail: 1 };
+    this.neon = false; this.exposure = 1.4; this.edge = 0; this.fill = 1;   // the neon look (setNeon)
+    this.lines = { level0: 0.06, octaves: 2, width: 1.4 };
+    this.bloom = 0; this.bloomOpts = { threshold: 0.1, knee: 0.7 };
+    this._marks = [];                                 // emitter markers (setMarkers)
+    this._ladder = null; this._level = 0;             // quality levels, best first (setLadder)
+    this.governed = true;                             // step down when frames are slow
 
     const params = {
       alpha: true, depth: false, stencil: false,
@@ -334,6 +439,8 @@ export class FluidFX {
     this._initFormats();
     this._initPrograms();
     this._initBlit();
+    this._fastSplat = this._probeBlend();
+    this._software = /swiftshader|llvmpipe|software|basic render/i.test(this.rendererName());
     this._ready = false;              // _resize(true) below does the first build
     this.setQuality(perf.tier || 'medium');
     this._ready = true;
@@ -344,7 +451,8 @@ export class FluidFX {
     this._onRestored = () => {
       try {
         this._initFormats(); this._initPrograms(); this._initBlit();
-        this.setQuality(this._tier); this._resize(true);
+        this._fastSplat = this._probeBlend();
+        this._resize(true);
         if (this.mode === 'fluid' && !this.paused) this._start();
       } catch (err) { console.warn('[FluidFX] restore failed:', err); }
     };
@@ -400,21 +508,62 @@ export class FluidFX {
     }
   }
 
+  /** The graphics card's name, or '' where the browser will not say. */
+  rendererName() {
+    try {
+      const gl = this.gl, ext = gl.getExtension('WEBGL_debug_renderer_info');
+      return String((ext && gl.getParameter(ext.UNMASKED_RENDERER_WEBGL)) || gl.getParameter(gl.RENDERER) || '');
+    } catch (_) { return ''; }
+  }
+
+  /* Can a half-float target be blended into? The fast splats need it. Tried
+     once, on a 4 by 4 target: an error, or a framebuffer that will not take
+     it, means the old way (read, add, write the whole buffer). */
+  _probeBlend() {
+    const gl = this.gl;
+    if (!this.isWebGL2 || !this.progs.splatAdd) return false;
+    try {
+      while (gl.getError() !== gl.NO_ERROR) { /* clear */ }
+      const t = this._createFBO(4, 4, this.fmtRGBA, gl.NEAREST);
+      gl.enable(gl.BLEND); gl.blendFunc(gl.ONE, gl.ONE);
+      this.progs.splatAdd.bind();
+      gl.uniform1f(this.progs.splatAdd.uniforms.aspectRatio, 1);
+      gl.uniform1f(this.progs.splatAdd.uniforms.radius, 1);
+      gl.uniform2f(this.progs.splatAdd.uniforms.point, 0.5, 0.5);
+      gl.uniform3f(this.progs.splatAdd.uniforms.color, 1, 1, 1);
+      this._blit(t);
+      gl.disable(gl.BLEND);
+      const ok = gl.getError() === gl.NO_ERROR;
+      gl.deleteTexture(t.texture); gl.deleteFramebuffer(t.fbo);
+      gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+      return ok;
+    } catch (_) { return false; }
+  }
+
   _initPrograms() {
     const gl = this.gl;
+    // The extras (v3.36.0: the lines, the glow, the quick splats) are each tried
+    // by themselves. A driver that will not take one of them loses that one
+    // thing, and the fluid itself, the home screen's too, carries on without.
+    const extra = (frag, what) => {
+      try { return new Program(gl, BASE_VERT, frag); }
+      catch (e) { console.warn(`[FluidFX] no ${what} on this graphics card:`, e && e.message); return null; }
+    };
     this.progs = {
       copy:     new Program(gl, BASE_VERT, COPY_FRAG),
       clear:    new Program(gl, BASE_VERT, CLEAR_FRAG),
       splat:    new Program(gl, BASE_VERT, SPLAT_FRAG),
-      advect:   new Program(gl, BASE_VERT, ADVECTION_FRAG),
+      advect:   new Program(gl, BASE_VERT, (this._linearOK ? '' : '#define MANUAL_FILTERING\n') + ADVECTION_FRAG),
       diverge:  new Program(gl, BASE_VERT, DIVERGENCE_FRAG),
       curl:     new Program(gl, BASE_VERT, CURL_FRAG),
       vorticity:new Program(gl, BASE_VERT, VORTICITY_FRAG),
       pressure: new Program(gl, BASE_VERT, PRESSURE_FRAG),
       gradSub:  new Program(gl, BASE_VERT, GRADIENT_SUBTRACT_FRAG),
       display:  new Program(gl, BASE_VERT, DISPLAY_FRAG),
-      bloomPre: new Program(gl, BASE_VERT, BLOOM_PRE_FRAG),
-      blur:     new Program(gl, BASE_VERT, BLUR_FRAG),
+      bloomPre: extra(BLOOM_PRE_FRAG, 'glow'),
+      bloomBlur:extra(BLOOM_BLUR_FRAG, 'glow'),
+      splatAdd: extra(SPLAT_ADD_FRAG, 'quick splats'),
+      shade:    extra(SHADE_FRAG, 'contour lines'),
     };
   }
 
@@ -473,11 +622,79 @@ export class FluidFX {
     };
   }
 
+  /* Quality. A tier name (low, medium, high, ultra) for the theme's fluid,
+     where the tier is a ceiling: when frames are slow it steps down by itself,
+     unless the user chose the tier. setLadder gives a caller its own levels. */
   setQuality(tier) {
-    this._tier = TIER[tier] ? tier : 'medium';
-    this.cfg = TIER[this._tier];
+    const top = TIER[tier] ? tier : 'medium';
+    const names = ['ultra', 'high', 'medium', 'low'];
+    const levels = names.slice(names.indexOf(top)).map(n => ({ name: n, ...TIER[n] }));
+    // Start where this run already settled, never above the ceiling. Not when
+    // the tier is the user's own choice: that is taken as given, and what the
+    // governor settled on before the choice is forgotten. (It started from
+    // there all the same, with the governor off, so a choice of High after one
+    // slow moment stayed on Low: the buttons were dead again.)
+    if (perf.chosen) FluidFX._settled.delete('tier');
+    const settled = FluidFX._settled.get('tier'), at = settled ? Math.max(0, levels.findIndex(l => l.name === settled)) : 0;
+    this._setLadder('tier', levels, at, !perf.chosen);
+  }
+
+  /**
+   * A caller's own quality levels, best first (the HD Flow visualiser's).
+   * Each: { name, sim, iterations, fps, dissipation, velDissipation, curl,
+   * radius } and either dye (its short side) or dyeScale (a share of the
+   * canvas's own size, 1 for pixel for pixel), and optionally maxPixels (a cap
+   * on the canvas's backing store).
+   */
+  setLadder(key, levels) {
+    const settled = FluidFX._settled.get(key);
+    let at = settled ? Math.max(0, levels.findIndex(l => l.name === settled)) : 0;
+    if (!settled && this._software) at = levels.length - 1;     // no graphics card: straight to the lightest
+    this._setLadder(key, levels, at, true);
+  }
+
+  _setLadder(key, levels, at, governed) {
+    this._ladderKey = key; this._ladder = levels; this.governed = governed;
+    // "Stepped down" is said of this ladder, in this run: not of another one
+    // this fluid drew with before (Smoke after HD Flow), and it is said when
+    // the level it starts at is one the governor settled on earlier.
+    this.lowered = at > 0 && FluidFX._settled.has(key);
+    this._applyLevel(Math.min(at, levels.length - 1));
+  }
+
+  _applyLevel(i) {
+    this._level = i;
+    this.cfg = this._ladder[i];
+    this._tier = this.cfg.name;
     this._frameInterval = 1000 / this.cfg.fps;
-    if (this._ready && this.gl && this.canvas.width) this._initFramebuffers();
+    this._govN = 0; this._govEma = 0; this._govSkip = 24;   // the first frames after a change do not count
+    if (this._ready && this.gl && this.canvas.width) this._resize(true);
+  }
+
+  /* The governor: called with the real time between drawn frames. When that
+     stays well over what the level asks for, for about two seconds, the next
+     level down takes over,
+     two at once if it is over twice. It only goes down, and what it settles on
+     holds for this run (FluidFX._settled), so nothing is tried twice, and
+     nothing is kept on disk, where one bad moment would stick for good. */
+  _govern(gap) {
+    if (!this.governed || !this._ladder || this._level >= this._ladder.length - 1) return;
+    if (gap > 250) { this._govN = 0; this._govEma = 0; return; }       // a pause, not a slow frame
+    if (this._govSkip > 0) { this._govSkip--; return; }
+    this._govEma = this._govEma ? this._govEma + (gap - this._govEma) * 0.08 : gap;
+    // 26 ms at 60 a second: under 38 frames a second. Measured against the
+    // screen where that is slower than the level: on a 30 Hz screen frames come
+    // 33 ms apart on any machine, and every level stepped down in turn.
+    const limit = Math.max(this._frameInterval, 16.7, perf.refreshMs || 0) * 1.45 + 2;
+    // Slow for 60 frames running, about two seconds: a stumble of half a second
+    // (another program starting, a window being dragged) is not a slow machine.
+    if (this._govEma <= limit) { this._govN = 0; return; }
+    if (++this._govN < 60) return;
+    const to = Math.min(this._ladder.length - 1, this._level + (this._govEma > limit * 2 ? 2 : 1));
+    FluidFX._settled.set(this._ladderKey, this._ladder[to].name);
+    this.lowered = true;
+    this._applyLevel(to);
+    try { this.onQuality?.(this.cfg.name); } catch (_) {}
   }
 
   _dims(res) {
@@ -492,53 +709,95 @@ export class FluidFX {
     const kill = t => { if (!t) return; try { gl.deleteTexture(t.texture); gl.deleteFramebuffer(t.fbo); } catch(_) {} };
     const killDouble = d => { if (!d) return; kill(d.read); kill(d.write); };
     killDouble(this.dye); killDouble(this.velocity); killDouble(this.pressure);
-    kill(this.divergence); kill(this.curlFBO); kill(this.bloomA); kill(this.bloomB); kill(this.bloomC); kill(this.bloomD);
-    this.dye = this.velocity = this.pressure = this.divergence = this.curlFBO = this.bloomA = this.bloomB = this.bloomC = this.bloomD = null;
+    kill(this.divergence); kill(this.curlFBO); kill(this.shaded); kill(this.bloomOut);
+    for (const b of this.bloomLevels || []) kill(b);
+    this.dye = this.velocity = this.pressure = this.divergence = this.curlFBO = this.shaded = this.bloomOut = null;
+    this.bloomLevels = [];
   }
 
   _initFramebuffers() {
-    const gl = this.gl;
+    const gl = this.gl, cfg = this.cfg;
     // Every resize and quality change rebuilds these. Without the dispose
     // the old dye buffer (up to 1024^2 x RGBA16F) is simply orphaned.
     this._disposeFramebuffers();
     const filter = this._linearOK ? gl.LINEAR : gl.NEAREST;
-    const s = this._dims(this.cfg.sim);
-    const d = this._dims(this.cfg.dye);
+    const s = this._dims(cfg.sim);
+    // dyeScale: a share of the canvas's own size, so 1 is pixel for pixel
+    const d = cfg.dyeScale
+      ? { width: Math.max(16, Math.round(gl.drawingBufferWidth * cfg.dyeScale)), height: Math.max(16, Math.round(gl.drawingBufferHeight * cfg.dyeScale)) }
+      : this._dims(cfg.dye);
     this.dye      = this._createDouble(d.width, d.height, this.fmtRGBA, filter);
     this.velocity = this._createDouble(s.width, s.height, this.fmtRG,  filter);
     this.divergence = this._createFBO(s.width, s.height, this.fmtR, gl.NEAREST);
     this.curlFBO    = this._createFBO(s.width, s.height, this.fmtR, gl.NEAREST);
     this.pressure   = this._createDouble(s.width, s.height, this.fmtR, gl.NEAREST);
-    if (this.bloom > 0) {   // a quarter of the dye's size (v3.33.0)
-      const b = this._dims(Math.max(64, Math.round(this.cfg.dye / 4)));
-      this.bloomA = this._createFBO(b.width, b.height, this.fmtRGBA, filter);
-      this.bloomB = this._createFBO(b.width, b.height, this.fmtRGBA, filter);
-      const w = this._dims(Math.max(32, Math.round(this.cfg.dye / 16)));   // the wide halo (v3.34.0)
-      this.bloomC = this._createFBO(w.width, w.height, this.fmtRGBA, filter);
-      this.bloomD = this._createFBO(w.width, w.height, this.fmtRGBA, filter);
+    // What is seen, at the screen's own size: the lines stay sharp whatever the dye's.
+    const W = gl.drawingBufferWidth, H = gl.drawingBufferHeight;
+    if (this.neon && this.progs.shade) this.shaded = this._createFBO(W, H, this.fmtRGBA, filter);
+    if (this.bloom > 0 && this.progs.bloomPre && this.progs.bloomBlur) {
+      // The glow starts at half the picture's size and halves from there, down
+      // to about 8 pixels: the last levels are the wide halo.
+      const src = this.shaded ? { width: W, height: H } : d;
+      let w = Math.max(8, Math.round(src.width / 2)), h = Math.max(8, Math.round(src.height / 2));
+      this.bloomOut = this._createFBO(w, h, this.fmtRGBA, filter);
+      for (let n = 0; n < 8 && Math.min(w, h) > 12; n++) {
+        w = Math.max(4, w >> 1); h = Math.max(4, h >> 1);
+        this.bloomLevels.push(this._createFBO(w, h, this.fmtRGBA, filter));
+      }
     }
   }
 
-  /** The glow over the dye, 0 for none (v3.33.0). Its buffers exist only while it is on. */
-  /** Neon: high-range dye, tone-mapped, no shading (v3.34.0). */
-  setNeon(on, exposure = 1.4) { this.neon = !!on; this.exposure = exposure; }
-
-  setBloom(v) {
+  /** The glow over the picture, 0 for none. { threshold, knee } shape what counts as bright. */
+  setBloom(v, opts) {
     const was = this.bloom > 0;
     this.bloom = Math.max(0, +v || 0);
+    if (opts) this.bloomOpts = { ...this.bloomOpts, ...opts };
     if (was !== this.bloom > 0 && this.dye) this._initFramebuffers();
   }
+
+  /**
+   * Neon: the dye runs past white and is tone-mapped. edge above 0 lights the
+   * dye's edges and folds and fill dims its body (see SHADE_FRAG), which is
+   * what makes threads of it.
+   */
+  setNeon(on, exposure = 1.4, { edge = 0, fill = 1, level0 = 0.06, octaves = 2, width = 1.4 } = {}) {
+    const was = this.neon;
+    this.neon = !!on; this.exposure = exposure; this.edge = edge; this.fill = fill;
+    this.lines = { level0, octaves, width };   // the first contour's density, doublings between contours, width in pixels
+    if (was !== this.neon && this.dye) this._initFramebuffers();
+  }
+
+  /** Several settings at once, with the buffers rebuilt once at the end and not after each. */
+  configure(fn) {
+    const was = this._ready; this._ready = false;
+    const dye = this.dye; this.dye = null;            // setBloom and setNeon rebuild only while there is dye
+    try { fn(this); } finally { this.dye = dye; this._ready = was; }
+    if (was && this.gl && this.canvas.width) this._resize(true);
+  }
+
+  /** Up to six glowing markers: [{ x, y, color: [r, g, b], strength }], in the picture's own 0 to 1. */
+  setMarkers(list) { this._marks = (list || []).slice(0, 6); }
 
   _resize(force) {
     const c = this.canvas;
     // Cap the backing store: on a 4K display a 1:1 dye buffer is the single
     // biggest cost here, and the effect is a soft background either way.
-    const dpr = Math.min(window.devicePixelRatio || 1, this._tier === 'low' ? 1 : 1.5);
+    // A level may cap the pixels outright (v3.36.0): pixel for pixel on a 4K
+    // screen is four times the work of 1080p. Such a level is held by that cap
+    // alone, not by the 1.5 as well: at a display scale of 200% the top level
+    // was otherwise not pixel for pixel, which is what it is there for.
+    const cap = this.cfg?.maxPixels;
+    let dpr = Math.min(window.devicePixelRatio || 1, this._tier === 'low' ? 1 : cap ? 3 : 1.5);
+    const px = c.clientWidth * c.clientHeight * dpr * dpr;
+    if (cap && px > cap) dpr *= Math.sqrt(cap / px);
     const w = Math.max(1, Math.floor(c.clientWidth  * dpr));
     const h = Math.max(1, Math.floor(c.clientHeight * dpr));
     if (!force && c.width === w && c.height === h) return;
     c.width = w; c.height = h;
     this._initFramebuffers();
+    // Frames spent rebuilding are not slow frames: a window being dragged to a
+    // new size rebuilds on every one of them.
+    this._govSkip = 24; this._govN = 0; this._govEma = 0;
   }
 
   /* ── simulation step ──────────────────────────────────────────── */
@@ -603,6 +862,7 @@ export class FluidFX {
   _splat(x, y, dx, dy, color, radiusScale = 1) {
     const gl = this.gl, P = this.progs;
     if (!this.dye || !this.velocity) return;
+    if (this._fastSplat) return this._splatFast(x, y, dx, dy, color, this._splatRadius() * radiusScale);
     // _render leaves BLEND on; a blended splat writes the wrong values back
     // into the velocity field and the sim slowly goes wrong.
     gl.disable(gl.BLEND);
@@ -617,6 +877,43 @@ export class FluidFX {
     gl.uniform1i(P.splat.uniforms.uTarget, this.dye.read.attach(0));
     gl.uniform3f(P.splat.uniforms.color, color[0], color[1], color[2]);
     this._blit(this.dye.write); this.dye.swap();
+    this.splats = (this.splats || 0) + 1;
+  }
+
+  /* A splat drawn only where it lands (v3.36.0). The blob is under a two-
+     thousandth of its peak 2.8 "radii" out, so a scissor box that size is all
+     that needs shading, and blending adds it in place: no read of the target,
+     no pass over the rest of it. dye and push can each be left out (null). */
+  _splatFast(x, y, dx, dy, color, r) {
+    const gl = this.gl, P = this.progs.splatAdd;
+    const aspect = this.canvas.width / this.canvas.height, ext = 2.8 * Math.sqrt(r);
+    gl.enable(gl.BLEND); gl.blendFunc(gl.ONE, gl.ONE); gl.enable(gl.SCISSOR_TEST);
+    P.bind();
+    gl.uniform1f(P.uniforms.aspectRatio, aspect);
+    gl.uniform2f(P.uniforms.point, x, y);
+    gl.uniform1f(P.uniforms.radius, r);
+    const draw = (t, a, b, c) => {
+      const w = t.width, h = t.height, ex = ext / aspect * w, ey = ext * h;
+      const x0 = Math.max(0, Math.floor(x * w - ex)), y0 = Math.max(0, Math.floor(y * h - ey));
+      const x1 = Math.min(w, Math.ceil(x * w + ex)), y1 = Math.min(h, Math.ceil(y * h + ey));
+      if (x1 <= x0 || y1 <= y0) return;
+      gl.viewport(0, 0, w, h); gl.bindFramebuffer(gl.FRAMEBUFFER, t.fbo);
+      gl.scissor(x0, y0, x1 - x0, y1 - y0);
+      gl.uniform3f(P.uniforms.color, a, b, c);
+      gl.drawElements(gl.TRIANGLES, 6, gl.UNSIGNED_SHORT, 0);
+    };
+    if (dx || dy) draw(this.velocity.read, dx, dy, 0);
+    if (color) draw(this.dye.read, color[0], color[1], color[2]);
+    gl.disable(gl.SCISSOR_TEST); gl.disable(gl.BLEND);
+    this.splats = (this.splats || 0) + 1;
+  }
+
+  /** A splat by its own radius (the Gaussian's, in units of the picture's height squared), for callers that size their own. */
+  splat(x, y, dx, dy, color, r) {
+    if (!this.dye || !this.velocity) return;
+    if (this._fastSplat) return this._splatFast(x, y, dx, dy, color, r);
+    const base = this._splatRadius();
+    this._splat(x, y, dx, dy, color || [0, 0, 0], r / base);
   }
 
   _splatRadius() {
@@ -678,25 +975,34 @@ export class FluidFX {
      and a hard push, so every mouse movement threw a big bright blob (called
      "too big" on a real machine). Now about a third of the size, under half
      as bright and a gentler push; the ambient swirls are unchanged. */
-  addPointer(x, y, dx, dy) {
+  addPointer(x, y, dx, dy, color) {
     if (this.mode !== 'fluid') return;
-    this._splat(x, y, dx * POINTER.force, dy * POINTER.force, this._randomColor(POINTER.dye), POINTER.radius);
+    this._splat(x, y, dx * POINTER.force, dy * POINTER.force, color || this._randomColor(POINTER.dye), POINTER.radius);
   }
 
   _start() {
     if (this._raf || this.paused) return;
     this._lastTime = performance.now();
+    this._accum = 0;
     const loop = () => {
       this._raf = requestAnimationFrame(loop);
       const now = performance.now();
-      let dt = (now - this._lastTime) / 1000;
-      // Clamp: a background tab or a long GC pause otherwise produces one
-      // enormous dt that blows the advection step apart.
-      dt = Math.min(dt, 0.0166);
       this._accum += now - this._lastTime;
       this._lastTime = now;
-      if (this._accum < this._frameInterval) return;
+      // 4 ms of slack (v3.36.0): on a 144 Hz screen two refreshes are 13.9 ms,
+      // just short of a 60-a-second level's 16.7, so it drew every third: 48.
+      if (this._accum < this._frameInterval - 4) return;
+      const gap = this._accum;
       this._accum = 0;
+      // The step is the time since the last DRAWN frame (v3.36.0). It was the
+      // time since the last refresh: 6.9 ms on a 144 Hz screen for a frame
+      // drawn every 20.8, so the fluid ran three times too slow there, five
+      // times at the 30-a-second tier, and dye piled up into a white fog.
+      // Clamped: a background tab or a long pause otherwise gives one enormous
+      // step that blows the advection apart. At a twentieth of a second, so a
+      // level drawn 30 times a second keeps true time on any screen (five
+      // refreshes of a 144 Hz one are 34.7 ms, three of a 75 Hz one are 40).
+      const dt = Math.min(gap / 1000, 1 / 20);
 
       this._alpha += (this._targetAlpha - this._alpha) * 0.06;
       if (this._targetAlpha === 0 && this._alpha < 0.01) { this._stop(); this._clearScreen(); return; }
@@ -705,8 +1011,11 @@ export class FluidFX {
         this._resize();
         // The audio visualiser's fluid moves with the music only (v3.29.0).
         if (!this.audioDriven) this._autoSplat(now);
+        if (this.onFrame) this.onFrame(dt, now);   // a caller's splats, once per step
         this._step(dt);
         this._render();
+        this.frames = (this.frames || 0) + 1;
+        this._govern(gap);
       } catch (e) {
         console.warn('[FluidFX] frame failed, stopping:', e);
         this._stop();
@@ -725,45 +1034,83 @@ export class FluidFX {
     gl.clear(gl.COLOR_BUFFER_BIT);
   }
 
+  /* The glow: what is bright in `source`, halved down the levels and added
+     back up, into bloomOut. */
+  _bloomPass(source) {
+    const gl = this.gl, P = this.progs, L = this.bloomLevels;
+    gl.disable(gl.BLEND);
+    P.bloomPre.bind();
+    const th = this.bloomOpts.threshold, knee = th * this.bloomOpts.knee + 0.0001;
+    gl.uniform3f(P.bloomPre.uniforms.curve, th - knee, knee * 2, 0.25 / knee);
+    gl.uniform1f(P.bloomPre.uniforms.threshold, th);
+    gl.uniform1i(P.bloomPre.uniforms.uTexture, source.attach(0));
+    this._blit(this.bloomOut);
+    P.bloomBlur.bind();
+    gl.uniform1f(P.bloomBlur.uniforms.uGain, 1);
+    let last = this.bloomOut;
+    for (const dest of L) {
+      gl.uniform2f(P.bloomBlur.uniforms.texelSize, last.texelSizeX, last.texelSizeY);
+      gl.uniform1i(P.bloomBlur.uniforms.uTexture, last.attach(0));
+      this._blit(dest); last = dest;
+    }
+    gl.enable(gl.BLEND); gl.blendFunc(gl.ONE, gl.ONE);
+    for (let i = L.length - 2; i >= 0; i--) {
+      gl.uniform2f(P.bloomBlur.uniforms.texelSize, last.texelSizeX, last.texelSizeY);
+      gl.uniform1i(P.bloomBlur.uniforms.uTexture, last.attach(0));
+      this._blit(L[i]); last = L[i];
+    }
+    gl.disable(gl.BLEND);
+    // the sum, over the bright picture itself; shared out, so more levels are wider, not brighter
+    gl.uniform2f(P.bloomBlur.uniforms.texelSize, last.texelSizeX, last.texelSizeY);
+    gl.uniform1i(P.bloomBlur.uniforms.uTexture, last.attach(0));
+    gl.uniform1f(P.bloomBlur.uniforms.uGain, 1 / Math.max(1, L.length * 0.5));
+    this._blit(this.bloomOut);
+  }
+
   _render() {
     const gl = this.gl, P = this.progs;
-    let bloom = null;
-    if (this.bloom > 0 && this.bloomA) {
-      gl.disable(gl.BLEND);
-      P.bloomPre.bind();
-      gl.uniform1i(P.bloomPre.uniforms.uTexture, this.dye.read.attach(0));
-      gl.uniform1f(P.bloomPre.uniforms.uThreshold, 0.1);
-      this._blit(this.bloomA);
-      P.blur.bind();
-      for (let i = 1; i <= 2; i++) {   // twice, the second wider: a soft, wide glow
-        gl.uniform2f(P.blur.uniforms.uDir, this.bloomA.texelSizeX * i, 0);
-        gl.uniform1i(P.blur.uniforms.uTexture, this.bloomA.attach(0)); this._blit(this.bloomB);
-        gl.uniform2f(P.blur.uniforms.uDir, 0, this.bloomB.texelSizeY * i);
-        gl.uniform1i(P.blur.uniforms.uTexture, this.bloomB.attach(0)); this._blit(this.bloomA);
-      }
-      // The wide halo: the tight glow, smaller still, blurred again.
-      if (this.bloomC) {
-        gl.uniform2f(P.blur.uniforms.uDir, this.bloomA.texelSizeX, 0);
-        gl.uniform1i(P.blur.uniforms.uTexture, this.bloomA.attach(0)); this._blit(this.bloomC);
-        for (let i = 1; i <= 2; i++) {
-          gl.uniform2f(P.blur.uniforms.uDir, this.bloomC.texelSizeX * i, 0);
-          gl.uniform1i(P.blur.uniforms.uTexture, this.bloomC.attach(0)); this._blit(this.bloomD);
-          gl.uniform2f(P.blur.uniforms.uDir, 0, this.bloomD.texelSizeY * i);
-          gl.uniform1i(P.blur.uniforms.uTexture, this.bloomD.attach(0)); this._blit(this.bloomC);
-        }
-      }
-      bloom = this.bloomA;
+    let picture = this.dye.read;
+    gl.disable(gl.BLEND);
+    if (this.neon && this.shaded && P.shade) {
+      // dye to what is seen: edges lit, body dimmed, markers on
+      P.shade.bind();
+      // the slope is read one screen pixel either side, or one dye texel where those are larger
+      gl.uniform2f(P.shade.uniforms.texelSize, Math.max(this.dye.texelSizeX, this.shaded.texelSizeX), Math.max(this.dye.texelSizeY, this.shaded.texelSizeY));
+      gl.uniform1i(P.shade.uniforms.uTexture, this.dye.read.attach(0));
+      gl.uniform1f(P.shade.uniforms.uEdge, this.edge);
+      gl.uniform1f(P.shade.uniforms.uFill, this.fill);
+      gl.uniform1f(P.shade.uniforms.uLevel0, this.lines.level0);
+      gl.uniform1f(P.shade.uniforms.uOctaves, this.lines.octaves);
+      // A line's width is given in CSS pixels, so it is as bold on a display
+      // scaled to 125% as on a plain one. The slope above is per step, so it is
+      // divided by the step's size in the canvas's own pixels.
+      const perCss = this.canvas.width / Math.max(1, this.canvas.clientWidth || this.canvas.width);
+      gl.uniform1f(P.shade.uniforms.uWidth, this.lines.width * Math.max(1, perCss) / Math.max(1, this.shaded.width * Math.max(this.dye.texelSizeX, this.shaded.texelSizeX)));
+      gl.uniform1f(P.shade.uniforms.uAspect, this.canvas.width / this.canvas.height);
+      gl.uniform1f(P.shade.uniforms.uMarkSize, this.markSize || 0.012);
+      const pos = this._markPos || (this._markPos = new Float32Array(18)), col = this._markCol || (this._markCol = new Float32Array(18));
+      pos.fill(0); col.fill(0);
+      this._marks.forEach((m, i) => { pos.set([m.x, m.y, m.strength ?? 1], i * 3); col.set(m.color, i * 3); });
+      gl.uniform3fv(P.shade.uniforms['uMarkPos[0]'], pos);
+      gl.uniform3fv(P.shade.uniforms['uMarkCol[0]'], col);
+      this._blit(this.shaded);
+      picture = this.shaded;
     }
-    gl.enable(gl.BLEND);
-    gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
+    const glow = this.bloom > 0 && this.bloomOut && this.bloomLevels.length > 1 && P.bloomPre && P.bloomBlur;
+    if (glow) this._bloomPass(picture);
+    // Written, not blended (v3.36.0). It was blended over whatever the canvas
+    // held, trusting the browser to have emptied it since the last frame. That
+    // holds when every frame is shown, but two frames drawn before one is shown
+    // pile up, and a faint glow piled up a few times turns solid. On an empty
+    // canvas the two give the same picture, so nothing else changes.
+    gl.disable(gl.BLEND);
     P.display.bind();
     gl.uniform2f(P.display.uniforms.texelSize, this.dye.texelSizeX, this.dye.texelSizeY);
-    gl.uniform1i(P.display.uniforms.uTexture, this.dye.read.attach(0));
+    gl.uniform1i(P.display.uniforms.uTexture, picture.attach(0));
     gl.uniform1f(P.display.uniforms.uAlpha, this._alpha);
     gl.uniform1f(P.display.uniforms.uShading, this._tier === 'low' ? 0 : 1);
-    gl.uniform1i(P.display.uniforms.uBloom, bloom ? bloom.attach(1) : this.dye.read.attach(1));
-    gl.uniform1i(P.display.uniforms.uBloom2, bloom && this.bloomC ? this.bloomC.attach(2) : this.dye.read.attach(2));
-    gl.uniform1f(P.display.uniforms.uBloomAmt, bloom ? this.bloom : 0);
+    gl.uniform1i(P.display.uniforms.uBloom, glow ? this.bloomOut.attach(1) : picture.attach(1));
+    gl.uniform1f(P.display.uniforms.uBloomAmt, glow ? this.bloom : 0);
     gl.uniform1f(P.display.uniforms.uNeon, this.neon ? 1 : 0);
     gl.uniform1f(P.display.uniforms.uExposure, this.exposure || 1.4);
     this._blit(null);
@@ -780,3 +1127,7 @@ export class FluidFX {
     if (ext) ext.loseContext();
   }
 }
+
+/* Where each kind of quality ladder settled, for this run: 'tier' for the
+   theme's fluid, and a caller's own key. Not kept on disk (see _govern). */
+FluidFX._settled = new Map();

@@ -132,8 +132,9 @@ async function step(name, fn) {
 function installAudioStubs(win) {
   const connections = [];
   class Param {
-    constructor(v) { this.value = v; }
-    setTargetAtTime(v) { this.value = v; }
+    constructor(v) { this.value = v; this.glides = 0; this.cancels = 0; }
+    setTargetAtTime(v) { this.value = v; this.glides++; }
+    cancelScheduledValues() { this.cancels++; }
   }
   class Node {
     constructor(kind) { this.kind = kind; }
@@ -450,10 +451,28 @@ async function main() {
     const eng = new AudioEngine();
     if (!eng.available) throw new Error('engine reported unavailable');
     if (eng.filters.length !== 10) throw new Error('expected 10 EQ bands, got ' + eng.filters.length);
-    // source -> 10 filters -> gain -> analyser -> destination
+    // source -> 10 filters -> gain -> destination, and the analyser listening
+    // BEFORE the gain (v3.36.0): the visualiser must not depend on the volume.
     const chain = window.__audioConnections.map(c => c.join('>'));
-    if (!chain.includes('gain>analyser')) throw new Error('gain is not feeding the analyser: ' + chain.join(', '));
-    if (!chain.includes('analyser>destination')) throw new Error('analyser is not reaching the output');
+    if (!chain.includes('gain>destination')) throw new Error('the gain is not reaching the output: ' + chain.join(', '));
+    if (!chain.includes('biquad>analyser')) throw new Error('the analyser is not fed from before the volume: ' + chain.join(', '));
+    if (chain.includes('gain>analyser')) throw new Error('the analyser listens after the volume again');
+    if (!chain.includes('analyser>gain')) throw new Error('the analyser has no silent tap to keep it fed');
+    // volume and mute are the gain's, and the audio element stays at full
+    eng.setVolume(50);
+    if (Math.abs(eng.gain.gain.value - 0.5) > 1e-6) throw new Error('volume 50 gave a gain of ' + eng.gain.gain.value);
+    if (eng.el.volume !== 1 || eng.el.muted) throw new Error('the audio element itself was turned down, which the analyser would hear');
+    eng.setMuted(true);
+    if (eng.gain.gain.value !== 0) throw new Error('mute left the gain at ' + eng.gain.gain.value);
+    eng.setMuted(false); eng.setVolume(130);
+    if (Math.abs(eng.gain.gain.value - 1.3) > 1e-6) throw new Error('volume 130 gave a gain of ' + eng.gain.gain.value);
+    if (eng.tap.gain.value !== 0) throw new Error('the tap is not silent');
+    // a glide only while sound is running: one set before that would play out, from full volume, when the first song starts
+    const g0 = eng.gain.gain.glides; eng.ctx.state = 'suspended'; eng.setVolume(20);
+    if (eng.gain.gain.glides !== g0 || Math.abs(eng.gain.gain.value - 0.2) > 1e-6) throw new Error('with the sound not running the volume was not set at once');
+    eng.ctx.state = 'running'; eng.setVolume(60);
+    if (eng.gain.gain.glides !== g0 + 1) throw new Error('with the sound running the volume did not glide');
+    if (!(eng.gain.gain.cancels > 0)) throw new Error('earlier glides are not cancelled, so a later volume could be ignored');
     eng.destroy();
   });
 
@@ -482,15 +501,19 @@ async function main() {
     eng.destroy();
   });
 
-  await step('volume above 100 uses the gain node, not element volume', () => {
+  // Since v3.36.0 all of the volume is the gain node's, and the audio element
+  // stays at full: the element's own volume is applied before the analyser.
+  await step('the whole volume range is the gain node\'s, and the element stays at full', () => {
     const eng = new AudioEngine();
     eng.setVolume(80);
-    if (eng.el.volume !== 0.8 || eng.gain.gain.value !== 1) throw new Error('80% wrong');
+    if (eng.el.volume !== 1 || Math.abs(eng.gain.gain.value - 0.8) > 1e-9) throw new Error('80% wrong: element ' + eng.el.volume + ', gain ' + eng.gain.gain.value);
     eng.setVolume(130);
-    if (eng.el.volume !== 1) throw new Error('element volume should cap at 1');
+    if (eng.el.volume !== 1) throw new Error('element volume should stay at 1');
     if (eng.gain.gain.value !== 1.3) throw new Error('gain node should carry the boost, got ' + eng.gain.gain.value);
     eng.setVolume(-5);
-    if (eng.el.volume !== 0) throw new Error('negative volume not clamped');
+    if (eng.gain.gain.value !== 0) throw new Error('negative volume not clamped');
+    eng.setVolume(500);
+    if (eng.gain.gain.value !== 1.3) throw new Error('volume not capped at 130');
     eng.destroy();
   });
 
@@ -1073,6 +1096,29 @@ async function main() {
       if (doc.body.classList.contains('audio-viz')) throw new Error('music overlay still on for a video');
       app._hasVideo = false;
     });
+
+    // v3.36.0. A song mpv plays, with the music view open, made a second
+    // visualiser on the music view's canvas: two drawing at once, each clearing
+    // the other. And the music view's own went on drawing after a stop.
+    await step('the music view has one visualiser, and it stops with the music', async () => {
+      if (!m._viz) throw new Error('the music view has no visualiser to test');
+      const was = { dash: app.currentDash, viz: app.musicViz, file: app._currentFilePath, lite: app.isLite };
+      try {
+        app.musicViz = undefined; app.currentDash = 'music'; app._currentFilePath = null;
+        app.isLite = false;                                                   // the full app: Lite has no visualiser
+        app.updateVisualizerVisibility([{ type: 'audio', id: 1 }]);          // as mpv reports an audio-only file
+        if (!app.musicViz) throw new Error('no visualiser for a song mpv plays in the music view');
+        if (app.musicViz !== m._viz) throw new Error('a second visualiser was made on the music view\'s canvas');
+        m._viz.setMode('bars'); m._viz.start();
+        if (!m._viz.active) throw new Error('the music view\'s visualiser did not start');
+        app.stop({ stay: true }); await tick(10);
+        if (m._viz.active) throw new Error('the music view\'s visualiser kept drawing after a stop');
+        // and for a song the in-app engine plays, where the app holds no visualiser of its own for that view
+        app.musicViz = undefined; m._viz.setMode('bars'); m._viz.start();
+        app.stop({ stay: true }); await tick(10);
+        if (m._viz.active) throw new Error('after a song the in-app engine played, the music view\'s visualiser kept drawing');
+      } finally { app.currentDash = was.dash; app._currentFilePath = was.file; app.isLite = was.lite; m._viz?.stop?.(); }
+    });
   }
 
   /* ── 18. PiP controls ────────────────────────────────────────── */
@@ -1118,6 +1164,485 @@ async function main() {
       firePip(true); await settle();
       if (!doc.body.classList.contains('pip-intro')) throw new Error('no reveal on entry');
       firePip(false); await settle();
+    });
+  }
+
+  /* ── 19. The visualiser and the fluid (v3.36.0) ──────────────── */
+  {
+    const url = f => pathToFileURL(path.join(ROOT, 'src/js', f)).href;
+    const { perf, autoDetectTier } = await import(url('perf.js'));
+    const { FluidFX } = await import(url('fluid.js'));
+    const VZ = await import(url('visualizer.js'));
+    const { Visualizer, MD, MD_SCALES, FLOW } = VZ;
+    const art = await import(url('viz-art.js'));
+
+    await step('the quality tier: a strong machine is High, and Lite does not leave Low behind', () => {
+      // navigator.deviceMemory never says more than 8: from the page, 8 means "8 or more"
+      if (autoDetectTier(20, 8) !== 'high') throw new Error('20 cores and 8+ GB gave ' + autoDetectTier(20, 8) + ': High could not be reached');
+      if (autoDetectTier(20, 8, true) !== 'medium') throw new Error('a machine known to have just 8 GB is not Medium');
+      if (autoDetectTier(4, 8) !== 'medium' || autoDetectTier(2, 8) !== 'low' || autoDetectTier(8, 4) !== 'low') throw new Error('the small machines are judged wrongly');
+      const before = perf.tier, kept = localStorage.getItem('bm_perf_quality_user');
+      perf.setSessionTier('low');
+      if (perf.tier !== 'low') throw new Error('the tier for this run was not applied');
+      if (localStorage.getItem('bm_perf_quality_user') !== kept || localStorage.getItem('bm_perf_quality') !== null) throw new Error('Lite mode saved its tier: it would stay on Low for good');
+      perf.setSessionTier(null);
+      if (perf.tier !== before) throw new Error('lifting the tier for this run did not bring back ' + before);
+    });
+
+    // The fluid's loop on a clock of its own: `hz` screen refreshes a second for one second.
+    const runLoop = (hz, interval) => {
+      const realNow = Object.getOwnPropertyDescriptor(performance, 'now'), realRaf = globalThis.requestAnimationFrame, realCaf = globalThis.cancelAnimationFrame;
+      let t = 1000, q = [];
+      Object.defineProperty(performance, 'now', { value: () => t, configurable: true, writable: true });
+      globalThis.requestAnimationFrame = cb => { q.push(cb); return q.length; };
+      globalThis.cancelAnimationFrame = () => {};
+      const f = Object.create(FluidFX.prototype);
+      Object.assign(f, { paused: false, mode: 'fluid', _raf: null, _alpha: 1, _targetAlpha: 1, _frameInterval: interval, audioDriven: true, dts: [],
+        _resize() {}, _render() {}, _govern() {}, _step(dt) { this.dts.push(dt); } });
+      try {
+        f._start();
+        for (let i = 0; i < hz; i++) { t += 1000 / hz; const run = q; q = []; run.forEach(cb => cb(t)); }
+      } finally {
+        if (realNow) Object.defineProperty(performance, 'now', realNow); else delete performance.now;
+        globalThis.requestAnimationFrame = realRaf; globalThis.cancelAnimationFrame = realCaf;
+      }
+      return { steps: f.dts.length, time: f.dts.reduce((a, b) => a + b, 0) };
+    };
+    await step('the fluid runs at the same speed on a 60, 120 and 144 Hz screen', () => {
+      for (const [hz, interval, steps] of [[60, 1000 / 60, 60], [144, 1000 / 60, 72], [120, 1000 / 60, 60], [144, 1000 / 30, 28], [60, 1000 / 30, 30], [240, 1000 / 60, 60]]) {
+        const r = runLoop(hz, interval);
+        if (Math.abs(r.time - 1) > 0.06) throw new Error(`${hz} Hz, a frame every ${interval.toFixed(1)} ms: one second on the clock moved the fluid ${r.time.toFixed(2)} s (it was 0.33 on a 144 Hz screen)`);
+        if (Math.abs(r.steps - steps) > 2) throw new Error(`${hz} Hz, a frame every ${interval.toFixed(1)} ms: ${r.steps} frames drawn in a second, expected about ${steps}`);
+      }
+    });
+
+    await step('the fluid steps its quality down when frames stay slow, and only then', () => {
+      const make = () => { const f = Object.create(FluidFX.prototype); let applied = [];
+        Object.assign(f, { governed: true, _ladderKey: 'smoke-test', _ladder: [{ name: 'a', fps: 60 }, { name: 'b', fps: 60 }, { name: 'c', fps: 60 }, { name: 'd', fps: 30 }], _ready: false });
+        f._applyLevel(0); return f; };
+      FluidFX._settled.delete('smoke-test');
+      let f = make();
+      for (let i = 0; i < 400; i++) f._govern(16.7);
+      if (f._level !== 0) throw new Error('it stepped down at a steady 60 frames a second');
+      for (let i = 0; i < 30; i++) f._govern(60);                 // a short stumble: under the count that matters
+      for (let i = 0; i < 400; i++) f._govern(18);
+      if (f._level !== 0) throw new Error('a short stumble took the quality down');
+      f._govern(900);                                              // a pause (another window, a breakpoint)
+      if (f._level !== 0) throw new Error('a pause took the quality down');
+      let n = 0; for (; n < 400 && f._level === 0; n++) f._govern(34);
+      if (f._level !== 1 || f.cfg.name !== 'b') throw new Error('30 frames a second did not take it down one level: at ' + f._level);
+      if (n < 60 || n > 150) throw new Error('it took ' + n + ' slow frames to step down: it should be about two seconds of them');
+      if (FluidFX._settled.get('smoke-test') !== 'b') throw new Error('where it settled was not kept for this run');
+      for (let i = 0; i < 200 && f._level === 1; i++) f._govern(70);
+      if (f._level !== 3) throw new Error('under 15 frames a second should take it down two levels at once: at ' + f._level);
+      for (let i = 0; i < 400; i++) f._govern(200);
+      if (f._level !== 3) throw new Error('it went past the last level');
+      f = make(); f.governed = false;
+      for (let i = 0; i < 400; i++) f._govern(60);
+      if (f._level !== 0) throw new Error('a tier the user chose was stepped down');
+      FluidFX._settled.delete('smoke-test');
+    });
+
+    // Found by a second reader of the code, before it shipped (v3.36.0).
+    await step('a slow screen is not a slow machine: at 30 Hz nothing steps down', () => {
+      const make = () => { const f = Object.create(FluidFX.prototype);
+        Object.assign(f, { governed: true, _ladderKey: 'smoke-30', _ladder: [{ name: 'a', fps: 60 }, { name: 'b', fps: 60 }, { name: 'c', fps: 30 }], _ready: false });
+        f._applyLevel(0); return f; };
+      const wasMs = perf.refreshMs, md = { level: MD.level };
+      try {
+        FluidFX._settled.delete('smoke-30');
+        perf.setRefresh(30);
+        if (Math.abs(perf.refreshMs - 33.33) > 0.1) throw new Error('30 Hz is kept as ' + perf.refreshMs + ' ms');
+        let f = make(); for (let i = 0; i < 900; i++) f._govern(33.4);
+        if (f._level !== 0) throw new Error('on a 30 Hz screen the fluid stepped down to level ' + f._level + ' with every frame on time');
+        for (let i = 0; i < 400 && f._level === 0; i++) f._govern(75);
+        if (f._level === 0) throw new Error('on a 30 Hz screen 13 frames a second did not step it down');
+        const v = Object.create(Visualizer.prototype); MD.level = 0;
+        for (let i = 0; i < 900; i++) v._mdGovern(33.4);
+        if (v._mdLevel() !== 0) throw new Error('on a 30 Hz screen MilkDrop went down a size with every frame on time');
+        for (let i = 0; i < 400 && v._mdLevel() === 0; i++) v._mdGovern(75);
+        if (v._mdLevel() === 0) throw new Error('on a 30 Hz screen 13 frames a second did not take MilkDrop down a size');
+        // a rate that is no rate means "not known", and the usual 60 is assumed
+        for (const bad of [0, -1, NaN, undefined, null, 5, 5000]) { perf.setRefresh(bad); if (perf.refreshMs !== 0) throw new Error('a refresh rate of ' + bad + ' was taken'); }
+        FluidFX._settled.delete('smoke-30'); f = make(); for (let i = 0; i < 400 && f._level === 0; i++) f._govern(34);
+        if (f._level === 0) throw new Error('with the screen not known, 30 frames a second no longer steps down');
+      } finally { perf.refreshMs = wasMs; MD.level = md.level; FluidFX._settled.delete('smoke-30'); }
+    });
+
+    await step('a tier the user chose is taken as given, and a slider does not rebuild the fluid', () => {
+      const was = { base: perf._base, chosen: perf.chosen, session: perf._session, custom: perf._customOverrides, kept: localStorage.getItem('bm_perf_quality_user'), ckept: localStorage.getItem('bm_perf_custom'), settled: FluidFX._settled.get('tier') };
+      const make = () => { const f = Object.create(FluidFX.prototype); f._ready = false; return f; };
+      try {
+        perf._session = null; perf._base = 'high'; perf.chosen = false;
+        FluidFX._settled.set('tier', 'low');                       // frames were slow once, and it settled on Low
+        let f = make(); f.setQuality('high');
+        if (f._tier !== 'low' || !f.governed || !f.lowered) throw new Error('a detected tier should start where this run settled: ' + JSON.stringify({ tier: f._tier, governed: f.governed, lowered: f.lowered }));
+        perf.setTier('high');                                      // the user presses High in Fluid Settings
+        f = make(); f.setQuality(perf.tier);
+        if (f._tier !== 'high') throw new Error('the user chose High and the fluid is at ' + f._tier + ': what it settled on before overrode the choice');
+        if (f.governed || f.lowered || FluidFX._settled.has('tier')) throw new Error('a chosen tier is still governed, or marked as stepped down');
+        // the app's own listener: a change of tier sets the quality once, a slider not at all
+        const calls = []; const real = app.auroraFX; app.auroraFX = { setQuality: t => calls.push(t) };
+        try {
+          perf.setTier('medium');
+          if (calls.join() !== 'medium') throw new Error('pressing Medium set the quality ' + calls.length + ' times: ' + calls.join());
+          for (let i = 0; i < 20; i++) { perf.setCustom('density', 100 + i); perf.setCustom('glow', 0.5 + i / 100); }
+          perf.resetCustom();
+          if (calls.length !== 1) throw new Error(`dragging a slider in Fluid Settings rebuilt the fluid ${calls.length - 1} times: it empties it each time`);
+          perf.setTier('medium');                                  // the same tier again: nothing to do
+          if (calls.length !== 1) throw new Error('pressing the tier it is already on rebuilt the fluid');
+        } finally { app.auroraFX = real; }
+      } finally {
+        perf._base = was.base; perf.chosen = was.chosen; perf._session = was.session; perf._customOverrides = was.custom;
+        if (was.kept === null) localStorage.removeItem('bm_perf_quality_user'); else localStorage.setItem('bm_perf_quality_user', was.kept);
+        if (was.ckept === null) localStorage.removeItem('bm_perf_custom'); else localStorage.setItem('bm_perf_custom', was.ckept);
+        if (was.settled) FluidFX._settled.set('tier', was.settled); else FluidFX._settled.delete('tier');
+      }
+    });
+
+    await step('the fluid\'s canvas: pixel for pixel where a level says how many, and a resize is not a slow frame', () => {
+      const wasDpr = window.devicePixelRatio, set = d => Object.defineProperty(window, 'devicePixelRatio', { value: d, configurable: true, writable: true });
+      const make = (tier, cfg) => { const f = Object.create(FluidFX.prototype); let built = 0;
+        Object.assign(f, { canvas: { clientWidth: 1366, clientHeight: 768, width: 0, height: 0 }, cfg, _tier: tier, _initFramebuffers() { built++; }, built: () => built }); return f; };
+      try {
+        set(2);
+        let f = make('hd', { maxPixels: 3.7e6 }); f._resize(true);
+        if (!(f.canvas.width > 2500) || f.canvas.width * f.canvas.height > 3.75e6) throw new Error(`at 200% the top level's canvas is ${f.canvas.width}x${f.canvas.height} for a 2732x1536 screen (it stopped at 2049 across)`);
+        f = make('high', {}); f._resize(true);
+        if (f.canvas.width !== 2049) throw new Error('a level with no cap of its own is no longer held to one and a half times: ' + f.canvas.width);
+        f = make('low', { maxPixels: 2.1e6 }); f._resize(true);
+        if (f.canvas.width !== 1366) throw new Error('the lightest level is drawn at ' + f.canvas.width + ' across, not the plain 1366');
+        set(1.25); f = make('hd', { maxPixels: 3.7e6 }); f.canvas.clientWidth = 1536; f.canvas.clientHeight = 800; f._resize(true);
+        if (f.canvas.width !== 1920 || f.canvas.height !== 1000) throw new Error(`at 125% a 1536x800 picture is ${f.canvas.width}x${f.canvas.height}`);
+        // resized on every frame, as a window being dragged is: the frames in between are not counted as slow
+        Object.assign(f, { governed: true, _ladderKey: 'smoke-drag', _ladder: [{ name: 'a', fps: 60 }, { name: 'b', fps: 60 }], _level: 0, _frameInterval: 16.7, _govN: 0, _govEma: 0, _govSkip: 0 });
+        for (let i = 0; i < 400; i++) { f.canvas.clientWidth = 1200 + (i % 50); f._resize(); f._govern(60); }
+        if (f._level !== 0) throw new Error('a window dragged to a new size for seven seconds stepped the quality down');
+        FluidFX._settled.delete('smoke-drag');
+      } finally { set(wasDpr); FluidFX._settled.delete('smoke-drag'); }
+    });
+
+    await step('HD Flow asks for dye pixel for pixel at its top level, and for lines and a glow', () => {
+      const calls = [];
+      const fluid = { mode: 'fluid', configure(fn) { fn(this); }, setFlow() {}, setMarkers() {}, setQuality() {},
+        setNeon(on, exposure, o) { calls.push(['neon', on, exposure, o]); }, setBloom(v, o) { calls.push(['bloom', v, o]); }, setLadder(key, levels) { calls.push(['ladder', key, levels]); } };
+      const c = window.document.createElement('canvas');
+      const v = Object.create(Visualizer.prototype);
+      Object.assign(v, { canvas: c, ctx: c.getContext('2d'), mode: 'flow', _fluid: fluid, _fluidCanvas: { style: {} }, opts: {} });
+      v._drawFluid();
+      const neon = calls.find(x => x[0] === 'neon'), bloom = calls.find(x => x[0] === 'bloom'), ladder = calls.find(x => x[0] === 'ladder');
+      if (!neon || neon[1] !== true || !(neon[3].edge > 0)) throw new Error('no contour lines asked for');
+      if (!bloom || !(bloom[1] > 0)) throw new Error('no glow asked for');
+      if (!ladder || ladder[1] !== 'flow') throw new Error('no quality levels of its own');
+      const L = ladder[2];
+      if (L[0].dyeScale !== 1) throw new Error('the top level is not pixel for pixel: ' + L[0].dyeScale);
+      for (let i = 1; i < L.length; i++) if (!(L[i].dyeScale < L[i - 1].dyeScale) || !(L[i].sim <= L[i - 1].sim)) throw new Error('level ' + L[i].name + ' is not lighter than ' + L[i - 1].name);
+      if (typeof fluid.onFrame !== 'function') throw new Error('the music is not fed once per step of the fluid');
+      if (!(FLOW.neon.width > 0 && FLOW.bloom.amount > 0)) throw new Error('the look has no line width or glow');
+    });
+
+    await step('a visualiser draws in the screen\'s own pixels, within a limit, and not on Low', () => {
+      const v = Object.create(Visualizer.prototype), set = d => Object.defineProperty(window, 'devicePixelRatio', { value: d, configurable: true, writable: true });
+      const was = window.devicePixelRatio;
+      try {
+        perf.setSessionTier('high');   // the machine running this may itself be a small one
+        v.canvas = { offsetWidth: 1536, offsetHeight: 800 };
+        set(1.25); if (Math.abs(v._scale() - 1.25) > 1e-9) throw new Error('at 125% it draws at ' + v._scale() + ' of the CSS size, not 1.25');
+        set(1);    if (v._scale() !== 1) throw new Error('at 100% it draws at ' + v._scale());
+        set(3);    if (v._scale() > 2) throw new Error('more than twice the CSS size: ' + v._scale());
+        v.canvas = { offsetWidth: 1920, offsetHeight: 1080 };
+        set(2);    if (v._scale() * v._scale() * 1920 * 1080 > 3.75e6) throw new Error('a 4K screen is drawn at ' + Math.round(v._scale() * v._scale() * 1920 * 1080) + ' pixels');
+        perf.setSessionTier('low'); v.canvas = { offsetWidth: 1536, offsetHeight: 800 }; set(1.25);
+        if (v._scale() !== 1) throw new Error('on Low it draws at ' + v._scale());
+      } finally { perf.setSessionTier(null); set(was); }
+    });
+
+    await step('a visualiser that is not on screen draws nothing, and its fluid waits', () => {
+      const c = window.document.createElement('canvas'); window.document.body.appendChild(c);
+      const v = new Visualizer(c); let drawn = 0, paused = 0, resumed = 0;
+      v._draw = () => { drawn++; }; v._fluid = { pause() { paused++; }, resume() { resumed++; }, halt() {} };
+      const realRaf = globalThis.requestAnimationFrame; globalThis.requestAnimationFrame = () => 0;
+      try {
+        v.active = true; v._lastDraw = -1e9; v._loop();
+        if (drawn !== 0) throw new Error('it drew with no size on screen (a hidden view)');
+        if (paused !== 1) throw new Error('its fluid was not paused');
+        Object.defineProperty(c, 'offsetWidth', { value: 640, configurable: true });
+        v._lastDraw = -1e9; v._loop();
+        if (drawn !== 1) throw new Error('it did not draw once it was on screen again');
+        if (resumed !== 1) throw new Error('its fluid was not resumed');
+      } finally { globalThis.requestAnimationFrame = realRaf; v.active = false; v._fluid = null; c.remove(); }
+    });
+
+    await step('under the fluid and MilkDrop the 2D canvas is emptied once, not every frame', () => {
+      let clears = 0; const c = window.document.createElement('canvas');
+      const v = Object.create(Visualizer.prototype);
+      Object.assign(v, { canvas: c, ctx: { clearRect() { clears++; } } });
+      v._wipe(); v._wipe(); v._wipe();
+      if (clears !== 1) throw new Error(clears + ' clears for three frames');
+      v._inked = true; v._wipe();
+      if (clears !== 2) throw new Error('not emptied again after a 2D style drew');
+    });
+
+    await step('Wave fills the picture for quiet and loud music alike, and never leaves it', () => {
+      const c = window.document.createElement('canvas'); window.document.body.appendChild(c);
+      const v = new Visualizer(c); c.width = 1000; c.height = 600;
+      const ys = [], rec = new Proxy({}, { get: (_, p) => {
+        if (p === 'createLinearGradient') return () => ({ addColorStop() {} });
+        if (p === 'moveTo' || p === 'lineTo') return (x, y) => { ys.push(y); };
+        if (p === 'quadraticCurveTo') return (a, b, x, y) => { ys.push(b, y); };
+        return () => undefined; }, set: () => true });
+      v.ctx = rec;
+      const realNow = Object.getOwnPropertyDescriptor(performance, 'now'); let t = 5000;
+      Object.defineProperty(performance, 'now', { value: () => t, configurable: true, writable: true });
+      const height = amp => {
+        v._waveLvl = undefined; v._waveT = undefined;
+        v.analyser = { fftSize: 1024, frequencyBinCount: 512, smoothingTimeConstant: 0.8,
+          getFloatTimeDomainData(a) { for (let i = 0; i < a.length; i++) a[i] = amp * Math.sin(i / 1024 * Math.PI * 2 * 5); },
+          getByteTimeDomainData(a) { for (let i = 0; i < a.length; i++) a[i] = 128 + 127 * amp * Math.sin(i / 1024 * Math.PI * 2 * 5); },
+          getByteFrequencyData(a) { a.fill(90); } };
+        for (let i = 0; i < 120; i++) { t += 16.7; ys.length = 0; v._drawWave(); }
+        let m = 0; for (const y of ys) if (y !== 300 && Math.abs(y - 300) > m) m = Math.abs(y - 300);
+        return m;
+      };
+      try {
+        const quiet = height(0.03), loud = height(0.9), silent = height(0);
+        if (!(quiet > 600 * 0.15)) throw new Error('quiet music draws a wave ' + quiet.toFixed(0) + ' px high in a 600 px picture');
+        if (!(loud > 600 * 0.15)) throw new Error('loud music draws a wave ' + loud.toFixed(0) + ' px high');
+        if (quiet > 300 || loud > 300) throw new Error('the wave leaves the picture: ' + Math.max(quiet, loud).toFixed(0) + ' px from the middle');
+        if (silent > 8) throw new Error('silence is not a flat line (but for the echo\'s ripple): ' + silent.toFixed(1) + ' px');
+        v.analyser = { fftSize: 1024, frequencyBinCount: 512, getByteTimeDomainData(a) { for (let i = 0; i < a.length; i++) a[i] = 128 + 60 * Math.sin(i / 20); }, getByteFrequencyData(a) { a.fill(90); } };
+        const f = v._getTimeF();
+        if (!(f instanceof Float32Array) || Math.abs(f[10] - (Math.round(128 + 60 * Math.sin(10 / 20)) - 128) / 128) > 0.02) throw new Error('an analyser without float data is not read through its bytes');
+      } finally { if (realNow) Object.defineProperty(performance, 'now', realNow); else delete performance.now; v.analyser = null; c.remove(); }
+    });
+
+    await step('MilkDrop is drawn in the screen\'s own pixels, steps down when slow, and deals every preset once', () => {
+      const was = { level: MD.level, set: MD.set, dpr: window.devicePixelRatio };
+      const setDpr = d => Object.defineProperty(window, 'devicePixelRatio', { value: d, configurable: true, writable: true });
+      try {
+        const v = Object.create(Visualizer.prototype);
+        v.canvas = { offsetWidth: 1536, offsetHeight: 800 }; setDpr(1.25); MD.level = 0;
+        let [w, h] = v._mdSize();
+        if (w !== 1920 || h !== 1000) throw new Error(`a 1536 by 800 picture at 125% is drawn at ${w} by ${h}, not 1920 by 1000 (it was 1152 across)`);
+        v.canvas = { offsetWidth: 1920, offsetHeight: 1080 }; setDpr(2); [w, h] = v._mdSize();
+        if (w * h > 2.35e6) throw new Error('a 4K screen is drawn at ' + w * h + ' pixels');
+        v.canvas = { offsetWidth: 1536, offsetHeight: 800 }; setDpr(1.25);
+        // slow frames take this preset down a size, a new preset's first frames and a pause do not
+        for (let i = 0; i < 300; i++) v._mdGovern(16.7);
+        if (v._mdLevel() !== 0) throw new Error('it stepped down at 60 frames a second');
+        v._mdSkip = 30; for (let i = 0; i < 30; i++) v._mdGovern(120);
+        v._mdGovern(2000);
+        for (let i = 0; i < 300; i++) v._mdGovern(17);
+        if (v._mdLevel() !== 0) throw new Error('a new preset building its shaders, or a pause, took it down a size');
+        for (let i = 0; i < 300 && v._mdLevel() === 0; i++) v._mdGovern(36);
+        if (v._mdLevel() !== 1 || MD.level !== 0) throw new Error('28 frames a second should take this preset down a size and leave the machine\'s own alone: preset ' + v._mdLevel() + ', machine ' + MD.level);
+        if (!(v._mdSize()[0] < 1920)) throw new Error('a size down is not smaller');
+        v._mdDown = MD_SCALES.length - 1; for (let i = 0; i < 300; i++) v._mdGovern(80);
+        if (v._mdLevel() !== MD_SCALES.length - 1) throw new Error('it went past the smallest size');
+        // every preset once, in a new order, before any comes round again
+        const names = ['a', 'b', 'c', 'd', 'e', 'f', 'g'];
+        Object.assign(v, { _md: { loadPreset() {} }, _mdNames: names, _mdPresets: Object.fromEntries(names.map(n => [n, () => ({})])), _mdBag: null, _mdName: null, _mdDown: 0 });
+        // the next preset starts from the machine's own size again, and one slow preset does not change that
+        v.mdNext(0); v._mdDown = 1; v.mdNext(0);
+        if (v._mdLevel() !== 0 || MD.level !== 0) throw new Error('one slow preset made the next one smaller');
+        if (!(v._mdSkip >= 30)) throw new Error('a new preset\'s first frames are counted');
+        // three slow presets running: it is the machine, and its own size goes down
+        v._mdDown = 1; v.mdNext(0); v._mdDown = 1; v.mdNext(0); v._mdDown = 1; v.mdNext(0);
+        if (MD.level !== 1) throw new Error('three slow presets running did not take the machine\'s own size down: ' + MD.level);
+        v.mdNext(0); v.mdNext(0);
+        if (MD.level !== 1) throw new Error('it went down again with nothing slow');
+        // a new preset's first frames are still not counted when its size changes on the first of them
+        Object.assign(v, { _mdCanvas: { style: {}, width: 0, height: 0 }, ctx: { clearRect() {} }, _mdDown: 0, _mdW: 0, _mdH: 0, opts: { mdAuto: 0 }, analyser: null, _tick: 0, _synthValues: new Float32Array(128), _mdLast: 0 });
+        v._md.setRendererSize = () => {}; v._md.render = () => {};
+        const root = window.document.documentElement.classList, lite = root.contains('lite-mode'); root.remove('lite-mode');   // Lite draws bars in its place
+        try {
+          v.mdNext(2.5); const skip = v._mdSkip; v._drawMilk();
+          if (!(v._mdW > 0)) throw new Error('MilkDrop was not drawn: its size is ' + v._mdW);
+          if (!(skip >= 150) || v._mdSkip < skip - 1) throw new Error(`a new preset waits ${skip} frames before it is judged, and a change of size on its first frame cut that to ${v._mdSkip}`);
+        } finally { if (lite) root.add('lite-mode'); }
+        MD.level = 0; MD.streak = 0; v._mdBag = null; v._mdName = null;
+        const seen = []; for (let i = 0; i < names.length * 6; i++) seen.push(v.mdNext(0));
+        for (let r = 0; r < 6; r++) { const round = seen.slice(r * names.length, (r + 1) * names.length); if (new Set(round).size !== names.length) throw new Error('round ' + (r + 1) + ' repeated a preset: ' + round.join('')); }
+        for (let i = 1; i < seen.length; i++) if (seen[i] === seen[i - 1]) throw new Error('the same preset twice running');
+      } finally { MD.level = was.level; MD.set = was.set; MD.streak = 0; setDpr(was.dpr); }
+    });
+
+    await step('the drawn styles have their colours and survive a frame', () => {
+      const hues = [0, 1, 2, 3, 4].map(i => art.tone({ opts: { colors: 'auto' } }, i, 5, 0.5, 'flow')[0]);
+      for (let i = 0; i < 5; i++) for (let j = i + 1; j < 5; j++) { const d = Math.abs(hues[i] - hues[j]) % 360, gap = Math.min(d, 360 - d); if (gap < 30) throw new Error(`HD Flow's emitters ${i} and ${j} are ${gap} degrees apart: they would look the same`); }
+      const b = art.bands(new Uint8Array(64).fill(128));
+      if (b.length !== 5 || b.some(x => Math.abs(x - 128 / 255) > 0.01)) throw new Error('the five parts of the sound are read wrongly: ' + b.join(' '));
+      const c = window.document.createElement('canvas'); window.document.body.appendChild(c);
+      const v = new Visualizer(c);
+      // on a clock that moves a sixtieth of a second a frame: the styles go by the clock, and frames drawn in one millisecond would make next to nothing
+      const realNow = Object.getOwnPropertyDescriptor(performance, 'now'); let t = 9000;
+      Object.defineProperty(performance, 'now', { value: () => t, configurable: true, writable: true });
+      try {
+        v.analyser = { fftSize: 1024, frequencyBinCount: 512, getByteTimeDomainData(a) { for (let i = 0; i < a.length; i++) a[i] = 128 + 90 * Math.sin(i / 7); }, getByteFrequencyData(a) { a.fill(170); } };
+        for (const mode of ['bars', 'radial', 'wave', 'particles', 'neon', 'bubbles']) { v.mode = mode; for (let i = 0; i < 30; i++) { t += 16.7; v._tick++; v._draw(); } }
+        if (!(v._pt?.made > 0)) throw new Error('Particles made nothing with music');
+        if (!(v._neon?.made > 0) || v._neon?.em?.length !== 5) throw new Error('Neon made nothing with music');
+        if (!(v._bub?.made > 0)) throw new Error('Bubbles made nothing with music');
+        // with the music stopped (a flat waveform) nothing new is made
+        v.analyser = { fftSize: 1024, frequencyBinCount: 512, getByteTimeDomainData(a) { a.fill(128); }, getByteFrequencyData(a) { a.fill(170); } };
+        const made = [v._pt.made, v._neon.made, v._bub.made];
+        for (const mode of ['particles', 'neon', 'bubbles']) { v.mode = mode; for (let i = 0; i < 30; i++) { t += 16.7; v._tick++; v._draw(); } }
+        if (v._pt.made !== made[0] || v._neon.made !== made[1] || v._bub.made !== made[2]) throw new Error('something was made with the music stopped');
+      } finally { if (realNow) Object.defineProperty(performance, 'now', realNow); else delete performance.now; v.analyser = null; c.remove(); }
+    });
+
+    await step('the loud end of the scale: a drum shows above the bass line, and quieter sound is drawn as it was', () => {
+      const c = window.document.createElement('canvas'); window.document.body.appendChild(c);
+      const v = new Visualizer(c);
+      try {
+        // an analyser as the browser's: what it reads in decibels, turned into bytes over the window it is set to
+        let db = -50;
+        const an = { fftSize: 1024, frequencyBinCount: 512, smoothingTimeConstant: 0.8, minDecibels: -100, maxDecibels: -30,
+          getByteTimeDomainData(a) { a.fill(128); },
+          getByteFrequencyData(a) { const r = this.maxDecibels - this.minDecibels; a.fill(Math.max(0, Math.min(255, Math.floor(255 / r * (db - this.minDecibels))))); } };
+        v.analyser = an;
+        const bar = d => { db = d; return v._getFreq()[3]; };
+        const quiet = bar(-50), line = bar(-28), drum = bar(-18), full = bar(-10), over = bar(-2);
+        if (an.maxDecibels !== -10) throw new Error('the analyser still stops at ' + an.maxDecibels + ' decibels: louder than that is all "full"');
+        if (Math.abs(quiet - Math.floor(255 * 50 / 70)) > 2) throw new Error(`sound at -50 decibels is drawn at ${quiet} of 255, and was ${Math.floor(255 * 50 / 70)}: the styles were made for that`);
+        if (!(line < 250 && drum >= line + 12 && drum < 255)) throw new Error(`a bass line at -28 decibels is drawn at ${line} and a drum at -18 at ${drum}: the drum should stand clear of it, and neither at the top`);
+        if (full < 250 || over !== 255) throw new Error(`full scale is drawn at ${full} and louder still at ${over}`);
+        const steps = [-60, -50, -45, -40, -35, -30, -25, -20, -15, -10].map(bar);
+        for (let i = 1; i < steps.length; i++) if (!(steps[i] > steps[i - 1])) throw new Error('louder is not drawn higher: ' + steps.join(' '));
+        // sensitivity still scales it, and an analyser that cannot be told is read as it comes
+        v.opts.sensitivity = 0.5; if (Math.abs(bar(-50) - quiet / 2) > 2) throw new Error('half the sensitivity is not half the height');
+        v.opts.sensitivity = 1;
+        v.analyser = { fftSize: 1024, frequencyBinCount: 512, getByteTimeDomainData(a) { a.fill(128); }, getByteFrequencyData(a) { a.fill(230); } };
+        if (v._getFreq()[3] !== 230) throw new Error('an analyser with no decibel window was rescaled: ' + v._getFreq()[3]);
+      } finally { v.analyser = null; c.remove(); }
+    });
+
+    // The beat (viz-beat.js), on made-up music. The styles used to ask whether the
+    // bass's level was a fifth above its average, and on the test track that
+    // found 6 beats in 24 seconds, none of them where everything plays.
+    const { BeatTracker } = await import(url('viz-beat.js'));
+    const { synthTrack } = await import(pathToFileURL(path.join(ROOT, 'scripts/viz-preview.mjs')).href);
+    const RATE = 48000, BEAT = 60 / 124;
+    // The tracker run over a piece, called `fps` times a second, as the
+    // visualiser calls it: each beat as [seconds, how hard]. The sound comes
+    // the way a real analyser gets it, in batches: blocks of 128 samples,
+    // enough of them at once every 10 ms to cover the 480 the sound card asks
+    // for. A first version of the tracker was only tried on sound that ended
+    // exactly on the clock, and counted nine beats in a steady hum once it met
+    // a batch. `smooth` gives that kinder feed, for comparison.
+    const hear = (data, fps, to, tracker = new BeatTracker(), from = 0, smooth = false) => {
+      const win = new Float32Array(1024), out = [];
+      for (let t = from; t < to; t += 1 / fps) {
+        const end = smooth ? Math.floor(t * RATE) : Math.ceil(480 * (Math.floor(t / 0.01) + 1) / 128) * 128;
+        for (let i = 0; i < 1024; i++) { const k = end - 1024 + i; win[i] = k < 0 || k >= data.length ? 0 : data[k]; }
+        if (tracker.update(win, RATE, t * 1000)) out.push([t, tracker.strength]);
+      }
+      return out;
+    };
+    const tone = (seconds, fn) => { const d = new Float32Array(Math.floor(seconds * RATE)); for (let i = 0; i < d.length; i++) d[i] = fn(i / RATE, i); return d; };
+    const TAU2 = Math.PI * 2;
+    let seedB = 5; const noise = () => ((seedB = (seedB * 1664525 + 1013904223) >>> 0) / 4294967296) * 2 - 1;
+
+    await step('a beat is found where the drum hits, however many frames a second are drawn', () => {
+      const track = synthTrack(24, RATE).samples;                 // a drum on every beat from 4 s to 20 s
+      const hits = []; for (let b = 0; b * BEAT < 20; b++) if (b * BEAT >= 8.5) hits.push(b * BEAT);
+      for (const smooth of [false, true]) for (const fps of [30, 60, 72, 75, 120, 144]) {
+        const beats = hear(track, fps, 20, new BeatTracker(), 0, smooth).filter(([t]) => t >= 8.4);
+        const found = hits.filter(h => beats.some(([t]) => t >= h - 0.03 && t <= h + 0.12)).length;
+        const extra = beats.filter(([t]) => !hits.some(h => t >= h - 0.03 && t <= h + 0.12)).length;
+        if (found < hits.length - 2) throw new Error(`called ${fps} times a second it found ${found} of ${hits.length} drum hits`);
+        if (extra > 3) throw new Error(`called ${fps} times a second it reported ${extra} beats where there is no drum`);
+      }
+      // dense and loud, as most records are: the same drums under noise and a held bass, driven hard
+      let b0 = 0, b1 = 0;
+      const loud = tone(12, (t, i) => { const w = noise(); b0 = 0.997 * b0 + w * 0.1; b1 = 0.96 * b1 + w * 0.3; const bt = t % BEAT;
+        return Math.tanh((track[12 * RATE + (i % (8 * RATE))] * 2.6 + (b0 + b1) * 0.12 + Math.sin(TAU2 * 52 * t) * 0.35 * Math.exp(-3 * bt)) * 1.5) * 0.95; });
+      for (const fps of [60, 72, 144]) {
+        const lb = hear(loud, fps, 12).filter(([t]) => t >= 2);
+        if (lb.length < 16 || lb.length > 27) throw new Error(`dense, loud music with a drum 21 times in ten seconds: ${lb.length} beats found at ${fps} calls a second`);
+        const hard = lb.map(x => x[1]).sort((a, b) => a - b)[lb.length >> 1];
+        if (!(hard >= 0.6)) throw new Error('in dense, loud music a usual drum hit counts for ' + hard.toFixed(2) + ' of a full one: it should count as one does in a sparse piece');
+      }
+    });
+
+    await step('a held note, a hum, a chord, hiss and silence are not beats', () => {
+      const held = (seconds, fn) => tone(seconds, t => fn(t) * Math.min(1, t * 2));
+      const hum = held(10, t => (0.3 * Math.sin(TAU2 * 60 * t) + 0.15 * Math.sin(TAU2 * 120 * t)) * (1 + 0.1 * Math.sin(TAU2 * 0.2 * t)));
+      const low = held(8, t => 0.5 * Math.sin(TAU2 * 41 * t));                                                   // a 41 Hz note: its own swing, 82 times a second, is not a beat
+      const saw = held(10, t => { let x = 0; for (let k = 1; k <= 12; k++) x += Math.sin(TAU2 * 41 * k * t) / k; return 0.3 * x; });   // the same note as a bass plays it
+      const fifth = held(12, t => 0.3 * (Math.sin(TAU2 * 65.41 * t) + Math.sin(TAU2 * 98 * t)));                 // two low notes a fifth apart: together they swell 33 times a second
+      const triad = held(12, t => 0.22 * (Math.sin(TAU2 * 110 * t) + Math.sin(TAU2 * 130.81 * t) + Math.sin(TAU2 * 164.81 * t)));
+      const hiss = tone(6, () => 0.003 * noise());
+      const swell = tone(8, t => t < 0.5 ? 0 : 0.4 * (Math.sin(TAU2 * 55 * t) + 0.5 * Math.sin(TAU2 * 220 * t)) * Math.min(1, (t - 0.5) / 3));
+      for (const fps of [60, 72, 75, 120, 144]) {
+        const n = (d, to, from) => hear(d, fps, to).filter(([t]) => t >= from).length;
+        for (const [what, d, to, from, most] of [['a steady hum', hum, 10, 1.5, 0], ['a held 41 Hz note', low, 8, 1, 0], ['a held bass note', saw, 10, 1.5, 0],
+          ['two held notes a fifth apart', fifth, 12, 1, 2], ['a held chord', triad, 12, 1, 3], ['hiss', hiss, 6, 0, 0], ['silence', new Float32Array(RATE * 3), 3, 0, 0], ['a sound swelling in over three seconds', swell, 8, 0, 1]]) {
+          const got = n(d, to, from);
+          if (got > most) throw new Error(`${what} gave ${got} beats at ${fps} calls a second${most ? ' (' + most + ' at the most)' : ''}`);
+        }
+      }
+      // With few frames a second there are holes between the pieces: still none in one held note.
+      if (hear(hum, 30, 10).filter(([t]) => t >= 1.5).length || hear(low, 30, 8).filter(([t]) => t >= 1).length) throw new Error('a held note gave beats at 30 calls a second');
+      // How hard a beat was dies away in a moment.
+      const bt = new BeatTracker(), one = tone(3, t => t >= 1 && t < 1.3 ? 0.8 * Math.sin(TAU2 * 60 * (t - 1)) * Math.exp(-7 * (t - 1)) : 0);
+      const got = hear(one, 60, 1.1, bt);
+      if (got.length !== 1 || !(bt.punch > 0.25)) throw new Error('one drum hit: ' + got.length + ' beats, punch ' + bt.punch.toFixed(2));
+      hear(one, 60, 3, bt, 1.1);
+      if (bt.n !== 1 || !(bt.punch < 0.05)) throw new Error(`two seconds after one hit: ${bt.n} beats, punch ${bt.punch.toFixed(2)}`);
+      // Coming back to sound that is already playing (the visual mode opened in the
+      // middle of a song, a stall of a second) is not a beat.
+      for (const fps of [60, 72, 144]) {
+        const b2 = new BeatTracker(); hear(hum, fps, 3, b2); const before = b2.n;
+        hear(hum, fps, 6, b2, 4.2);
+        if (b2.n !== before) throw new Error(`picking a steady sound up again after a pause gave ${b2.n - before} beats at ${fps} calls a second`);
+      }
+      // The same piece handed over twice, and nothing at all, are taken in its stride.
+      const b3 = new BeatTracker(), w = new Float32Array(1024).fill(0.2);
+      for (let k = 0; k < 50; k++) { b3.update(w, RATE, 1000 + k * 7); b3.update(w, RATE, 1000 + k * 7); b3.update(null, 0, 1000 + k * 7 + 3); }
+      if (b3.n || !Number.isFinite(b3.punch) || !Number.isFinite(b3._slow) || b3._hist.length > 200) throw new Error('the same piece twice, or none: ' + JSON.stringify({ n: b3.n, punch: b3.punch, slow: b3._slow, hist: b3._hist.length }));
+    });
+
+    await step('the styles answer the beat: sparks, a burst, a dash, a puff', () => {
+      const c = window.document.createElement('canvas'); window.document.body.appendChild(c);
+      const v = new Visualizer(c); c.width = 1280; c.height = 720;
+      // a drum every half second over a held bass note, from the second second on
+      const music = tone(8, t => { const bt = t % 0.5; return 0.12 * Math.sin(2 * Math.PI * 55 * t) + (t >= 1 ? 0.8 * Math.sin(2 * Math.PI * (45 * bt + 3.9 * (1 - Math.exp(-28 * bt)))) * Math.exp(-7 * bt) : 0); });
+      const realNow = Object.getOwnPropertyDescriptor(performance, 'now'); let t = 0;
+      Object.defineProperty(performance, 'now', { value: () => 20000 + t * 1000, configurable: true, writable: true });
+      const at = (a, scale, off) => { const end = Math.floor(t * RATE); for (let i = 0; i < a.length; i++) { const k = end - a.length + i; a[i] = off + scale * (k < 0 || k >= music.length ? 0 : music[k]); } };
+      v.analyser = { fftSize: 1024, frequencyBinCount: 512, context: { sampleRate: RATE }, getFloatTimeDomainData(a) { at(a, 1, 0); }, getByteTimeDomainData(a) { at(a, 127, 128); }, getByteFrequencyData(a) { a.fill(150); a[0] = a[1] = a[2] = a[3] = 250; } };
+      try {
+        const frame = () => { t += 1 / 60; v._tick++; v._hear(20000 + t * 1000); };
+        // Neon: no sparks before the first drum, some after it
+        v.mode = 'neon'; while (t < 0.9) { frame(); v._draw(); }
+        if (v.beat.n > 1) throw new Error(v.beat.n + ' beats in a held note');
+        const before = v._neon.sparks.length; while (t < 1.2) { frame(); v._draw(); }
+        if (before !== 0 || !(v._neon.sparks.length > 0)) throw new Error(`Neon: ${before} sparks before the first drum, ${v._neon.sparks.length} after it`);
+        // Particles: more are made in the tenth of a second after a drum than in the one before the next
+        v.mode = 'particles'; while (t < 2.0) { frame(); v._draw(); }
+        const count = to => { const m0 = v._pt.made; while (t < to) { frame(); v._draw(); } return v._pt.made - m0; };
+        const burst = count(2.1), lull = (count(2.38), count(2.48));
+        if (!(burst > lull * 1.6)) throw new Error(`Particles made ${burst} in the tenth of a second after a drum and ${lull} just before the next: no burst`);
+        // HD Flow: the emitters dash and the glow swells on the beat, and fall back after it
+        const glow = []; let pushes = 0;
+        const fluid = { canvas: { width: 1280, height: 720 }, velocity: { height: 256 }, splat(x, y, dx, dy, col) { if (!col && (dx || dy)) pushes++; }, setMarkers() {}, setBloom(a) { glow.push(a); } };
+        v._fluid = fluid; v.mode = 'flow'; v._fw = null;
+        while (t < 2.52) { frame(); v._feedFlow(1 / 60, 20000 + t * 1000); }      // the drum at 2.5 has just landed
+        const kick = v._fw.kick, top = Math.max(...glow.slice(-4));
+        while (t < 2.95) { frame(); v._feedFlow(1 / 60, 20000 + t * 1000); }
+        if (!(kick > 0.25)) throw new Error('HD Flow: no dash on the drum (kick ' + kick.toFixed(2) + ')');
+        if (!(v._fw.kick < kick * 0.3)) throw new Error('HD Flow: the dash did not die away');
+        if (!(top > FLOW.bloom.amount * 1.1) || !(glow[glow.length - 1] < FLOW.bloom.amount * 1.1)) throw new Error(`HD Flow: the glow was ${top.toFixed(2)} on the drum and ${glow[glow.length - 1].toFixed(2)} before the next, around ${FLOW.bloom.amount}`);
+        if (top > FLOW.bloom.amount * 1.8) throw new Error('HD Flow: the glow nearly doubles on a beat: that is a flash, not a swell');
+        if (!(pushes > 0)) throw new Error('HD Flow: no push on the beat');
+        // Smoke: the bass's plume carries more smoke on the drum than between two
+        const dye = []; fluid.splat = (x, y, dx, dy, col) => { if (col && x < 0.3) dye.push(col[0] + col[1] + col[2]); };
+        v.mode = 'fluid'; v._fl = null;
+        while (t < 3.03) { frame(); v._feedFluid(1 / 60, 20000 + t * 1000); }
+        const on = dye[dye.length - 1]; while (t < 3.45) { frame(); v._feedFluid(1 / 60, 20000 + t * 1000); }
+        if (!(on > dye[dye.length - 1] * 1.15)) throw new Error(`Smoke: the bass's plume had ${on.toFixed(3)} of smoke on the drum and ${dye[dye.length - 1].toFixed(3)} between two`);
+      } finally { if (realNow) Object.defineProperty(performance, 'now', realNow); else delete performance.now; v.analyser = null; v._fluid = null; c.remove(); }
     });
   }
 

@@ -49,7 +49,7 @@ const rec = {
 };
 
 const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'bmplayer-smoke-'));
-const PRIMARY = { id: 1, workArea: { x: 0, y: 0, width: 1920, height: 1040 }, workAreaSize: { width: 1920, height: 1040 }, bounds: { x: 0, y: 0, width: 1920, height: 1080 }, scaleFactor: 1 };
+const PRIMARY = { id: 1, workArea: { x: 0, y: 0, width: 1920, height: 1040 }, workAreaSize: { width: 1920, height: 1040 }, bounds: { x: 0, y: 0, width: 1920, height: 1080 }, scaleFactor: 1, displayFrequency: 143.98 };
 const SECOND  = { id: 2, workArea: { x: 1920, y: 0, width: 2560, height: 1400 }, workAreaSize: { width: 2560, height: 1400 }, bounds: { x: 1920, y: 0, width: 2560, height: 1440 }, scaleFactor: 1 };
 let DISPLAYS = [PRIMARY, SECOND];
 
@@ -496,6 +496,14 @@ async function main() {
     const d = await call('app:diagnostics');
     if (!d.flags) throw new Error('flags missing from diagnostics');
     if (d.flags.compat !== COMPAT) throw new Error('diagnostics reports compat=' + d.flags.compat);
+  });
+
+  // v3.36.0: the page is told the screen's refresh rate, which it cannot ask
+  // for. What lowers quality when frames are slow measures against it.
+  await step('the page is told the refresh rate of the screen the window is on', async () => {
+    const info = await call('app:perfInfo');
+    if (info.displayHz !== 144) throw new Error('a 143.98 Hz screen is reported as ' + info.displayHz);
+    if (!(info.cpuCount > 0) || !(info.totalMemGB > 0)) throw new Error('the cores and memory are gone from it: ' + JSON.stringify(info));
   });
 
 /* ── 7. Picture-in-picture, driven through the real handler ─────── */

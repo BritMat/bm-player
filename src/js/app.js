@@ -68,9 +68,11 @@ class BMPlayer {
     this._initLiteMode();   // async, refines this.isLite + sets up listeners
     const isLite = this.isLite;
     if (isLite) {
-      // Force perf tier to 'low' — disables particle-heavy rendering in any
+      // Perf tier 'low' for this run: disables particle-heavy rendering in any
       // module that does end up running (e.g. theme-fx if user re-enables).
-      try { perf.setTier('low'); } catch(_) {}
+      // For this run only (v3.36.0): setTier saved it, and the app stayed on
+      // Low for good, even back in Pro.
+      try { perf.setSessionTier('low'); } catch(_) {}
     }
     const fxC=el('theme-fx-canvas'),aurC=el('aurora-canvas'),foxC=el('fox-canvas'),vizC=el('visualizer-canvas');
     // The fox: a real 3D low-poly head where WebGL works, the flat SVG one in
@@ -159,7 +161,7 @@ class BMPlayer {
     this.wireTV();
     if(this.alwaysOnTop){this.api?.win.alwaysTop(true);el('mi-always-top')?.classList.add('active-opt');}
     window.addEventListener('contextmenu',e=>{e.preventDefault();this._openCtxPanel(e.clientX,e.clientY);});
-    this.api?.win.onState?.(s=>{const b=el('btn-maximize');if(b)setIcon(b,s==='maximized'?'restore':'maximize');});
+    this.api?.win.onState?.(s=>{const b=el('btn-maximize');if(b)setIcon(b,s==='maximized'?'restore':'maximize');this._askRefresh();});
   }
   /**
    * v1.9.0 — Lite mode bootstrap.
@@ -179,6 +181,10 @@ class BMPlayer {
       else if (info?.envLite) liteMode.setEnvFlag(1);
       // Stash the real CPU/RAM for the perf panel display.
       this._mainPerfInfo = info;
+      // And let the quality tier use them (v3.36.0): the page cannot see more
+      // than "8 GB or more", the main process can.
+      perf.refine({ cores: info?.cpuCount, memGB: info?.totalMemGB });
+      perf.setRefresh(info?.displayHz);   // and the screen's refresh rate (see _askRefresh)
     } catch(_) {}
     // 3. Final verdict (env > user override > auto).
     this.isLite = liteMode.isLiteMode();
@@ -316,6 +322,7 @@ class BMPlayer {
       // audio to the full-screen visualiser instead — the track keeps playing.
       if(this.isPlaying && !this._hasVideo){
         this._audioVizMode=true;
+        this._askRefresh();
         el('welcome-screen')?.classList.remove('active');
         el('player-view')?.classList.add('active');
         document.body.classList.add('audio-viz');
@@ -542,6 +549,7 @@ class BMPlayer {
     document.body.classList.remove('audio-viz');
     this._stopShadow();
     this.viz?.stop();this.musicViz?.stop();
+    window.bmMusic?._viz?.stop?.();   // the music view's too (v3.36.0): it went on drawing an empty spectrum after the music stopped
     this._hideMiniPlayer();
     this._resetNowPlaying();
     this.fox?.wake();this.fox?.setExpression?.('neutral');
@@ -576,7 +584,14 @@ class BMPlayer {
       if(!b.classList.contains('audio-viz')){b.classList.remove('sidebar-peek');return;}
       if(e.clientX<18)b.classList.add('sidebar-peek');else if(e.clientX>96)b.classList.remove('sidebar-peek');
     },{passive:true});
-    this.api?.win?.onHidden?.(h=>{this._winHidden=!!h;this._syncEffects();});
+    this.api?.win?.onHidden?.(h=>{this._winHidden=!!h;this._syncEffects();if(!h)this._askRefresh();});
+  }
+
+  // The refresh rate of the screen the window is on now (v3.36.0): asked again
+  // when the window is maximised, restored or shown and when the visual mode
+  // opens, since it may have been moved to another screen.
+  _askRefresh(){
+    try{ this.api?.app?.perfInfo?.()?.then?.(i=>perf.setRefresh(i?.displayHz))?.catch?.(()=>{}); }catch(_){}
   }
 
   // mpv's playlist has a single entry during music playback, so transport
@@ -780,6 +795,17 @@ class BMPlayer {
     el('fluid-trail')?.addEventListener('input',e=>{perf.setCustom('trail',+e.target.value/100);this._syncFluidLabels();});
     el('fluid-reset')?.addEventListener('click',()=>{perf.resetCustom();this._refreshFluidPanel();});
     perf.onChange(()=>{ if(el('panel-fluid')?.classList.contains('open')) this._refreshFluidPanel(); });
+    // The fluid follows the tier at once (v3.36.0): it took the new quality only
+    // at the next theme change, so the Low, Medium and High buttons seemed dead.
+    // Only when the tier is another one, or is now the user's own choice: the
+    // four sliders above report through the same door, and setting the quality
+    // rebuilds the fluid from nothing, which emptied it at every step of a drag.
+    let fluidTier=perf.tier, fluidChosen=perf.chosen;
+    perf.onChange(()=>{
+      if(perf.tier===fluidTier&&perf.chosen===fluidChosen)return;
+      fluidTier=perf.tier; fluidChosen=perf.chosen;
+      try{ this.auroraFX?.setQuality?.(perf.tier); }catch(_){}
+    });
   }
   _refreshFluidPanel(){
     const p=perf.getParams();
@@ -1276,7 +1302,9 @@ class BMPlayer {
       // for a canvas that's display:none.
       if(this.currentDash==='music' && !this.isLite){
         const mc=el('music-visualizer-canvas');
-        if(mc&&!this.musicViz){this.musicViz=new Visualizer(mc);}
+        // The music view's own visualiser if it has one (v3.36.0): a second one
+        // made here drew on the same canvas, both at once, each clearing the other.
+        if(mc&&!this.musicViz){this.musicViz=window.bmMusic?._viz||new Visualizer(mc);}
         this.musicViz?.setMode(vizSettings().style);
       }
       // Show mini player bar if user is on video tab
