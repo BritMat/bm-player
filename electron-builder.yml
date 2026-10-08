@@ -53,7 +53,7 @@ fileAssociations:
 
 # ── Windows ─────────────────────────────────────────────────────────
 win:
-  icon: "buildResources/icon.ico"
+  icon: "buildResources/icon.png"
   target:
     - target: "nsis"
   artifactName: "BM-Player-Setup-${version}-${arch}.exe"
@@ -66,9 +66,6 @@ nsis:
   createDesktopShortcut: true
   createStartMenuShortcut: true
   shortcutName: "BM Player"
-  installerIcon: "buildResources/icon.ico"
-  uninstallerIcon: "buildResources/icon.ico"
-  installerHeaderIcon: "buildResources/icon.ico"
   deleteAppDataOnUninstall: false
   include: "buildResources/installer.nsh"
 
