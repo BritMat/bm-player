@@ -161,7 +161,10 @@ class BMPlayer {
     this.wireTV();
     if(this.alwaysOnTop){this.api?.win.alwaysTop(true);el('mi-always-top')?.classList.add('active-opt');}
     window.addEventListener('contextmenu',e=>{e.preventDefault();this._openCtxPanel(e.clientX,e.clientY);});
-    this.api?.win.onState?.(s=>{const b=el('btn-maximize');if(b)setIcon(b,s==='maximized'?'restore':'maximize');this._askRefresh();});
+    // 'fullscreen' as well as 'maximized' and 'normal' (v3.37.0). The page is
+    // told so that it can hide the pointer along with the controls, and keep
+    // the title bar from dragging a window that fills the screen (is-fs).
+    this.api?.win.onState?.(s=>{const b=el('btn-maximize');if(b)setIcon(b,s==='normal'?'maximize':'restore');document.documentElement.classList.toggle('is-fs',s==='fullscreen');this._askRefresh();});
   }
   /**
    * v1.9.0 — Lite mode bootstrap.
@@ -1332,7 +1335,15 @@ class BMPlayer {
     // Transparent frameless windows can't be resized by their edges on
     // Windows, so PiP was stuck at one size. Cycle through three instead.
     el('pip-size')?.addEventListener('click',e=>{e.stopPropagation();this.api?.win.pipSize?.();});
-    el('player-view')?.addEventListener('dblclick',()=>{ if(this._pipActive) this.togglePiP(false); });
+    // A double-click on the picture (v3.37.0): full screen and back, as in mpv
+    // and VLC, for a video and for the visualiser alike. In PiP it brings the
+    // window back, as it always has. Not on a control: two quick clicks on a
+    // button are two clicks on that button.
+    el('player-view')?.addEventListener('dblclick',e=>{
+      if(this._pipActive){ this.togglePiP(false); return; }
+      if(e.target?.closest?.('button,input,select,textarea,a,#controls-bar,.viz-transport')) return;
+      this.api?.win.fullscreen();
+    });
     this.api?.win.onPipState?.(on=>{
       this._pipPending=false;
       this._pipActive=on;

@@ -192,8 +192,8 @@ export function formatDiagnostics(d) {
 
   if (m?.errorLog) {
     head('Recent main-process errors');
-    row('total lines', m.errorLog.lines);
-    m.errorLog.tail.forEach(t => L.push('    ' + t.slice(0, 150)));
+    row('total lines', m.errorLog.lines + (m.errorLog.entries ? ', ' + m.errorLog.entries + (m.errorLog.entries === 1 ? ' error' : ' errors') + ' (the last two below)' : ''));
+    m.errorLog.tail.forEach(t => L.push('    ' + t.slice(0, 220)));
   }
   if (d.main?.error) {
     head('Main process');

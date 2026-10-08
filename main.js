@@ -121,6 +121,46 @@ const PIPE = IS_WIN
 const MEDIA=new Set(['mp4','mkv','avi','mov','wmv','flv','webm','ts','m2ts','m4v','3gp','rmvb','ogv','mp3','flac','aac','ogg','wav','m4a','wma','opus','ape','mka','vob','mpg','mpeg','m2v','divx','hevc','av1','m3u','m3u8','pls']);
 let trackList=[],currentSubDelay=0,currentAudioDelay=0,mediaProps={};
 let alwaysOnTopFlag=false,pipPrevBounds=null,pipActive=false,pipWasMaximized=false,pipSizeIdx=0;
+// Full screen (v3.37.0): the whole screen, the taskbar included. "Full screen"
+// used to maximise the window, because it was never tried on a real screen.
+// The state is kept here. On Windows a transparent window, as the controls
+// window is, goes full screen by taking the screen's bounds, and Electron's
+// isFullScreen() goes on saying false (native_window_views.cc, SetFullScreen:
+// "this path will be used for transparent windows as well"). Asking it, the
+// old code could never have left full screen again. And setFullScreen(false)
+// on such a window that is not in full screen sets it to bounds it never
+// saved: it is only ever called from here, after an enter.
+let fullOn=false,fullWasMax=false;
+function winState(){return fullOn?'fullscreen':(win&&!win.isDestroyed()&&win.isMaximized()?'maximized':'normal');}
+function setFull(on){
+  on=!!on;
+  if(!win||win.isDestroyed()||on===fullOn||(on&&pipActive))return fullOn;
+  try{
+    if(on){
+      // A maximised window is restored first, on Windows in the full layout,
+      // and maximised again on the way out: there the screen's bounds are set
+      // on the window as it is, and a maximised window keeps its own ideas
+      // about its size. Elsewhere the system remembers.
+      fullWasMax=false;
+      if(IS_WIN&&bgWin&&win.isMaximized()){fullWasMax=true;win.unmaximize();}
+      fullOn=true;
+      win.setFullScreen(true);
+    }else{
+      fullOn=false;
+      win.setFullScreen(false);
+      if(fullWasMax)win.maximize();
+      fullWasMax=false;
+    }
+  }catch(e){logFatal('full screen',e);}
+  send('win:state',winState());
+  alignBg();syncLiteVideo();
+  return fullOn;
+}
+// Left or entered some other way (a window manager's own key): follow it.
+function watchFull(w){
+  w.on('enter-full-screen',()=>{if(!fullOn){fullOn=true;send('win:state',winState());}});
+  w.on('leave-full-screen',()=>{if(fullOn){fullOn=false;fullWasMax=false;send('win:state',winState());}});
+}
 let pendingOpenFile=null;   // file path captured before the window exists (cold start / macOS open-file)
 
 // In a packaged app, argv is [exePath, ...args] — in dev mode (electron .)
@@ -204,10 +244,11 @@ app.whenReady().then(()=>{
     // a per-frame compositor cost on the bgWin sync path that low-end GPUs
     // can't really afford. One window = one paint target.
     win=new BrowserWindow({width:1280,height:780,minWidth:900,minHeight:560,frame:false,transparent:false,backgroundColor:'#0b0c10',show:false,title:'BM Player Lite',webPreferences:{nodeIntegration:false,contextIsolation:true,preload:path.join(__dirname,'preload.js'),webSecurity:FLAGS.fileScheme==='bmfile',sandbox:false}});
-    win.on('maximize',()=>{send('win:state','maximized');});
+    win.on('maximize',()=>{send('win:state',winState());});
     // Minimised or hidden: the page pauses its decorative loops (v3.30.0).
     for(const [ev,h] of [['minimize',true],['hide',true],['restore',false],['show',false]]) win.on(ev,()=>send('win:hidden',h));
-    win.on('unmaximize',()=>{send('win:state','normal');});
+    win.on('unmaximize',()=>{send('win:state',winState());});
+    watchFull(win);
     win.loadFile(path.join(__dirname,'src','index.html'),{query:flagQuery()});
     // CSP. 'unsafe-eval' was here on the claim that Three.js and dynamic
     // imports need it. Neither does, and nothing in this codebase calls
@@ -274,10 +315,11 @@ app.whenReady().then(()=>{
     for (const ev of ['resized','moved','restore','enter-full-screen','leave-full-screen','show']) win.on(ev,sync);
     const bgAlignTimer=setInterval(alignBg,600);
     win.on('closed',()=>clearInterval(bgAlignTimer));
-    win.on('maximize',()=>{sync();send('win:state','maximized');});
+    win.on('maximize',()=>{sync();send('win:state',winState());});
     // Minimised or hidden: the page pauses its decorative loops (v3.30.0).
     for(const [ev,h] of [['minimize',true],['hide',true],['restore',false],['show',false]]) win.on(ev,()=>send('win:hidden',h));
-    win.on('unmaximize',()=>{sync();send('win:state','normal');});
+    win.on('unmaximize',()=>{sync();send('win:state',winState());});
+    watchFull(win);
     win.loadFile(path.join(__dirname,'src','index.html'),{query:flagQuery()});
     // CSP. 'unsafe-eval' was here on the claim that Three.js and dynamic
     // imports need it. Neither does, and nothing in this codebase calls
@@ -444,10 +486,19 @@ function makeBoot(showFn){
   let done=false;
   return ()=>{
     if(done)return; done=true;
-    try{showFn();}catch(e){console.error('[main] show failed:',e);}
-    registerIpc();initMpv();setupUpdater();ensurePluginDirs();
+    // The window can be gone by now (v3.37.0). Quitting in the first moments
+    // of a start let ready-to-show arrive after the picture window had been
+    // destroyed, and mpv was started on a window handle that no longer was:
+    // "Object has been destroyed", in main-errors.log on a real machine.
+    if(!win||win.isDestroyed())return;
+    // Each step by itself: that error also took the updater, the plugin
+    // folders, the first-run prompt and the cache pruning with it, since they
+    // came after mpv on the same line.
+    const step=(name,fn)=>{try{fn();}catch(e){logFatal('start, '+name,e);}};
+    step('show',showFn);
+    step('ipc',registerIpc);step('mpv',initMpv);step('updater',setupUpdater);step('plugin folders',ensurePluginDirs);
     setTimeout(()=>send('app:firstRun',true),4000);
-    setTimeout(pruneCaches,8000);
+    setTimeout(()=>step('cache pruning',pruneCaches),8000);
   };
 }
 
@@ -467,20 +518,22 @@ function registerIpc(){
   _ipcRegistered = true;
   const sync=alignBg;
   ipcMain.handle('win:minimize',()=>{try{(bgWin||win)?.minimize();}catch(_){}});
-  ipcMain.handle('win:maximize',()=>{if(!win)return;if(win.isFullScreen())win.setFullScreen(false);win.isMaximized()?win.unmaximize():win.maximize();});
-  ipcMain.handle('win:fullscreen',()=>{if(!win||pipActive)return;if(win.isFullScreen())win.setFullScreen(false);else win.isMaximized()?win.unmaximize():win.maximize();});
+  // In full screen, maximise and theatre lead out of it, to the window as it was.
+  ipcMain.handle('win:maximize',()=>{if(!win)return;if(fullOn){setFull(false);return;}win.isMaximized()?win.unmaximize():win.maximize();});
+  ipcMain.handle('win:fullscreen',()=>setFull(!fullOn));
   ipcMain.handle('win:close',()=>{killMpv();app.exit(0);});
   ipcMain.handle('win:alwaysTop',(_, v)=>{try{alwaysOnTopFlag=!!v;if(pipActive)return;applyOnTop(v);}catch(_){}});
   ipcMain.handle('win:isMax',()=>win?.isMaximized());
-  ipcMain.handle('win:isFs',()=>win?.isFullScreen());
+  ipcMain.handle('win:isFs',()=>fullOn);
   ipcMain.handle('win:snap',(_,zone)=>{
     if(!win)return;
+    setFull(false);
     const{workArea}=screen.getPrimaryDisplay();
     const{x,y,width:W,height:H}=workArea;
     const b={'half-left':{x,y,width:Math.floor(W/2),height:H},'half-right':{x:x+Math.floor(W/2),y,width:Math.ceil(W/2),height:H},'maximize':{x,y,width:W,height:H}}[zone];
     if(b){win.setBounds(b);if(bgWin)bgWin.setBounds(b);}
   });
-  ipcMain.handle('win:theatre',()=>{if(win&&!pipActive)win.isMaximized()?win.unmaximize():win.maximize();});
+  ipcMain.handle('win:theatre',()=>{if(!win||pipActive)return;if(fullOn){setFull(false);return;}win.isMaximized()?win.unmaximize():win.maximize();});
 
   // Picture-in-Picture mode — small floating 340×200 window in bottom-right.
   //
@@ -504,10 +557,9 @@ function registerIpc(){
     // 900x560 minimum then forced open partly off screen.
     if (!!enable === pipActive) return;
     if (enable) {
-      // "Fullscreen" in this app is really maximise, and setBounds on a
-      // maximised window is ignored on Windows. Leave both states first and
-      // remember maximise so it can be put back.
-      try { if (win.isFullScreen()) win.setFullScreen(false); } catch(_){}
+      // setBounds on a maximised window is ignored on Windows. Leave full
+      // screen and maximise first, and remember maximise so it can be put back.
+      setFull(false);
       pipWasMaximized = false;
       try { if (win.isMaximized()) { pipWasMaximized = true; win.unmaximize(); } } catch(_){}
       pipPrevBounds = win.getBounds();
@@ -741,7 +793,7 @@ function registerIpc(){
 
     // Where the windows are: the picture window must cover the controls window
     // exactly (v3.26.1). Copy report while the problem shows to see it.
-    const wInfo = w => (w && !w.isDestroyed()) ? { content: w.getContentBounds(), bounds: w.getBounds(), maximized: !!w.isMaximized?.(), fullscreen: !!w.isFullScreen?.() } : null;
+    const wInfo = w => (w && !w.isDestroyed()) ? { content: w.getContentBounds(), bounds: w.getBounds(), maximized: !!w.isMaximized?.(), fullscreen: w === win ? fullOn : !!w.isFullScreen?.() } : null;
     let scale = null; try { scale = screen.getDisplayMatching(win.getBounds()).scaleFactor; } catch (_) {}
     return {
       windows: { controls: wInfo(win), picture: wInfo(bgWin), liteVideo: wInfo(videoWin), scale },
@@ -796,7 +848,16 @@ function registerIpc(){
           const f = path.join(app.getPath('userData'), 'main-errors.log');
           if (!fs.existsSync(f)) return null;
           const t = fs.readFileSync(f, 'utf8').trim().split('\n');
-          return { lines: t.length, tail: t.slice(-5) };
+          // Whole entries, from the line that says what went wrong (v3.37.0).
+          // It was the last five lines of the file: of a stack trace, the
+          // part that says where it was called from and never what it was.
+          const at = []; t.forEach((l, i) => { if (/^\[\d{4}-\d\d-\d\dT/.test(l)) at.push(i); });
+          const tail = at.slice(-2).flatMap((from, k, two) => {
+            const to = k + 1 < two.length ? two[k + 1] : t.length, part = t.slice(from, Math.min(to, from + 7));
+            if (to - from > 7) part.push('    (' + (to - from - 7) + ' more lines)');
+            return part;
+          });
+          return { lines: t.length, entries: at.length, tail: tail.length ? tail : t.slice(-5) };
         } catch (_) { return null; }
       })(),
     };
@@ -1132,7 +1193,9 @@ function syncLiteVideo() {
   } catch (_) {}
 }
 function getWid() {
-  const buf = videoWindow().getNativeWindowHandle();
+  const w = videoWindow();
+  if (!w || w.isDestroyed()) return null;        // closing: there is nothing to draw in
+  const buf = w.getNativeWindowHandle();
   if (IS_MAC) return buf.readBigUInt64LE(0).toString();
   return buf.readInt32LE(0);
 }
@@ -1144,6 +1207,7 @@ function startMpv(exe, minimalArgs){
   if (!IS_WIN) { try { fs.unlinkSync(PIPE); } catch(_) {} }
 
   const wid = getWid();
+  if (wid === null) return;
   const coreArgs = [
     `--input-ipc-server=${PIPE}`, `--wid=${wid}`,
     '--idle=yes', '--keep-open=yes', '--no-border', '--osd-level=0',

@@ -70,9 +70,11 @@ class FakeBrowserWindow {
     this._events = new Map();
     rec.windows.push(this);
   }
-  on(e, cb) { this._events.set(e, cb); return this; }
-  once(e, cb) { this._events.set(e, cb); return this; }
-  emit(e, ...a) { this._events.get(e)?.(...a); }
+  // Every listener, as in Electron (v3.37.0). It kept only the last one for an
+  // event, so a second listener silently replaced the first in these tests.
+  on(e, cb) { if (!this._events.has(e)) this._events.set(e, []); this._events.get(e).push(cb); return this; }
+  once(e, cb) { return this.on(e, cb); }
+  emit(e, ...a) { for (const cb of [...(this._events.get(e) || [])]) cb(...a); }
   loadFile(f, opts) { this.loaded = { file: f, opts: opts || {} }; return Promise.resolve(); }
   loadURL() { return Promise.resolve(); }
   show() { this.visible = true; } hide() { this.visible = false; }
@@ -173,9 +175,9 @@ Module._load = function (request, parent, isMain) {
   if (request === 'child_process') {
     const real = realLoad.apply(this, arguments);
     return { ...real, spawn: (exe, args) => {
-      rec.spawned.push({ exe, args });
       const EE = require('events');
       const p = new EE(); p.kill = () => {}; p.pid = 4242;
+      rec.spawned.push({ exe, args, proc: p });
       return p;
     } };
   }
@@ -669,6 +671,60 @@ await step('PiP size button cycles three sizes, anchored and on screen', async (
     const r = await call('win:pipSize');
     const b = W.getBounds();
     if (r !== null || b.width !== NORMAL.width) throw new Error('resized a normal window');
+  });
+
+  // v3.37.0, from a real machine's main-errors.log: quitting in the first
+  // moments of a start had mpv started on a picture window that was already
+  // destroyed ("Object has been destroyed"). mpv dying at once is one of the
+  // ways back into that code: it is started again 400 ms later.
+  await step('mpv is not started on a window that is gone', async () => {
+    const last = rec.spawned.at(-1);
+    if (!last) { console.log('      (no mpv on this machine: not checked)'); return; }
+    const vw = rec.windows[+(last.args.find(a => a.startsWith('--wid=')) || '').split('=')[1] - 1000];
+    if (!vw) throw new Error('could not tell which window mpv draws in');
+    const real = vw.isDestroyed, n = rec.spawned.length;
+    vw.isDestroyed = () => true;
+    try { last.proc.emit('exit', 1); await new Promise(r => setTimeout(r, 650)); }
+    finally { vw.isDestroyed = real; }
+    if (rec.spawned.length !== n) throw new Error('mpv was started again, for a window that no longer exists');
+  });
+
+  /* ── 7b. Full screen (v3.37.0) ──────────────────────────────────── */
+  // On Windows a transparent window goes full screen by taking the screen's
+  // bounds and isFullScreen() goes on saying false. The stub is made to
+  // behave so, and the app has to find its own way out again.
+  await step('full screen: entered and left by the app\'s own count, never asked of the window', async () => {
+    const real = { is: W.isFullScreen, set: W.setFullScreen };
+    const asked = [];
+    W.isFullScreen = () => false; W.setFullScreen = v => asked.push(!!v);
+    const states = () => rec.sent.filter(([ch]) => ch === 'win:state').map(([, v]) => v);
+    try {
+      W._bounds = { ...NORMAL }; W._max = false;
+      if (await call('win:isFs') !== false) throw new Error('full screen before it was asked for');
+      await call('win:fullscreen');
+      if (asked.join() !== 'true') throw new Error('entering asked the window for ' + JSON.stringify(asked));
+      if (await call('win:isFs') !== true) throw new Error('the app does not know it is in full screen');
+      if (states().at(-1) !== 'fullscreen') throw new Error('the page was told ' + states().at(-1));
+      await call('win:fullscreen');
+      if (asked.join() !== 'true,false') throw new Error('leaving asked the window for ' + JSON.stringify(asked) + ': it cannot leave full screen');
+      if (await call('win:isFs') !== false) throw new Error('still in full screen after leaving');
+      if (states().at(-1) !== 'normal') throw new Error('after leaving the page was told ' + states().at(-1));
+      // the maximise button leads out, and does not maximise on top of it
+      await call('win:fullscreen'); await call('win:maximize');
+      if (await call('win:isFs') !== false || W.isMaximized()) throw new Error('maximise in full screen did not simply leave it');
+      // PiP leaves it first, and it is not entered from PiP
+      asked.length = 0;
+      await call('win:fullscreen'); await call('win:pip', true);
+      if (await call('win:isFs') !== false) throw new Error('PiP was entered with the window still in full screen');
+      await call('win:fullscreen');
+      if (await call('win:isFs') !== false) throw new Error('full screen was entered from PiP');
+      await call('win:pip', false);
+      // never "leave" a window that is not in full screen: on Windows that sets bounds it never saved
+      if (asked.filter(v => v === false).length !== 1) throw new Error('setFullScreen(false) was called ' + asked.filter(v => v === false).length + ' times for one full screen');
+      // left by the system's own means: the app follows
+      await call('win:fullscreen'); W.emit('leave-full-screen');
+      if (await call('win:isFs') !== false || states().at(-1) === 'fullscreen') throw new Error('the app did not notice full screen being left');
+    } finally { W.isFullScreen = real.is; W.setFullScreen = real.set; W._bounds = { ...NORMAL }; W._max = false; }
   });
 
   /* ── 8. mpv launch contract the end-of-file logic relies on ─────── */

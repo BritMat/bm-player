@@ -18,6 +18,6 @@ console.log(formatDiagnostics({
     system: { platform: 'win32', arch: 'x64', release: '10.0.19045', cpu: 'Intel(R) Celeron(R) N4020', cpuCount: 2, totalMemGB: 3.8, freeMemGB: 1.1 },
     mpv: { found: false, path: null, version: null, connected: false },
     gpu: {}, caches: { thumbsMB: 184.3, coversMB: 12.1 }, window: null,
-    errorLog: { lines: 3, tail: ['[2026-09-14T09:58:11Z] uncaughtException: EPERM: operation not permitted'] },
+    errorLog: { lines: 3, entries: 1, tail: ['[2026-09-14T09:58:11Z] uncaughtException: EPERM: operation not permitted', "    at Object.openSync (node:fs:573:18)"] },
   },
 }));

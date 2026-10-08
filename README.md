@@ -1,11 +1,38 @@
+<p align="center">
+  <img src="docs/media/hd-flow.gif" width="640" alt="HD Flow, BM Player's fluid visualiser, moving with the music">
+</p>
+
 # BM Player
 
 A desktop media player built on [Electron](https://www.electronjs.org), with
 [mpv](https://mpv.io) doing the playback. It plays video and music, and has an
-image gallery, PDF tools, IPTV, 14 themes and a plugin system.
+image gallery, PDF tools, IPTV, 14 themes, a music visualiser in nine styles
+and a plugin system.
 
 [![CI](https://github.com/BritMat/bm-player/actions/workflows/ci.yml/badge.svg)](https://github.com/BritMat/bm-player/actions/workflows/ci.yml)
 ![license](https://img.shields.io/badge/license-MIT-green)
+
+## A look at it
+
+<table>
+  <tr>
+    <td width="50%"><img src="docs/media/home.jpg" alt="The home screen, with the fox"><br><sub>The home screen</sub></td>
+    <td width="50%"><img src="docs/media/hd-flow.jpg" alt="The HD Flow visualiser"><br><sub>HD Flow: a fluid stirred by the music, in neon lines</sub></td>
+  </tr>
+  <tr>
+    <td><img src="docs/media/neon.jpg" alt="The Neon visualiser"><br><sub>Neon: lanterns trailing lines of light</sub></td>
+    <td><img src="docs/media/bubbles.jpg" alt="The Bubbles visualiser"><br><sub>Bubbles: they swell on the beat</sub></td>
+  </tr>
+  <tr>
+    <td><img src="docs/media/milkdrop.jpg" alt="The MilkDrop visualiser"><br><sub>MilkDrop: the classic presets</sub></td>
+    <td><img src="docs/media/smoke.jpg" alt="The Smoke visualiser"><br><sub>Smoke</sub></td>
+  </tr>
+  <tr>
+    <td colspan="2"><img src="docs/media/themes.jpg" alt="Four of the themes: Ocean, Forest, Sakura and Cyberpunk"><br><sub>Four of the 14 themes: Ocean, Forest, Sakura and Cyberpunk, each with a scene of its own</sub></td>
+  </tr>
+</table>
+
+Every picture here is the app itself, drawing to a test track.
 
 ## Download
 
@@ -41,6 +68,8 @@ read by BM Player's built-in updater. You don't need to download them.
 
 - Plays video with mpv: subtitles, audio tracks, chapters, A-B loop,
   screenshots, playback speed, an equalizer, and resume where you left off.
+- Full screen on the whole screen, with F, F11 or a double-click on the
+  picture. The controls and the pointer leave while the pointer is still.
 - A music library with tag reading, playlists (including M3U) and a
   visualizer.
 - An image gallery, PDF tools and IPTV.

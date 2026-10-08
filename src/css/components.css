@@ -803,3 +803,18 @@ html.lite-mode[data-theme="light"] .sidebar { background: rgba(255,255,255,.95);
    dark on dark ("No track selected"). */
 .music-viz-overlay .mv-title { color: #fff; text-shadow: 0 1px 8px rgba(0,0,0,.6); }
 .music-viz-overlay .mv-artist { color: rgba(255,255,255,.78); }
+
+/* ── Full screen (v3.37.0) ─────────────────────────────────────────────
+   The window covers the whole screen, the taskbar too (main.js, setFull), on
+   F, F11, the button or a double-click on the picture. The title bar, the
+   menu row and the control bar already leave when the pointer is still. In
+   full screen the pointer goes with them, as in mpv and VLC, and the title
+   bar no longer drags the window: it has nowhere to go. */
+html.is-fs .titlebar { -webkit-app-region: no-drag; }
+html.is-fs body:has(#controls-bar.faded) #player-view.active,
+html.is-fs body:has(#controls-bar.faded) #player-view.active * { cursor: none !important; }
+/* Lite cannot draw over the picture, so its control bar never fades. In full
+   screen it leaves while the pointer is still, and the picture takes the
+   whole screen. Any movement of the pointer brings everything back. */
+html.is-fs.lite-window body.playing:not(.pip-mode):has(#controls-bar.faded) #player-view.active { top: 0 !important; }
+html.is-fs.lite-window body.playing:not(.pip-mode):has(#controls-bar.faded) #player-view.active .controls-bar { display: none !important; }

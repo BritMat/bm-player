@@ -41,7 +41,7 @@ const FIXTURE_FILES = [
 
 /* Callbacks the renderer registers with the preload bridge. The old stub
    discarded them, so PiP state and mpv property handling never ran at all. */
-const bridge = { pip: [], prop: [], pipCalls: [] };
+const bridge = { pip: [], prop: [], pipCalls: [], state: [] };
 const firePip  = on => bridge.pip.forEach(cb => cb(on));
 const fireProp = (name, data) => bridge.prop.forEach(cb => cb({ name, data }));
 
@@ -61,7 +61,8 @@ function makeApi() {
            isFs: async () => false,
            pip: async v => { bridge.pipCalls.push(v); },
            pipSize: async () => { bridge.pipSizeCalls = (bridge.pipSizeCalls || 0) + 1; return { width: 480, height: 270 }; },
-           onPipState: cb => { bridge.pip.push(cb); } },
+           onPipState: cb => { bridge.pip.push(cb); },
+           onState: cb => { bridge.state.push(cb); } },
     dialog: group('openFiles', 'openSub', 'openPDF', 'savePDF', 'openM3u', 'saveM3u'),
     gallery: {
       browse: async () => '/fixtures/photos',
@@ -1167,6 +1168,33 @@ async function main() {
     });
   }
 
+  /* ── 18b. Full screen (v3.37.0) ──────────────────────────────── */
+  {
+    const app = window.bmApp, doc = window.document, api = app.api;
+    const dbl = id => doc.getElementById(id).dispatchEvent(new window.MouseEvent('dblclick', { bubbles: true }));
+    await step('a double-click on the picture asks for full screen, on a control it does not, in PiP it brings the window back', async () => {
+      let asked = 0; const real = api.win.fullscreen; api.win.fullscreen = () => { asked++; return Promise.resolve(null); };
+      try {
+        app._pipActive = false; app._pipPending = false;
+        dbl('player-view'); if (asked !== 1) throw new Error('the picture: asked ' + asked + ' times');
+        dbl('visualizer-canvas'); dbl('viz-meta-title'); if (asked !== 3) throw new Error('the visualiser and its title: asked ' + asked + ' times in all, expected 3');
+        for (const id of ['btn-play', 'btn-fs', 'seek-container', 'viz-btn-play', 'controls-bar']) dbl(id);
+        if (asked !== 3) throw new Error('two clicks on a control were taken for a double-click on the picture');
+        bridge.pipCalls.length = 0; app._pipActive = true;
+        dbl('player-view');
+        if (asked !== 3) throw new Error('full screen was asked for in PiP');
+        if (bridge.pipCalls.at(-1) !== false) throw new Error('in PiP the double-click did not bring the window back');
+      } finally { api.win.fullscreen = real; app._pipActive = false; app._pipPending = false; }
+    });
+    await step('the page knows full screen from maximised and normal', async () => {
+      if (!bridge.state.length) throw new Error('the page does not listen for the window\'s state');
+      const tell = s => bridge.state.forEach(cb => cb(s)), fs = () => doc.documentElement.classList.contains('is-fs');
+      tell('fullscreen'); if (!fs()) throw new Error('no is-fs in full screen');
+      tell('maximized'); if (fs()) throw new Error('is-fs kept when maximised');
+      tell('fullscreen'); tell('normal'); if (fs()) throw new Error('is-fs kept after leaving');
+    });
+  }
+
   /* ── 19. The visualiser and the fluid (v3.36.0) ──────────────── */
   {
     const url = f => pathToFileURL(path.join(ROOT, 'src/js', f)).href;
@@ -1645,6 +1673,98 @@ async function main() {
       } finally { if (realNow) Object.defineProperty(performance, 'now', realNow); else delete performance.now; v.analyser = null; v._fluid = null; c.remove(); }
     });
   }
+
+  // v3.37.0: Neon and Bubbles made again. Neon was wisps added up into a
+  // picture that was faded and never wiped, in a light tint: it went white,
+  // then grey, and the grey stayed. It is lines now, drawn afresh each frame
+  // in the pure hue, and Bubbles swell with the beat.
+  await step('Neon: smooth lines in pure colour, the canvas wiped every frame, nothing left when the music stops, fewer lines where frames are slow', async () => {
+    const { Visualizer } = await import(pathToFileURL(path.join(ROOT, 'src/js/visualizer.js')).href);
+    const { NEON } = await import(pathToFileURL(path.join(ROOT, 'src/js/viz-art.js')).href);
+    const c = window.document.createElement('canvas'); window.document.body.appendChild(c);
+    const v = new Visualizer(c); c.width = 1280; c.height = 720;
+    const realNow = Object.getOwnPropertyDescriptor(performance, 'now'); let t = 0, loud = 1;
+    Object.defineProperty(performance, 'now', { value: () => 30000 + t * 1000, configurable: true, writable: true });
+    v.analyser = { fftSize: 1024, frequencyBinCount: 512, context: { sampleRate: 48000 },
+      getFloatTimeDomainData(a) { for (let i = 0; i < a.length; i++) a[i] = loud * 0.5 * Math.sin(i * 0.3 + t * 40); },
+      getByteTimeDomainData(a) { for (let i = 0; i < a.length; i++) a[i] = 128 + loud * 60 * Math.sin(i * 0.3 + t * 40); },
+      getByteFrequencyData(a) { a.fill(loud ? 190 : 0); } };
+    // what is drawn, noted on the way to the canvas
+    const seen = { wipes: 0, fades: 0, curves: 0, strokes: [] }, real = v.ctx, set = {};   // the test canvas does not keep what is set on it
+    v.ctx = new Proxy(real, {
+      get(o, k) {
+        if (k === 'clearRect') return (...a) => { seen.wipes++; return o.clearRect(...a); };
+        if (k === 'fillRect') return (...a) => { if (set.globalCompositeOperation === 'destination-out') seen.fades++; return o.fillRect(...a); };
+        if (k === 'quadraticCurveTo') return (...a) => { seen.curves++; return o.quadraticCurveTo(...a); };
+        if (k === 'stroke') return (...a) => { seen.strokes.push(String(set.strokeStyle)); return o.stroke(...a); };
+        if (k in set) return set[k];
+        const x = o[k]; return typeof x === 'function' ? x.bind(o) : x;
+      },
+      set(o, k, x) { set[k] = x; o[k] = x; return true; },
+    });
+    try {
+      v.mode = 'neon'; let frames = 0, most = 0;
+      const run = to => { while (t < to) { t += 1 / 60; v._tick++; v._hear(30000 + t * 1000); v._draw(); frames++; most = Math.max(most, v._neon.lines.reduce((n, L) => n + L.pts.length, 0)); } };
+      run(4);
+      const st = v._neon;
+      if (st.em.length !== 5 || st.lines.length !== 35) throw new Error(`${st.em.length} lanterns and ${st.lines.length} lines`);
+      if (seen.wipes < frames) throw new Error(`the canvas was wiped ${seen.wipes} times in ${frames} frames: what is left over is what went grey`);
+      if (seen.fades) throw new Error('the picture is faded and kept (' + seen.fades + ' times)');
+      if (!(seen.curves > frames * 20)) throw new Error('no smooth lines: ' + seen.curves + ' curve pieces in ' + frames + ' frames');
+      const glow = seen.strokes.filter(x => /^hsla\(\d+,100%,50%,/.test(x)).length;
+      if (!(glow > frames)) throw new Error('the glow is not in the pure hue (100% saturation, 50% lightness), which is what cannot go white: ' + [...new Set(seen.strokes)].slice(0, 4).join(' '));
+      if (!(most > 300) || most > 35 * (NEON.rate * NEON.life + 4)) throw new Error('points on the lines at most: ' + most);
+      if (NEON.level !== 0) throw new Error('at sixty frames a second it let out fewer lines (level ' + NEON.level + ')');
+      // every line runs from its lantern while it is being let out
+      const made = st.made; loud = 0; run(4 + 4.5);
+      if (st.made !== made) throw new Error((st.made - made) + ' points made in silence');
+      const left = st.lines.reduce((n, L) => n + L.pts.length, 0);
+      if (left) throw new Error(left + ' points still there four and a half seconds into silence');
+      // Frames that stay slow: fewer lines a lantern, 7, then 5, then 3. A few slow ones change nothing.
+      loud = 1;
+      const slow = k => { for (let i = 0; i < k; i++) { t += 0.05; v._tick++; v._hear(30000 + t * 1000); v._draw(); } };
+      const out = () => Math.max(...[0, 1, 2, 3, 4].map(i => st.lines.filter(L => L.e === i && L.go).length));
+      slow(50); run(t + 1);
+      if (NEON.level !== 0) throw new Error('fifty slow frames were enough to cut the lines down');
+      slow(130); if (NEON.level !== 1) throw new Error('after 130 slow frames the level is ' + NEON.level + ', expected 1');
+      slow(40); if (out() > 5) throw new Error(out() + ' lines from one lantern on the second level, at most 5 expected');
+      slow(130); if (NEON.level !== 2) throw new Error('it did not go on to the third level');
+      slow(40); if (out() > 3) throw new Error(out() + ' lines from one lantern on the third level, at most 3 expected');
+      slow(200); if (NEON.level !== 2) throw new Error('it went below the last level');
+    } finally { NEON.level = 0; v.ctx = real; if (realNow) Object.defineProperty(performance, 'now', realNow); else delete performance.now; v.analyser = null; c.remove(); }
+  });
+
+  await step('Bubbles swell as they appear and with the beat, the large ones most', async () => {
+    const { Visualizer } = await import(pathToFileURL(path.join(ROOT, 'src/js/visualizer.js')).href);
+    const c = window.document.createElement('canvas'); window.document.body.appendChild(c);
+    const v = new Visualizer(c); c.width = 1280; c.height = 720;
+    const realNow = Object.getOwnPropertyDescriptor(performance, 'now'); let t = 0;
+    Object.defineProperty(performance, 'now', { value: () => 40000 + t * 1000, configurable: true, writable: true });
+    v.analyser = { fftSize: 1024, frequencyBinCount: 512, context: { sampleRate: 48000 },
+      getFloatTimeDomainData(a) { for (let i = 0; i < a.length; i++) a[i] = 0.5 * Math.sin(i * 0.3 + t * 40); },
+      getByteTimeDomainData(a) { for (let i = 0; i < a.length; i++) a[i] = 128 + 60 * Math.sin(i * 0.3 + t * 40); },
+      getByteFrequencyData(a) { a.fill(190); } };
+    const drawn = [], real = v.ctx;
+    v.ctx = new Proxy(real, {
+      get(o, k) {
+        if (k === 'drawImage') return (img, x, y, w, h) => { if (w !== undefined && img && img.width < 200) drawn.push(w / img.width); return o.drawImage(img, x, y, w, h); };
+        const x = o[k]; return typeof x === 'function' ? x.bind(o) : x;
+      },
+      set(o, k, x) { o[k] = x; return true; },
+    });
+    try {
+      v.mode = 'bubbles';
+      const run = to => { while (t < to) { t += 1 / 60; v._tick++; v._draw(); } };
+      v.beat.punch = 0; run(1.2);       // early on, while every column is still letting new ones go
+      if (!(v._bub.b.length > 40)) throw new Error('only ' + v._bub.b.length + ' bubbles after a second of music');
+      const sizes = () => { drawn.length = 0; v._draw(); return drawn.slice(); };
+      const calm = sizes();
+      if (!calm.length) throw new Error('no bubble was drawn at a size of its own');
+      if (!(Math.min(...calm) < 0.9) || Math.max(...calm) > 1.001) throw new Error(`with no beat, bubbles are drawn at ${Math.min(...calm).toFixed(2)} to ${Math.max(...calm).toFixed(2)} of their size: the new ones should still be growing, none over full size`);
+      v.beat.punch = 1; const hit = sizes(); v.beat.punch = 0;
+      if (!(Math.max(...hit) > 1.12) || Math.max(...hit) > 1.2) throw new Error('on a hard beat the largest is drawn at ' + Math.max(...hit).toFixed(2) + ' of its size, expected about 1.16');
+    } finally { v.ctx = real; if (realNow) Object.defineProperty(performance, 'now', realNow); else delete performance.now; v.analyser = null; c.remove(); }
+  });
 
   await step('no test navigated to a destination that does not exist', () => {
     const bad = (globalThis.__bmWarnings || []).filter(w => /unknown destination/.test(w));

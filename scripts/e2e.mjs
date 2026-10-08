@@ -1011,6 +1011,35 @@ if (PART === 'c') {
       controlsOnTop('after PiP');
     });
 
+    // v3.37.0: full screen is the whole screen, and a double-click on the
+    // picture leads there and back. A real double-click, through the page.
+    await step('a double-click on the picture fills the screen, and another brings the window back', async () => {
+      const before = (await bounds()).map(w => w.b);
+      const disp = await app.evaluate(({ BrowserWindow, screen }) => screen.getDisplayMatching(BrowserWindow.getAllWindows()[0].getBounds()).bounds);
+      const same = (a, b) => Math.abs(a.x - b.x) <= 2 && Math.abs(a.y - b.y) <= 2 && Math.abs(a.width - b.width) <= 2 && Math.abs(a.height - b.height) <= 2;
+      const middle = () => page.evaluate(() => ({ x: Math.round(innerWidth / 2), y: Math.round(innerHeight * 0.45) }));
+      let m = await middle();
+      await page.mouse.dblclick(m.x, m.y); await page.waitForTimeout(1200);
+      if (!(await page.evaluate(() => bmApp.api.win.isFs()))) throw new Error('the double-click did not lead to full screen');
+      if (!(await page.evaluate(() => document.documentElement.classList.contains('is-fs')))) throw new Error('the page does not know it is in full screen');
+      const full = (await bounds()).map(w => w.b);
+      xshot('full-screen');
+      // On Linux it is the window manager that makes a window full screen, and
+      // a bare test display has none: there the state is all that can be checked.
+      if (process.platform === 'linux' && full.every((w, i) => same(w, before[i]))) console.log('      (no window manager here to resize the window: the state was checked, the window was not)');
+      else {
+        if (!full.every(w => same(w, disp))) throw new Error('not the whole screen (' + disp.width + 'x' + disp.height + '): ' + JSON.stringify(full));
+        controlsOnTop('in full screen');
+      }
+      m = await middle();
+      await page.mouse.dblclick(m.x, m.y); await page.waitForTimeout(1200);
+      if (await page.evaluate(() => bmApp.api.win.isFs())) throw new Error('the second double-click did not leave full screen');
+      if (await page.evaluate(() => document.documentElement.classList.contains('is-fs'))) throw new Error('the page still thinks it is in full screen');
+      const after = (await bounds()).map(w => w.b);
+      after.forEach((w, i) => { if (!same(w, before[i])) throw new Error(`window ${i} came back as ${JSON.stringify(w)}, was ${JSON.stringify(before[i])}`); });
+      controlsOnTop('after full screen');
+    });
+
     await step('stop shows the home screen, not the empty picture window', async () => {
       await page.evaluate(() => bmApp.stop()); await page.waitForTimeout(900);
       xshot('stopped');
