@@ -68,10 +68,18 @@ read by BM Player's built-in updater. You don't need to download them.
 
 - Plays video with mpv: subtitles, audio tracks, chapters, A-B loop,
   screenshots, playback speed, an equalizer, and resume where you left off.
+- Turns the picture a quarter at a time (Ctrl+R, and Ctrl+Shift+R the other
+  way) and mirrors it (Ctrl+M), for a phone video filmed on its side or a
+  selfie camera. Each new file starts straight.
 - Full screen on the whole screen, with F, F11 or a double-click on the
   picture. The controls and the pointer leave while the pointer is still.
-- A music library with tag reading, playlists (including M3U) and a
-  visualizer.
+- A music library with tag reading, playlists (including M3U), its own
+  playback speed (0.25x to 3x, the pitch kept) and a visualizer.
+- Lyrics that follow the song, with the line being sung lit, in Now Playing
+  and over the visualizer. They come from a .lrc file beside the song, then
+  the song's own tags, then [LRCLIB](https://lrclib.net) online. Only the
+  artist, title, album and length are sent, each answer is kept so a song
+  is looked up once, and looking online can be switched off.
 - An image gallery, PDF tools and IPTV.
 - Picture-in-picture, in a small window that stays on top.
 - 14 themes: four standard ones (Dark, Light, Dracula and Snow), Flow (a flowing
@@ -142,6 +150,9 @@ package manager.
 The MilkDrop style uses [butterchurn](https://github.com/jberg/butterchurn) and
 [butterchurn-presets](https://github.com/jberg/butterchurn-presets), both MIT
 licensed (src/vendor/milkdrop/LICENSE.txt).
+
+Online lyrics come from [LRCLIB](https://lrclib.net), a free and open
+collection of lyrics.
 
 The fluid (behind the home screen, and in the Smoke and HD Flow styles) follows
 the method of [WebGL Fluid Simulation](https://github.com/PavelDoGreat/WebGL-Fluid-Simulation)

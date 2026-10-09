@@ -83,6 +83,7 @@ contextBridge.exposeInMainWorld('api',{
   music:{
     art: f=>inv('media:art',f),   // the album art for one file (v3.32.0)
     tags: paths=>inv('music:tags',paths),
+    lyrics: (file,meta,opts)=>inv('lyrics:get',file,meta,opts),   // v3.38.0
   },
   showContextMenu:()=>inv('show-context-menu'),
 });

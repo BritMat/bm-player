@@ -12,6 +12,8 @@ import history from './modules/history.js';
 import ABRepeat from './modules/abrepeat.js';
 import bookmarks from './modules/bookmarks.js';
 import SpeedMenu, { SPEED_PRESETS } from './modules/speed-menu.js';
+import VideoTransform from './modules/video-transform.js';   // v3.38.0
+import { Lyrics } from './modules/lyrics.js';                 // v3.38.0
 import SubtitleSearch from './modules/subtitle-search.js';
 import { parseM3u, serializeM3u, readM3uFile, writeM3uFile, isM3uPath } from './modules/playlist-io.js';
 import liteMode from './modules/lite-mode.js';
@@ -128,11 +130,14 @@ class BMPlayer {
       mpvApi: () => this.api?.mpv,
       osd: (m, ms) => this.showOSD(m, ms),
       anchorId: 'speed-badge',
+      music: () => window.bmMusic?.speedAdapter?.(),   // while the music plays itself, its speed (v3.38.0)
     });
     this.subSearch = new SubtitleSearch({
       mpvApi: () => this.api?.mpv,
       osd: (m, ms) => this.showOSD(m, ms),
     });
+    // Rotate and mirror the picture (v3.38.0), for the file that is open.
+    this.transform = new VideoTransform({ mpv: () => this.api?.mpv, osd: m => this.showOSD(m), paused: () => !!this.isPaused });
     // React to A-B repeat state changes (updates on-screen indicator)
     window.addEventListener('bm:abrepeat', () => this._renderABIndicator());
     // React to bookmark store changes (re-render panel if open)
@@ -423,6 +428,7 @@ class BMPlayer {
       'screenshot':()=>{cmd('screenshot','subtitles');this.showOSD('Screenshot saved');},'jump-to-time':()=>{el('dlg-jump')?.classList.remove('hidden');el('jump-input')?.focus();},
       'cycle-audio':()=>cmd('cycle','audio'),'vol-up':()=>this.bumpVolume(settings.get('behaviour.volumeStep') ?? 5),'vol-down':()=>this.bumpVolume(-(settings.get('behaviour.volumeStep') ?? 5)),'mute':()=>this.toggleMute(),
       'fullscreen':()=>this.api?.win.fullscreen(),'theatre':()=>this.api?.win.theatre(),'cycle-sub':()=>cmd('cycle','sub'),
+      'rotate-right':()=>this.transform?.rotate(90),'rotate-left':()=>this.transform?.rotate(-90),'mirror':()=>this.transform?.mirror(),'transform-reset':()=>this.transform?.reset(),
       'sub-delay-p':()=>this.api?.adj.subDelay(0.5),'sub-delay-m':()=>this.api?.adj.subDelay(-0.5),'sub-delay-r':()=>this.api?.adj.resetSub(),
       'sub-size-p':()=>cmd('add','sub-font-size',4),'sub-size-m':()=>cmd('add','sub-font-size',-4),
       'open-eq':()=>this.openPanel('eq'),'open-info':()=>this.openPanel('info'),'open-playlist':()=>this.openPanel('playlist'),
@@ -533,6 +539,8 @@ class BMPlayer {
     this._currentFilePath=null;
     this.abRepeat?.clear();
     this._renderBookmarksOnSeekbar();
+    setTimeout(()=>this.speedMenu?.sync?.(),0);   // the film's speed shown again once the music has stopped (v3.38.0)
+    window.bmLyrics?.clear?.();
     this.updatePlayIcon();this.setTime('time-current',0);this.setTime('time-total',0);this.setSeekPct(0);
     const t=el('title-text');if(t)t.textContent='';   // the name stays in the middle (v3.33.0)
     document.body.classList.remove('playing');document.documentElement.classList.remove('playing');
@@ -749,6 +757,9 @@ class BMPlayer {
     this.currentDash='video';
     // Reset A-B loop for the new file
     this.abRepeat?.clear();
+    // and turning and mirroring (v3.38.0): they were for the last file
+    this.transform?.reset(true);
+    window.bmLyrics?.clear?.();   // a film: the last song's lyrics go
     // Capture current file path for resume/bookmark tracking
     this._currentFilePath = files[0]?.startsWith('http') ? null : files[0];
     this.api.mpv.open(files);this.isPlaying=true;this.updatePlayIcon();this.fox?.wake();
@@ -954,6 +965,9 @@ class BMPlayer {
       'aspect-16:9': ()=>{this.api?.mpv.cmd('set_property','video-aspect-override','16:9');this.showOSD('Aspect: 16:9');},
       'aspect-4:3':  ()=>{this.api?.mpv.cmd('set_property','video-aspect-override','4:3');this.showOSD('Aspect: 4:3');},
       'aspect-21:9': ()=>{this.api?.mpv.cmd('set_property','video-aspect-override','21:9');this.showOSD('Aspect: 21:9');},
+      'rotate-right':()=>this.transform?.rotate(90),
+      'mirror':      ()=>this.transform?.mirror(),
+      'transform-reset':()=>this.transform?.reset(),
       'frame-fwd':   ()=>this.api?.mpv.cmd('frame-step'),
       'frame-back':  ()=>this.api?.mpv.cmd('frame-back-step'),
       'sdelay-down': ()=>bump('sub',-0.1),
@@ -1140,6 +1154,10 @@ class BMPlayer {
       if(e.target.matches?.('input,textarea'))return;
       const cmd=(c,...a)=>{e.preventDefault();this.api?.mpv.cmd(c,...a);};
       if(e.key==='?'||e.code==='F1'){e.preventDefault();this.toggleShortcuts();}   // v3.30.0
+      // Rotate and mirror (v3.38.0). Ctrl+R also reloaded the whole page through
+      // Electron's built-in menu, music and all: that menu is gone too (main.js).
+      else if(e.ctrlKey&&e.code==='KeyR'){e.preventDefault();this.transform?.rotate(e.shiftKey?-90:90);}
+      else if(e.ctrlKey&&e.code==='KeyM'){e.preventDefault();this.transform?.mirror();}
     else if(e.code==='Space'){e.preventDefault();this.togglePlay();}
       else if(e.code==='KeyS'){e.preventDefault();this.stop();}
       else if(e.code==='KeyF'||e.code==='F11'){e.preventDefault();this.api?.win.fullscreen();}
@@ -1255,6 +1273,9 @@ class BMPlayer {
       if(p.name==='duration'){this.duration=p.data||0;this.setTime('time-total',this.duration);const tot=el('np-time-tot');if(tot)tot.textContent=fmtSec(this.duration);this._renderBookmarksOnSeekbar();}
       if(p.name==='volume'){const sl=el('volume-slider');if(sl)sl.value=p.data;const l=el('vol-label');if(l)l.textContent=Math.round(p.data);}
       if(p.name==='mute'){this._muted=!!p.data;this.updateMuteIcon(p.data);}
+      // mpv moved on to another file (a playlist, the end of the last one):
+      // turning and mirroring were for the file before (v3.38.0).
+      if(p.name==='filename'&&p.data&&p.data!==this._tfFile){this._tfFile=p.data;this.transform?.reset(true);}
       if(p.name==='media-title'){const t=el('title-text');if(t)t.textContent=p.data||'';const np=el('np-title');if(np)np.textContent=p.data||'Not Playing';
         // ── v1.8.0: sync mini player title ──
         const mt=el('mmp-title');if(mt)mt.textContent=p.data||'Not Playing';
@@ -2266,5 +2287,7 @@ window.addEventListener('DOMContentLoaded',()=>{
   window.bmApp=new BMPlayer();
   window.bmGallery=new GalleryDash(window.api);
   window.bmMusic=new MusicDash(window.api);
+  // Lyrics (v3.38.0), for the music: the Now Playing tab and the visual mode.
+  try { window.bmLyrics=new Lyrics({ api: window.api, music: window.bmMusic, app: window.bmApp }); } catch (e) { console.warn('[BM Player] lyrics unavailable:', e); }
   window.bmPDF=new PDFViewer(window.api);
 });

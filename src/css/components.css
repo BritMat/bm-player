@@ -818,3 +818,41 @@ html.is-fs body:has(#controls-bar.faded) #player-view.active * { cursor: none !i
    whole screen. Any movement of the pointer brings everything back. */
 html.is-fs.lite-window body.playing:not(.pip-mode):has(#controls-bar.faded) #player-view.active { top: 0 !important; }
 html.is-fs.lite-window body.playing:not(.pip-mode):has(#controls-bar.faded) #player-view.active .controls-bar { display: none !important; }
+
+/* The music's speed, in Now Playing (v3.38.0): the film's speed badge, in the
+   panel's own colours. */
+.np-speed { color: var(--text-muted); background: var(--hover, rgba(255,255,255,.08)); margin-left: 2px; }
+.np-speed:hover, .np-speed:focus-visible { color: var(--text); outline: none; }
+
+/* ── Lyrics (v3.38.0) ──────────────────────────────────────────────────
+   Now Playing: Up Next and Lyrics as two tabs. The line being sung is lit
+   and kept in the middle (modules/lyrics.js). The visual mode: the line
+   over the visualiser, the next one smaller under it. */
+.np-tabs { display: flex; gap: 4px; margin: 14px 0 6px; }
+.np-tab { background: none; border: 0; padding: 4px 8px; border-radius: 6px; font: inherit; font-size: 10.5px; font-weight: 700;
+  letter-spacing: .12em; text-transform: uppercase; color: var(--text-muted); cursor: pointer; }
+.np-tab:hover, .np-tab:focus-visible { color: var(--text); background: var(--hover, rgba(255,255,255,.06)); outline: none; }
+.np-tab.active { color: var(--text); background: var(--hover, rgba(255,255,255,.08)); }
+/* No scrollbar-width here: Chromium drops the app's own scrollbar look
+   (enhance.css) for any box that sets it, and draws the plain white one. */
+.np-lyrics { flex: 1 1 auto; min-height: 120px; overflow-y: auto; overflow-x: hidden; overscroll-behavior: contain; position: relative; padding: 4px 8px 10px; }
+.np-lyrics.hidden, .np-queue.hidden, .viz-lyrics.hidden { display: none !important; }
+.lyr-line { font-size: 13.5px; line-height: 1.45; padding: 5px 4px; color: var(--text-muted); cursor: pointer; border-radius: 6px;
+  transition: color .25s, transform .25s; transform-origin: left center; }
+.lyr-line:hover { background: var(--hover, rgba(255,255,255,.05)); }
+.lyr-line.on { color: var(--text); font-weight: 700; transform: scale(1.04); text-shadow: 0 0 12px color-mix(in srgb, var(--accent) 45%, transparent); }
+.lyr-gap { opacity: .5; }
+.lyr-plain { white-space: pre-wrap; font-size: 13px; line-height: 1.6; color: var(--text); }
+.lyr-note { font-size: 12px; color: var(--text-muted); padding: 8px 4px; }
+.lyr-foot { margin-top: 14px; padding-top: 10px; border-top: 1px solid var(--border, rgba(255,255,255,.08)); font-size: 11px; color: var(--text-muted); display: grid; gap: 6px; }
+.lyr-online { display: flex; align-items: center; gap: 6px; cursor: pointer; }
+.viz-lyrics { position: absolute; left: 6%; right: 6%; bottom: 150px; text-align: center; pointer-events: none; z-index: 2; }
+.viz-lyrics .vl-now { font-family: var(--font-display); font-size: clamp(20px, 3.2vw, 40px); font-weight: 700; color: #fff; line-height: 1.25;
+  text-shadow: 0 0 18px color-mix(in srgb, var(--accent) 60%, transparent), 0 2px 10px rgba(0,0,0,.6); }
+.viz-lyrics .vl-next { margin-top: 8px; font-size: clamp(13px, 1.5vw, 19px); color: rgba(255,255,255,.62); text-shadow: 0 2px 8px rgba(0,0,0,.6); }
+.viz-lyrics.vl-empty { visibility: hidden; }
+#viz-btn-lyrics.active-opt { color: var(--accent); }
+
+/* Neon's own canvas, drawn by the graphics card (v3.38.0). The visualiser
+   keeps it over its 2D canvas, the same size and place. */
+.viz-neon-canvas { position: absolute; pointer-events: none; }

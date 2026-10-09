@@ -577,6 +577,11 @@
       <div class="mr" data-a="aspect-4:3">Aspect: 4:3</div>
       <div class="mr" data-a="aspect-21:9">Aspect: 21:9</div>
       <div class="ms"></div>
+      <div class="mr" data-a="rotate-right">Rotate Right <kbd>Ctrl+R</kbd></div>
+      <div class="mr" data-a="rotate-left">Rotate Left <kbd>Ctrl+Shift+R</kbd></div>
+      <div class="mr" data-a="mirror">Mirror <kbd>Ctrl+M</kbd></div>
+      <div class="mr" data-a="transform-reset">Reset Rotation and Mirror</div>
+      <div class="ms"></div>
       <div class="mr" data-a="hwdec-auto">HW Decoder: Auto</div>
       <div class="mr" data-a="hwdec-nvdec">HW Decoder: NVDEC</div>
       <div class="mr" data-a="hwdec-off">HW Decoder: CPU</div>
@@ -702,6 +707,7 @@
   <!-- Full-screen audio visualiser overlay (Video tab while a track plays) -->
   <div id="viz-overlay" class="viz-overlay">
     <div class="viz-art" id="viz-art"><span class="viz-art-ico" data-icon="music"></span></div>
+    <div class="viz-lyrics hidden vl-empty" id="viz-lyrics" aria-live="polite"><div class="vl-now" id="vl-now"></div><div class="vl-next" id="vl-next"></div></div>
     <div class="viz-meta">
       <div class="viz-meta-title"  id="viz-meta-title">Not Playing</div>
       <div class="viz-meta-artist" id="viz-meta-artist"></div>
@@ -711,6 +717,7 @@
       <button class="viz-btn viz-btn-main" id="viz-btn-play" title="Play/Pause" aria-label="Play/Pause" data-icon="play"></button>
       <button class="viz-btn" id="viz-btn-next" title="Next" aria-label="Next" data-icon="next"></button>
       <button class="viz-btn" id="viz-btn-music" title="Back to Music" aria-label="Back to Music" data-icon="music"></button>
+      <button class="viz-btn" id="viz-btn-lyrics" title="Lyrics" aria-label="Lyrics" aria-pressed="false" data-icon="lyrics"></button>
       <button class="viz-btn" id="viz-btn-settings" title="Visualiser settings" aria-label="Visualiser settings" data-icon="settings"></button>
     </div>
   </div>
@@ -879,9 +886,14 @@
         <span class="np-vol-ico" data-icon="volLow" style="opacity:.7"></span>
         <input type="range" class="np-vol-slider" id="np-volume" min="0" max="130" value="100">
         <span class="np-vol-label" id="np-vol-label">100</span>
+        <span class="speed-badge np-speed" id="np-speed" role="button" tabindex="0" aria-label="Playback speed">1x</span>
       </div>
-      <div class="np-queue-label">Up Next</div>
+      <div class="np-tabs" role="tablist" aria-label="Up next or lyrics">
+        <button class="np-tab active" id="np-tab-queue" role="tab" aria-selected="true">Up Next</button>
+        <button class="np-tab" id="np-tab-lyrics" role="tab" aria-selected="false">Lyrics</button>
+      </div>
       <div class="np-queue" id="np-queue"></div>
+      <div class="np-lyrics hidden" id="np-lyrics"></div>
     </div>
   </div>
 </div>
@@ -1482,7 +1494,7 @@
       <div class="kb-grid">
       <section class="kb-group"><h3>Playback</h3><div class="kb-row"><span class="kb-keys"><kbd>Space</kbd></span><span class="kb-what">Play or pause</span></div><div class="kb-row"><span class="kb-keys"><kbd>S</kbd></span><span class="kb-what">Stop</span></div><div class="kb-row"><span class="kb-keys"><kbd>←</kbd><kbd>→</kbd></span><span class="kb-what">Back or forward 5 s, with Shift 30 s</span></div><div class="kb-row"><span class="kb-keys"><kbd>1</kbd> to <kbd>9</kbd></span><span class="kb-what">Jump to 10% to 90%</span></div><div class="kb-row"><span class="kb-keys"><kbd>,</kbd><kbd>.</kbd></span><span class="kb-what">One frame back or forward</span></div><div class="kb-row"><span class="kb-keys"><kbd>[</kbd><kbd>]</kbd></span><span class="kb-what">Slower or faster</span></div><div class="kb-row"><span class="kb-keys"><kbd>Backspace</kbd></span><span class="kb-what">Normal speed</span></div><div class="kb-row"><span class="kb-keys"><kbd>P</kbd><kbd>N</kbd></span><span class="kb-what">Previous or next track</span></div><div class="kb-row"><span class="kb-keys"><kbd>Ctrl</kbd><kbd>J</kbd></span><span class="kb-what">Go to a time</span></div></section>
       <section class="kb-group"><h3>Sound and subtitles</h3><div class="kb-row"><span class="kb-keys"><kbd>↑</kbd><kbd>↓</kbd></span><span class="kb-what">Volume up or down</span></div><div class="kb-row"><span class="kb-keys"><kbd>M</kbd></span><span class="kb-what">Mute</span></div><div class="kb-row"><span class="kb-keys"><kbd>A</kbd></span><span class="kb-what">Next audio track</span></div><div class="kb-row"><span class="kb-keys"><kbd>V</kbd></span><span class="kb-what">Next subtitle track</span></div><div class="kb-row"><span class="kb-keys"><kbd>Z</kbd><kbd>X</kbd></span><span class="kb-what">Subtitles 0.5 s earlier or later</span></div><div class="kb-row"><span class="kb-keys"><kbd>Shift</kbd><kbd>J</kbd> <kbd>Shift</kbd><kbd>K</kbd></span><span class="kb-what">Sound 0.5 s earlier or later</span></div></section>
-      <section class="kb-group"><h3>View</h3><div class="kb-row"><span class="kb-keys"><kbd>F</kbd>, <kbd>F11</kbd> or a double-click</span><span class="kb-what">Full screen</span></div><div class="kb-row"><span class="kb-keys"><kbd>T</kbd></span><span class="kb-what">Theatre mode</span></div><div class="kb-row"><span class="kb-keys"><kbd>Alt</kbd><kbd>P</kbd></span><span class="kb-what">Picture-in-picture</span></div><div class="kb-row"><span class="kb-keys"><kbd>Esc</kbd></span><span class="kb-what">Leave fullscreen, or stop</span></div><div class="kb-row"><span class="kb-keys"><span class="kb-click">Click</span></span><span class="kb-what">Next visualiser style, on the visualiser</span></div></section>
+      <section class="kb-group"><h3>View</h3><div class="kb-row"><span class="kb-keys"><kbd>F</kbd>, <kbd>F11</kbd> or a double-click</span><span class="kb-what">Full screen</span></div><div class="kb-row"><span class="kb-keys"><kbd>Ctrl</kbd>+<kbd>R</kbd> / <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>R</kbd></span><span class="kb-what">Rotate right / left</span></div><div class="kb-row"><span class="kb-keys"><kbd>Ctrl</kbd>+<kbd>M</kbd></span><span class="kb-what">Mirror</span></div><div class="kb-row"><span class="kb-keys"><kbd>T</kbd></span><span class="kb-what">Theatre mode</span></div><div class="kb-row"><span class="kb-keys"><kbd>Alt</kbd><kbd>P</kbd></span><span class="kb-what">Picture-in-picture</span></div><div class="kb-row"><span class="kb-keys"><kbd>Esc</kbd></span><span class="kb-what">Leave fullscreen, or stop</span></div><div class="kb-row"><span class="kb-keys"><span class="kb-click">Click</span></span><span class="kb-what">Next visualiser style, on the visualiser</span></div></section>
       <section class="kb-group"><h3>Loops and bookmarks</h3><div class="kb-row"><span class="kb-keys"><kbd>B</kbd></span><span class="kb-what">Loop start</span></div><div class="kb-row"><span class="kb-keys"><kbd>Shift</kbd><kbd>B</kbd></span><span class="kb-what">Loop end</span></div><div class="kb-row"><span class="kb-keys"><kbd>C</kbd></span><span class="kb-what">Clear the loop</span></div><div class="kb-row"><span class="kb-keys"><kbd>G</kbd></span><span class="kb-what">Pause or resume the loop</span></div><div class="kb-row"><span class="kb-keys"><kbd>Ctrl</kbd><kbd>B</kbd></span><span class="kb-what">Add a bookmark</span></div><div class="kb-row"><span class="kb-keys"><kbd>Alt</kbd><kbd>B</kbd></span><span class="kb-what">Quick bookmark</span></div></section>
       <section class="kb-group"><h3>Files and panels</h3><div class="kb-row"><span class="kb-keys"><kbd>Ctrl</kbd><kbd>O</kbd></span><span class="kb-what">Open a file</span></div><div class="kb-row"><span class="kb-keys"><kbd>Ctrl</kbd><kbd>I</kbd></span><span class="kb-what">Media info</span></div><div class="kb-row"><span class="kb-keys"><kbd>Ctrl</kbd><kbd>L</kbd></span><span class="kb-what">Playlist</span></div><div class="kb-row"><span class="kb-keys"><kbd>Ctrl</kbd><kbd>H</kbd></span><span class="kb-what">History</span></div><div class="kb-row"><span class="kb-keys"><kbd>Ctrl</kbd><kbd>T</kbd></span><span class="kb-what">Screenshot</span></div><div class="kb-row"><span class="kb-keys"><kbd>Ctrl</kbd><kbd>Q</kbd></span><span class="kb-what">Quit</span></div><div class="kb-row"><span class="kb-keys"><kbd>?</kbd> or <kbd>F1</kbd></span><span class="kb-what">This list</span></div></section>
       </div>
@@ -1565,6 +1577,10 @@
         <div class="ctx-sep"></div>
         <label class="ctx-checkbox"><input type="checkbox" id="ctx-deinterlace"> Deinterlace</label>
         <div class="ctx-item" data-a="open-eq"><span class="ctx-ico" data-icon="eq"></span>Equalizer&hellip;</div>
+        <div class="ctx-item" data-a="rotate-right"><span class="ctx-ico" data-icon="video"></span>Rotate right</div>
+        <div class="ctx-item" data-a="mirror"><span class="ctx-ico" data-icon="video"></span>Mirror</div>
+        <div class="ctx-item" data-a="transform-reset"><span class="ctx-ico" data-icon="video"></span>Reset rotation and mirror</div>
+        <div class="ctx-sep"></div>
         <div class="ctx-item" data-a="frame-fwd"><span class="ctx-ico" data-icon="fwd"></span>Frame forward</div>
         <div class="ctx-item" data-a="frame-back"><span class="ctx-ico" data-icon="rew"></span>Frame back</div>
       </div>

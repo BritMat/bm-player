@@ -171,6 +171,31 @@ async function main() {
     pass(`mpv keeps pause across loadfile (next file sat at ${Number(pos || 0).toFixed(2)}s without an unpause)`);
   } catch (e) { fail('mpv keeps pause across loadfile', e); }
 
+  // 4. Rotate and mirror (v3.38.0): mpv takes the app's own commands, read
+  // out of video-transform.js, and still has a picture afterwards.
+  try {
+    const vt = fs.readFileSync(path.join(ROOT, 'src/js/modules/video-transform.js'), 'utf8');
+    const label = (vt.match(/MIRROR_LABEL = '([^']+)'/) || [])[1], tail = (vt.match(/MIRROR_FILTER = MIRROR_LABEL \+ '([^']+)'/) || [])[1];
+    if (!label || !tail) throw new Error('could not read the mirror filter out of video-transform.js');
+    const r = await session({
+      start: send => {
+        ['video-rotate', 'vf', 'video-out-params', 'video-params'].forEach((p, i) => send(['observe_property', 400 + i, p]));
+        send(['loadfile', 'av://lavfi:testsrc=duration=4:size=320x180:rate=10', 'replace']);
+        setTimeout(() => { send(['set_property', 'video-rotate', 90]); send(['vf', 'add', label + tail]); }, 900);
+      },
+      stopAfter: 2400,
+    }, 6000);
+    const vf = r.props.vf || [], out = r.props['video-out-params'];
+    if (r.props['video-rotate'] !== 90) throw new Error('video-rotate is ' + JSON.stringify(r.props['video-rotate']));
+    if (!vf.some(f => f.label === label.slice(1) && f.name === tail.slice(1))) throw new Error('the mirror filter is not in place: ' + JSON.stringify(vf));
+    if (!out || !out.w) throw new Error('no picture after turning and mirroring: ' + JSON.stringify(out));
+    // The turn is in the picture's own description. An output that can turn
+    // it does (rotate 90 there); one that cannot gets it turned before, and
+    // so has its width and height swapped (320x180 becomes 180x320).
+    if (r.props['video-params']?.rotate !== 90 || !(out.rotate === 90 || out.w < out.h)) throw new Error('the picture is not turned: ' + JSON.stringify({ in: r.props['video-params']?.rotate, out }));
+    pass('mpv turns and mirrors the picture with the app\'s own commands');
+  } catch (e) { fail('mpv turns and mirrors the picture with the app\'s own commands', e); }
+
   try { fs.rmSync(TMP, { recursive: true, force: true }); } catch {}
   const bad = results.filter(r => !r).length;
   console.log(`\n${results.length - bad}/${results.length} checks passed.\n`);

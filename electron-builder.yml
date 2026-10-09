@@ -20,6 +20,7 @@ files:
   - "preload.js"
   - "switches.js"
   - "plugin-safety.js"
+  - "lyrics.js"
   - "plugin-templates/**/*"
   - "src/**/*"
   - "plugins/**/*"

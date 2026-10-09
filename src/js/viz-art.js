@@ -231,6 +231,26 @@ function beatSince(viz, st) {
 export const NEON = { lines: 7, rate: 12, life: 3.8, level: 0, most: [7, 5, 3] };
 // The pure hue, which stays itself however much of it is added. Mono stays grey.
 const pure = c => c[1] === 0 ? [0, 0, 60] : [c[0], 100, 50];
+// [hue, saturation, lightness] as red, green and blue from 0 to 1, for WebGL.
+function rgb01([h, s, l]) {
+  s /= 100; l /= 100;
+  const k = n => (n + h / 30) % 12, a = s * Math.min(l, 1 - l);
+  return [0, 8, 4].map(n => l - a * Math.max(-1, Math.min(k(n) - 3, 9 - k(n), 1)));
+}
+// Neon on the graphics card (v3.38.0, neon-gl.js): how a line looks where it
+// is so old (l, 1 new to 0 gone). The same as in 2D, but by the point instead
+// of in four steps: the glow wider and fainter with age, a tube of colour,
+// and a light middle along its younger half.
+const LOOK = [0, 0, 0, 0, 0, 0];
+function neonLook(l, dpr) {
+  LOOK[0] = 0.5 * l;                              // the glow's strength
+  LOOK[1] = (9 + (1 - l) * 6) * dpr;              // its reach
+  LOOK[2] = (2.2 + l * 1.6) * dpr;                // the tube's width
+  LOOK[3] = (0.9 + l * 0.8) * dpr;                // the middle's
+  LOOK[4] = (0.2 + l * 0.6) * Math.min(1, l * 5); // the tube's strength, gone at the very end
+  LOOK[5] = l > 0.5 ? (l - 0.5) * 2 : 0;          // the middle's
+  return LOOK;
+}
 
 export function drawNeon(viz) {
   const { ctx, W, H, S, dpr, now, st, dt, gap, quiet, lv } = frame(viz, '_neon');
@@ -245,6 +265,8 @@ export function drawNeon(viz) {
   }
   ctx.clearRect(0, 0, W, H);
   ctx.globalCompositeOperation = 'lighter';
+  const glr = viz._neonLayer?.() || null;          // on the graphics card when it can (v3.38.0)
+  if (glr) glr.begin(W, H);
   // Slow frames: fewer lines. A pause, or the first frames, say nothing.
   if (NEON.level < NEON.most.length - 1) {
     if (!(gap > 0 && gap < 250)) { st.slow = 0; st.ema = 0; }
@@ -288,6 +310,7 @@ export function drawNeon(viz) {
   // and the oldest go first. A lantern lets out more lines the louder its part
   // of the sound is, and all of them for a moment on a beat.
   const f = { u: 0, v: 0 }, sp = S * 0.066, ease = Math.min(1, dt * 2.4), age = dt / NEON.life;
+  if (glr) st.rgb = st.em.map((_, i) => rgb01(pure(tone(viz, i, n, lv[i]))));
   const groups = st.groups || (st.groups = Array.from({ length: n * 4 }, () => []));   // by lantern and by age, a quarter of a life each
   for (const g of groups) g.length = 0;
   for (const L of st.lines) {
@@ -323,11 +346,54 @@ export function drawNeon(viz) {
       L.due = d + step;
     } else L.on = false;
     // One smooth curve through the points (and on to the lantern, while this
-    // line is still being let out), cut into its four ages. Each piece runs
-    // from halfway to the point before to halfway to the one after, so the
-    // pieces meet exactly and the whole has no corners.
+    // line is still being let out). Each piece runs from halfway to the point
+    // before to halfway to the one after, so the pieces meet exactly and the
+    // whole has no corners.
     const m = pts.length + (L.on ? 1 : 0); if (m < 2) continue;
     const at = i => i < pts.length ? pts[i] : e;
+    if (glr) {
+      // On the graphics card: each unbroken stretch is one strip. A piece of
+      // the curve is cut into as many parts as keep it smooth (each bows from
+      // straight by under half a pixel), so a gentle stretch costs one corner
+      // and a tight bend up to eight. With two a piece, as at first, the
+      // older and longer pieces showed their corners. The age goes along
+      // with it, point by point.
+      // Where the flow has pulled two points far apart, the stretch between
+      // them dims away, as a thread of smoke thins when drawn out. It drew a
+      // long, straight, faint line across the picture.
+      const xs = st.xs || (st.xs = []), ys = st.ys || (st.ys = []), ls = st.ls || (st.ls = []), lf = st.lf || (st.lf = []), rgb = st.rgb[L.e];
+      const far = S * 0.12, tol = 0.4 * dpr;
+      const thin = (i, j) => { const d = Math.hypot(at(j).x - at(i).x, at(j).y - at(i).y); return d <= far ? 1 : Math.max(0, 2 - d / far); };
+      for (let a = 0; a < m;) {
+        let b = a; while (b + 1 < m && at(b + 1).gap !== true) b++;
+        if (b > a) {
+          for (let i = a; i <= b; i++) lf[i - a] = (i < pts.length ? pts[i].life : 1) * Math.min(i > a ? thin(i - 1, i) : 1, i < b ? thin(i, i + 1) : 1);
+          let k = 0, l0 = lf[0];
+          const put = (x, y, l) => { xs[k] = x; ys[k] = y; ls[k] = l; k++; };
+          put(at(a).x, at(a).y, l0);
+          if (b === a + 1) put(at(b).x, at(b).y, lf[1]);
+          for (let i = a + 1; i < b; i++) {
+            const p = at(i), q0 = at(i - 1), q1 = at(i + 1);
+            const sx = i === a + 1 ? q0.x : (q0.x + p.x) / 2, sy = i === a + 1 ? q0.y : (q0.y + p.y) / 2;
+            const ex = i === b - 1 ? q1.x : (p.x + q1.x) / 2, ey = i === b - 1 ? q1.y : (p.y + q1.y) / 2;
+            const lm = lf[i - a], l1 = i === b - 1 ? lf[b - a] : (lm + lf[i + 1 - a]) / 2;
+            // A curve bows from its chord by half the way from the chord's
+            // middle to its control point, and a part of it, cut n ways, by
+            // that over n squared.
+            const bow = Math.hypot(p.x - (sx + ex) / 2, p.y - (sy + ey) / 2) / 2;
+            const parts = Math.min(8, Math.max(1, Math.ceil(Math.sqrt(bow / tol))));
+            for (let j = 1; j <= parts; j++) {
+              const t = j / parts, u = 1 - t;
+              put(u * u * sx + 2 * t * u * p.x + t * t * ex, u * u * sy + 2 * t * u * p.y + t * t * ey, t <= 0.5 ? l0 + (lm - l0) * 2 * t : lm + (l1 - lm) * (2 * t - 1));
+            }
+            l0 = l1;
+          }
+          glr.strip(xs, ys, k, rgb, j => neonLook(ls[j], dpr));
+        }
+        a = b + 1;
+      }
+      continue;
+    }
     let pen = null;                                                // the group being drawn into, while the line runs on unbroken
     for (let i = 0; i < m; i++) {
       const p = at(i), first = i === 0 || p.gap === true, last = i === m - 1 || at(i + 1).gap === true;
@@ -339,6 +405,39 @@ export function drawNeon(viz) {
       if (last) g.push(p.x, p.y, p.x, p.y); else { const q = at(i + 1); g.push(p.x, p.y, (p.x + q.x) / 2, (p.y + q.y) / 2); }
       pen = last ? null : g;
     }
+  }
+  // Sparks: small, fast, and gone in a moment. Each is the stretch it flew in
+  // the last thirtieth of a second, so it is a streak and not a row of dots.
+  const sk = [];
+  for (const p of st.sparks) {
+    p.vx *= Math.exp(-2.2 * dt); p.vy = p.vy * Math.exp(-2.2 * dt) + S * 0.15 * dt; p.x += p.vx * dt; p.y += p.vy * dt; p.life -= 1.4 * dt;
+    if (p.life > 0) sk.push(p);
+  }
+  st.sparks = sk;
+  if (glr) {
+    const xs = [0, 0], ys = [0, 0];
+    for (const p of sk) {
+      xs[0] = p.x - p.vx * 0.033; ys[0] = p.y - p.vy * 0.033; xs[1] = p.x; ys[1] = p.y;
+      const l = p.life;
+      glr.strip(xs, ys, 2, st.rgb[p.e], () => { LOOK[0] = 0.45 * l; LOOK[1] = 6 * dpr; LOOK[2] = 2 * dpr; LOOK[3] = 1.1 * dpr; LOOK[4] = 0.7 * l; LOOK[5] = Math.min(1, l * 1.6); return LOOK; });
+    }
+    // The lanterns: a halo, a square standing on its corner in a bright line,
+    // and a white-hot middle. They swell with their part of the sound and
+    // flare on a beat.
+    const qx = [0, 0, 0, 0, 0], qy = [0, 0, 0, 0, 0];
+    st.em.forEach((e, i) => {
+      const v = lv[i], lit = Math.min(1, v + e.flash * 0.6), rgb = st.rgb[i];
+      const s2 = (3.2 + v * 5 + e.flash * 3) * dpr, R = s2 * (5 + lit * 5) * 0.8;
+      glr.dot(e.x, e.y, rgb, 0.3 + lit * 0.45, R, 0, 0, 0, 0);
+      const a0 = Math.PI / 4 + e.rot * 0.2, r = s2 * Math.SQRT2;
+      for (let j = 0; j < 5; j++) { const a = a0 + Math.PI / 4 + j * Math.PI / 2; qx[j] = e.x + Math.cos(a) * r; qy[j] = e.y + Math.sin(a) * r; }
+      glr.strip(qx, qy, 5, rgb, () => { LOOK[0] = 0.55; LOOK[1] = 7 * dpr; LOOK[2] = 2.6 * dpr; LOOK[3] = 1.4 * dpr; LOOK[4] = 0.8; LOOK[5] = 0.95; return LOOK; });
+      const c = s2 * (0.28 + lit * 0.3);
+      glr.dot(e.x, e.y, rgb, 0.5, c * 2.2, c * 1.8, c * 1.2, 0.8, 0.55 + lit * 0.4);
+    });
+    glr.end();
+    ctx.globalCompositeOperation = 'source-over';
+    return;
   }
   ctx.lineCap = 'round'; ctx.lineJoin = 'round';
   const GLOW = [0, 0.13, 0.2, 0.3], TUBE = [0.24, 0.46, 0.66, 0.8], CORE = [0, 0, 0.8, 1];
@@ -355,14 +454,6 @@ export function drawNeon(viz) {
     ctx.strokeStyle = hsla(col[1] ? [col[0], 100, 56] : col, TUBE[b]); ctx.lineWidth = MID[b] * dpr; ctx.stroke();        // the tube
     if (b > 1) { ctx.strokeStyle = hsla(col[1] ? [col[0], 100, 86] : [0, 0, 94], CORE[b]); ctx.lineWidth = THIN[b] * dpr; ctx.stroke(); }   // its hot middle
   }
-  // Sparks: small, fast, and gone in a moment. Each is the stretch it flew in
-  // the last thirtieth of a second, so it is a streak and not a row of dots.
-  const sk = [];
-  for (const p of st.sparks) {
-    p.vx *= Math.exp(-2.2 * dt); p.vy = p.vy * Math.exp(-2.2 * dt) + S * 0.15 * dt; p.x += p.vx * dt; p.y += p.vy * dt; p.life -= 1.4 * dt;
-    if (p.life > 0) sk.push(p);
-  }
-  st.sparks = sk;
   for (let i = 0; i < n; i++) {
     const hue = tone(viz, i, n, 1);
     for (let b = 0; b < 2; b++) {

@@ -13,6 +13,7 @@ import { el, fileURL, fmtSec, seedGrad, cleanTitle, pickFolder } from '../util.j
 import { setIcon, setPlaying } from '../icons.js';
 import { Visualizer } from '../visualizer.js';
 import { AudioEngine } from '../audio-engine.js';
+import SpeedMenu from '../modules/speed-menu.js';
 
 export class MusicDash{constructor(api){this.api=api;
   // Renderer-side playback for audio-only files. Video always stays on mpv.
@@ -23,10 +24,16 @@ export class MusicDash{constructor(api){this.api=api;
   this.engine = new AudioEngine();
   if (this.engine.available) this._wireEngine();
   else this.engineEnabled = false;
+  // The music's own speed (v3.38.0), kept from song to song and between runs,
+  // with the pitch kept as it is. A film's speed is mpv's and stays apart.
+  this.speed = Math.max(0.25, Math.min(4, +localStorage.getItem('bm_music_speed') || 1));
+  this.engine.setSpeed(this.speed);
   this._filter='';
   this.shuffle=localStorage.getItem('bm_music_shuffle')==='1';
   this.repeat=localStorage.getItem('bm_music_repeat')||'off';this.folders=JSON.parse(localStorage.getItem('bm_music_folders')||'[]');this.tracks=[];this.queue=[];this.queueIdx=-1;this.currentPath=null;this._dur={};this._activePath=null;console.log('[MusicDash] Initialized, API:', !!api);this._wire();this.folders.forEach(f=>this._addFolder(f));if(this.folders.length)this._load(this.folders[0]);}
 _wire(){
+  // The speed button in Now Playing (v3.38.0): always the music's.
+  this._npSpeed=new SpeedMenu({mpvApi:()=>this.api?.mpv,osd:(m,ms)=>window.bmApp?.showOSD?.(m,ms),anchorId:'np-speed',music:()=>this.speedAdapter(),musicOnly:true});
   // Folder picker
   el('btn-music-open')?.addEventListener('click',async()=>{
     const folder = await pickFolder(this.api);
@@ -430,6 +437,8 @@ _renderTrackPage(){
    *  never reports a change, so nothing would correct it. Found when a test
    *  tone outlasted its step: PiP then refused, as nothing was "playing". */
   yieldToPlayer(){
+    // mpv played a song at the music's speed: the film gets its own back (v3.38.0).
+    if(this._filmSpeed!=null){const v=this._filmSpeed;this._filmSpeed=null;this.api?.mpv?.cmd('set_property','speed',v);}
     if(!this.engineOwns?.()) return false;
     this._yielding=true;
     this.engine.stop();
@@ -458,6 +467,22 @@ _renderTrackPage(){
   /** True when this engine, not mpv, owns what is currently playing. */
   engineOwns(){ return !!(this.engineEnabled && this.engine?.available && this.engine.active); }
 
+  /** The music's speed for the speed menus (v3.38.0). */
+  speedAdapter(){
+    return {
+      owns:()=>this.engineOwns(),
+      get:()=>this.speed,
+      set:s=>{
+        this.speed=Math.max(0.25,Math.min(4,+s||1));
+        try{localStorage.setItem('bm_music_speed',String(this.speed));}catch(_){}
+        this.engine?.setSpeed(this.speed);
+        // A song mpv plays (a format the engine cannot): mpv's speed, as before.
+        if(!this.engineOwns()&&this.currentPath&&!window.bmApp?._hasVideo)this.api?.mpv?.cmd('set_property','speed',this.speed);
+        this._npSpeed?.sync();window.bmApp?.speedMenu?.sync?.();
+      },
+    };
+  }
+
   toggle(){
     if(this.engineOwns()) return this.engine.toggle();
     this.api?.mpv?.cmd('cycle','pause');
@@ -471,6 +496,7 @@ play(fp,idx){
       // Stop mpv first or both would play at once.
       this.api?.mpv?.cmd('stop');
       this.engine.load(fileURL(fp),fp,true);
+      this.engine.setSpeed(this.speed);
       // Hand the visualiser a real analyser. It already prefers one over its
       // synthetic fallback; it has simply never been given one.
       const a=this.engine.getAnalyser();
@@ -481,9 +507,16 @@ play(fp,idx){
     }else{
       if(!this.api?.mpv)return;
       this.engine.stop();
+      // mpv's speed is the film's. It is kept aside while mpv plays a song at
+      // the music's own speed, and given back when a film opens (v3.38.0).
+      if(this._filmSpeed==null)this._filmSpeed=window.bmApp?.speedMenu?._current||1;
       this.api.mpv.open([fp]);
+      this.api.mpv.cmd('set_property','speed',this.speed);
     }
-    const _m=this.tags?.[fp]||{};const title=_m.title||cleanTitle(fp.split(/[\\/]/).pop());const folder=fp.split(/[\\/]/).slice(0,-1).pop()||'';const ext=fp.split('.').pop().toUpperCase();const g=seedGrad(folder);const ai=el('np-art-inner');if(ai){ai.style.background=g;ai.innerHTML='<span class="np-art-placeholder" style="opacity:.5"></span>';setIcon(ai.firstChild,'music');}const gl=el('np-glow');if(gl){gl.style.background=g;gl.style.opacity='.5';}el('np-art')?.classList.add('has-track');const nt=el('np-title');if(nt)nt.textContent=title;const na=el('np-artist');if(na)na.textContent=_m.artist||folder;const nf=el('np-format');if(nf)nf.textContent=ext;el('np-bars')?.classList.add('playing');const mvt=el('mv-current-title');if(mvt)mvt.textContent=title;const mva=el('mv-current-artist');if(mva)mva.textContent=folder;this._viz?.setMode('bars');this._viz?.start();this._renderTracks(this._sorted(this.tracks,el('music-sort')?.value||'name'));this._renderQueue();this._applyTagsToNowPlaying(fp);}
+    window.bmApp?.speedMenu?.sync?.(); this._npSpeed?.sync();   // the speed shown is now the music's (v3.38.0)
+    const _m=this.tags?.[fp]||{};const title=_m.title||cleanTitle(fp.split(/[\\/]/).pop());
+    // Its lyrics (v3.38.0): beside it, inside it, or online.
+    window.bmLyrics?.song(fp,{title,artist:_m.artist||null,album:_m.album||null,duration:_m.duration||this._dur?.[fp]||null});const folder=fp.split(/[\\/]/).slice(0,-1).pop()||'';const ext=fp.split('.').pop().toUpperCase();const g=seedGrad(folder);const ai=el('np-art-inner');if(ai){ai.style.background=g;ai.innerHTML='<span class="np-art-placeholder" style="opacity:.5"></span>';setIcon(ai.firstChild,'music');}const gl=el('np-glow');if(gl){gl.style.background=g;gl.style.opacity='.5';}el('np-art')?.classList.add('has-track');const nt=el('np-title');if(nt)nt.textContent=title;const na=el('np-artist');if(na)na.textContent=_m.artist||folder;const nf=el('np-format');if(nf)nf.textContent=ext;el('np-bars')?.classList.add('playing');const mvt=el('mv-current-title');if(mvt)mvt.textContent=title;const mva=el('mv-current-artist');if(mva)mva.textContent=folder;this._viz?.setMode('bars');this._viz?.start();this._renderTracks(this._sorted(this.tracks,el('music-sort')?.value||'name'));this._renderQueue();this._applyTagsToNowPlaying(fp);}
 _renderQueue(){
   const q=el('np-queue');if(!q)return;
   const next=this.queue.slice(this.queueIdx+1,this.queueIdx+6);

@@ -1185,7 +1185,14 @@ if (PART === 'c') {
     const r = await page.evaluate(async () => {
       const v = bmApp.viz, out = {};
       const lit = () => {
-        const c = v.canvas, d = c.getContext('2d').getImageData(0, 0, c.width, c.height).data, W = c.width, H = c.height;
+        // Neon draws on the graphics card since v3.38.0, into a canvas of its own:
+        // that is copied to a 2D one to be read.
+        let c = v.canvas;
+        if (v.mode === 'neon' && v._neonCanvas && v._neonCanvas.style.display !== 'none') {
+          const t = document.createElement('canvas'); t.width = v._neonCanvas.width; t.height = v._neonCanvas.height;
+          t.getContext('2d').drawImage(v._neonCanvas, 0, 0); c = t;
+        }
+        const d = c.getContext('2d').getImageData(0, 0, c.width, c.height).data, W = c.width, H = c.height;
         let n = 0, edges = { l: 0, r: 0, t: 0, b: 0 };
         for (let y = 0; y < H; y += 2) for (let x = 0; x < W; x += 2) {   // finer, so thin lines are not missed (v3.33.0)
           if (d[(y * W + x) * 4 + 3] < 25) continue; n++;
@@ -1210,7 +1217,7 @@ if (PART === 'c') {
         const paused = v[key]?.made || 0; await new Promise(z => setTimeout(z, 1500));
         const after = (v[key]?.made || 0) - paused;
         bmMusic.engine.el.play(); await new Promise(z => setTimeout(z, 600));
-        out[style] = { share: playing.share, edges: playing.edges, made, after };
+        out[style] = { share: playing.share, edges: playing.edges, made, after, gl: style === 'neon' ? !!v._neonR : undefined };
       }
       v.setOptions({ style: 'bars' }); v.setMode('bars'); bmMusic.engine?.stop?.();
       return out;
@@ -1225,7 +1232,9 @@ if (PART === 'c') {
     }
     const e = r.particles.edges;
     if (!(e.l && e.r && e.t && e.b)) throw new Error('Particles does not reach every edge: ' + JSON.stringify(e));
-    console.log(`      (lit: neon ${(r.neon.share * 100).toFixed(1)}%, bubbles ${(r.bubbles.share * 100).toFixed(1)}%, particles ${(r.particles.share * 100).toFixed(1)}%, at every edge)`);
+    // WebGL works here (the fluid uses it), so Neon has to have drawn with it.
+    if (!r.neon.gl) throw new Error('Neon drew in 2D where WebGL was there to draw with');
+    console.log(`      (lit: neon ${(r.neon.share * 100).toFixed(1)}% on the graphics card, bubbles ${(r.bubbles.share * 100).toFixed(1)}%, particles ${(r.particles.share * 100).toFixed(1)}%, at every edge)`);
   });
 
   // MilkDrop (v3.32.0): butterchurn plays the presets, which come ready-built,

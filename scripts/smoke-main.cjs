@@ -142,7 +142,7 @@ const electronStub = {
     showMessageBox:  async (...a) => { rec.boxes.push(a); return { response: rec.boxAnswer }; },
     showErrorBox: () => {},
   },
-  Menu: { buildFromTemplate: () => ({ popup: () => {}, closePopup: () => {} }), setApplicationMenu: () => {} },
+  Menu: { buildFromTemplate: () => ({ popup: () => {}, closePopup: () => {} }), setApplicationMenu: m => { rec.appMenu = m; } },
   shell: { openExternal: async u => { rec.external.push(u); }, openPath: async () => '', showItemInFolder: () => {}, beep: () => {} },
   screen: {
     // Two monitors side by side. PiP used to always go to the primary one.
@@ -687,6 +687,50 @@ await step('PiP size button cycles three sizes, anchored and on screen', async (
     try { last.proc.emit('exit', 1); await new Promise(r => setTimeout(r, 650)); }
     finally { vw.isDestroyed = real; }
     if (rec.spawned.length !== n) throw new Error('mpv was started again, for a window that no longer exists');
+  });
+
+  // v3.38.0: Electron's default menu had keys of its own, Ctrl+R among them,
+  // which reloaded the whole page in the middle of a film.
+  await step('no built-in menu with keys of its own (Ctrl+R reloaded the page)', () => {
+    if (process.platform === 'darwin') return;
+    if (rec.appMenu !== null) throw new Error('the application menu was not set to none: ' + String(rec.appMenu));
+  });
+
+  /* ── 7c. Lyrics (v3.38.0) ──────────────────────────────────────── */
+  await step('lyrics: the .lrc beside the song first, then LRCLIB, asked once, with the app named', async () => {
+    const dir = fs.mkdtempSync(path.join(TMP, 'lyr-'));
+    const song = path.join(dir, 'Song One.mp3'); fs.writeFileSync(song, Buffer.from('not really an mp3'));
+    fs.writeFileSync(path.join(dir, 'song one.LRC'), '\uFEFF[00:01.00]beside it\r\n[00:02.00]line two');
+    const a = await call('lyrics:get', song, { artist: 'A', title: 'T' }, { online: true });
+    if (a.source !== 'file' || !/beside it/.test(a.synced || '')) throw new Error('the .lrc beside it: ' + JSON.stringify(a));
+    // online, with the network stood in for
+    const asked = [], real = electronStub.net.fetch;
+    let reply = url => /\/api\/get\?/.test(url) ? { status: 404, json: {} }
+      : { status: 200, json: [{ duration: 300, syncedLyrics: '[00:01.00]wrong length' }, { duration: 181, plainLyrics: 'plain', syncedLyrics: '[00:01.00]right one' }] };
+    electronStub.net.fetch = async (url, o) => { asked.push({ url, ua: o?.headers?.['User-Agent'] }); const r = reply(url); if (r instanceof Error) throw r; return { status: r.status, json: async () => r.json }; };
+    try {
+      const other = path.join(dir, 'Other.mp3'); fs.writeFileSync(other, 'x');
+      const meta = { artist: 'Some Artist', title: 'Some Song', album: 'Some Album', duration: 180.4 };
+      const b = await call('lyrics:get', other, meta, { online: true });
+      if (b.source !== 'lrclib' || b.synced !== '[00:01.00]right one') throw new Error('online: ' + JSON.stringify(b));
+      if (asked.length !== 2 || !/\/api\/get\?.*artist_name=Some%20Artist.*track_name=Some%20Song.*album_name=Some%20Album.*duration=180/.test(asked[0].url) || !/\/api\/search\?/.test(asked[1].url)) throw new Error('asked ' + asked.map(x => x.url).join(' , '));
+      if (!/^BM Player .*github\.com\/BritMat\/bm-player/.test(asked[0].ua || '')) throw new Error('the app is not named to LRCLIB: ' + asked[0].ua);
+      const again = await call('lyrics:get', other, meta, { online: true });
+      if (asked.length !== 2 || again.synced !== b.synced) throw new Error('asked again for a song already answered');
+      // not found: kept, and not asked again soon
+      reply = () => ({ status: 404, json: {} });
+      const none = await call('lyrics:get', other, { ...meta, title: 'Nothing' }, { online: true });
+      const n = asked.length; await call('lyrics:get', other, { ...meta, title: 'Nothing' }, { online: true });
+      if (none.source !== 'none' || asked.length !== n) throw new Error('a song with nothing was asked about again at once');
+      // the network down: nothing kept, so it is asked again next time
+      reply = () => new Error('offline');
+      const off = await call('lyrics:get', other, { ...meta, title: 'Later' }, { online: true });
+      const k = asked.length; await call('lyrics:get', other, { ...meta, title: 'Later' }, { online: true });
+      if (!off.offline || asked.length !== k + 1) throw new Error('an unreachable site was taken for an answer');
+      // online off: nothing goes out
+      const quiet = asked.length; await call('lyrics:get', other, { ...meta, title: 'Private' }, { online: false });
+      if (asked.length !== quiet) throw new Error('looked online with online off');
+    } finally { electronStub.net.fetch = real; }
   });
 
   /* ── 7b. Full screen (v3.37.0) ──────────────────────────────────── */

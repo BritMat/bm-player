@@ -210,9 +210,14 @@ export class AudioEngine {
   }
   setSpeed(rate) {
     if (!this.available) return;
+    const r = Math.max(0.25, Math.min(4, Number(rate) || 1));
     this.el.preservesPitch = true;
-    this.el.playbackRate = Math.max(0.25, Math.min(4, Number(rate) || 1));
+    // The default as well (v3.38.0): loading the next song sets an audio
+    // element's speed back to its default, so the speed held for one song.
+    this.el.defaultPlaybackRate = r;
+    this.el.playbackRate = r;
   }
+  get speed() { return this.available ? this.el.playbackRate : 1; }
 
   /* ── equalizer ───────────────────────────────────────────────── */
   setEQBand(index, gainDb) {

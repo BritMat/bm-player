@@ -12,15 +12,31 @@
 
 const PRESETS = [0.25, 0.5, 0.75, 1.0, 1.25, 1.5, 1.75, 2.0, 2.5, 3.0];
 
+/*
+ * Music too (v3.38.0). music: () => { owns(), get(), set(speed) }, the music
+ * player's speed, which is used while it is playing a song itself (the
+ * in-app engine plays nearly all music) and kept from one song to the next.
+ * mpv's speed is the film's. With musicOnly (the button in the Music view)
+ * it is always the music's.
+ */
 class SpeedMenu {
-  constructor({ mpvApi, osd, anchorId = 'speed-badge' }) {
+  constructor({ mpvApi, osd, anchorId = 'speed-badge', music = null, musicOnly = false }) {
     this._mpv = mpvApi;            // () => window.api.mpv
     this._osd = osd;                // (msg, ms) => void
     this._anchorId = anchorId;
+    this._music = music; this._musicOnly = musicOnly;
     this._menu = null;
-    this._current = 1.0;
+    this._current = 1.0;            // mpv's
     this._wire();
+    this._updateBadge();
   }
+
+  _m() { try { return typeof this._music === 'function' ? this._music() : this._music; } catch (_) { return null; } }
+  _forMusic() { const m = this._m(); return !!m && (this._musicOnly || !!m.owns()); }
+  /** The speed of what this menu sets now. */
+  speed() { return this._forMusic() ? (+this._m().get() || 1) : this._current; }
+  /** Show the speed again: music started or stopped. */
+  sync() { this._updateBadge(); }
 
   _api() { return typeof this._mpv === 'function' ? this._mpv() : this._mpv; }
   _show(msg, ms = 1200) { try { this._osd?.(msg, ms); } catch (_) {} }
@@ -35,6 +51,10 @@ class SpeedMenu {
       e.stopPropagation();
       this.toggle();
     });
+    anchor.addEventListener('keydown', (e) => {
+      if (e.key !== 'Enter' && e.key !== ' ') return;
+      e.preventDefault(); e.stopPropagation(); this.toggle();
+    });
     document.addEventListener('click', () => this.hide());
     document.addEventListener('keydown', (e) => {
       if (e.key === 'Escape') this.hide();
@@ -45,22 +65,25 @@ class SpeedMenu {
   async set(speed) {
     const s = +speed;
     if (!isFinite(s) || s <= 0 || s > 10) return;
-    this._current = s;
-    try { await this._api()?.cmd('set_property', 'speed', s); } catch (_) {}
+    if (this._forMusic()) { try { this._m().set(s); } catch (_) {} }
+    else {
+      this._current = s;
+      try { await this._api()?.cmd('set_property', 'speed', s); } catch (_) {}
+    }
     this._updateBadge();
     this._show(`Speed: ${formatSpeed(s)}`);
   }
 
   /** Cycle to the next preset (used by old keyboard behavior preserved). */
   async cycleNext() {
-    const cur = this._current;
+    const cur = this.speed();
     const idx = PRESETS.findIndex(p => Math.abs(p - cur) < 0.01);
     const next = PRESETS[(idx + 1) % PRESETS.length];
     await this.set(next);
   }
 
   async cyclePrev() {
-    const cur = this._current;
+    const cur = this.speed();
     const idx = PRESETS.findIndex(p => Math.abs(p - cur) < 0.01);
     const prev = PRESETS[(idx - 1 + PRESETS.length) % PRESETS.length];
     await this.set(prev);
@@ -74,7 +97,7 @@ class SpeedMenu {
 
   _updateBadge() {
     const b = document.getElementById(this._anchorId);
-    if (b) b.textContent = formatSpeed(this._current);
+    if (b) b.textContent = formatSpeed(this.speed());
   }
 
   toggle() {
@@ -97,7 +120,7 @@ class SpeedMenu {
       const item = document.createElement('button');
       item.type = 'button';
       item.className = 'speed-menu-item';
-      if (Math.abs(p - this._current) < 0.01) item.classList.add('active');
+      if (Math.abs(p - this.speed()) < 0.01) item.classList.add('active');
       item.innerHTML = `<span class="speed-menu-val">${formatSpeed(p)}</span>`;
       item.addEventListener('click', async (e) => {
         e.stopPropagation();

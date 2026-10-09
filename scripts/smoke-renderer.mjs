@@ -72,9 +72,10 @@ function makeApi() {
     music: { tags: async paths => paths.map(p => ({
       path: p, title: 'Title ' + p.slice(-5), artist: 'Artist A',
       album: 'Album One', year: 2024, trackNo: 1, duration: 183, cover: null,
-    })) },
+    })),
+      lyrics: async (file, meta, opts) => { bridge.lyricsAsked = (bridge.lyricsAsked || []).concat([{ file, meta, opts }]); return bridge.lyrics || { source: 'none' }; } },
     adj: group('subDelay', 'audioDelay', 'resetSub', 'resetAudio'),
-    app: { ...group('perfInfo', 'version', 'getPlugins', 'setPluginEnabled', 'openPluginsDir'),
+    app: { ...group('perfInfo', 'version', 'getPlugins', 'setPluginEnabled', 'openPluginsDir', 'addRecent'),
            diagnostics: async () => ({
              app: { version: '3.2.0', packaged: false, liteBuild: false, appPath: '/app', userData: '/ud' },
              versions: { electron: '44.3.0', chrome: '140', node: '22', v8: '14' },
@@ -1192,6 +1193,159 @@ async function main() {
       tell('fullscreen'); if (!fs()) throw new Error('no is-fs in full screen');
       tell('maximized'); if (fs()) throw new Error('is-fs kept when maximised');
       tell('fullscreen'); tell('normal'); if (fs()) throw new Error('is-fs kept after leaving');
+    });
+  }
+
+  /* ── 18e. Lyrics (v3.38.0) ────────────────────────────────────── */
+  {
+    const { parseLRC, lineAt } = await import(pathToFileURL(path.join(ROOT, 'src/js/modules/lyrics.js')).href);
+    await step('LRC: times, several times on one line, an offset, other tags and word times left out', () => {
+      const l = parseLRC('[ar:Someone]\n[offset:+500]\n[00:01.00]one\n[00:12.50][01:02.25]chorus <00:12.80>word\n[00:05]\n not a line');
+      const got = l.map(x => x.t.toFixed(2) + ' ' + x.text).join(' | ');
+      if (got !== '0.50 one | 4.50  | 12.00 chorus word | 61.75 chorus word') throw new Error(got);
+      if (lineAt(l, 0.2) !== -1 || lineAt(l, 0.5) !== 0 || lineAt(l, 12.1) !== 2 || lineAt(l, 999) !== 3) throw new Error('the line at a time is wrong');
+    });
+    const app = window.bmApp, m = window.bmMusic, doc = window.document, eng = m.engine, ly = window.bmLyrics;
+    await step('lyrics: asked for when a song starts, timed lines shown in Now Playing with the sung one lit, and over the visual mode', async () => {
+      if (!ly) throw new Error('the lyrics module did not start');
+      bridge.lyrics = { source: 'lrclib', synced: '[00:00.00]first line\n[00:10.00]second line\n[00:20.00]third line', plain: null };
+      bridge.lyricsAsked = [];
+      app.switchDest('music'); m.engineEnabled = true;
+      m.play('/fixtures/music/01 - track.mp3', 0); await tick(30);
+      const asked = bridge.lyricsAsked.at(-1);
+      if (!asked || asked.file !== '/fixtures/music/01 - track.mp3' || asked.meta.artist !== 'Artist A' || asked.meta.album !== 'Album One' || !asked.meta.title) throw new Error('asked with ' + JSON.stringify(asked));
+      if (asked.opts?.online !== true) throw new Error('online is not on by default');
+      ly.showTab('lyrics');
+      const lines = doc.querySelectorAll('#np-lyrics .lyr-line');
+      if (lines.length !== 3) throw new Error(lines.length + ' lines shown');
+      if (!doc.getElementById('np-queue').classList.contains('hidden')) throw new Error('Up Next still shown under the lyrics tab');
+      Object.defineProperty(eng, 'currentTime', { configurable: true, get: () => 12 });
+      ly._tick();
+      const on = doc.querySelector('#np-lyrics .lyr-line.on');
+      if (!on || on.textContent !== 'second line') throw new Error('the lit line is ' + on?.textContent);
+      if (!/LRCLIB/.test(doc.querySelector('#np-lyrics .lyr-foot')?.textContent || '')) throw new Error('where the lyrics came from is not said');
+      doc.body.classList.add('audio-viz'); ly.setOverlay(true); ly._tick(true);
+      if (doc.getElementById('vl-now').textContent !== 'second line' || doc.getElementById('vl-next').textContent !== 'third line') throw new Error('over the visualiser: ' + doc.getElementById('vl-now').textContent + ' / ' + doc.getElementById('vl-next').textContent);
+      // a gap in the words: a note, and the coming line under it
+      const keep = ly.lines; ly.lines = parseLRC('[00:00.00]a\n[00:11.00]\n[00:15.00]b'); ly._tick(true);
+      if (doc.getElementById('vl-now').textContent !== '♪' || doc.getElementById('vl-next').textContent !== 'b') throw new Error('in a gap: ' + doc.getElementById('vl-now').textContent + ' / ' + doc.getElementById('vl-next').textContent);
+      ly.lines = keep; ly._tick(true);
+      // a click on a line goes to it
+      let to = null; const real = eng.seek; eng.seek = t => { to = t; };
+      doc.querySelector('#np-lyrics .lyr-line[data-i="2"]').dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      eng.seek = real;
+      if (to !== 20) throw new Error('a click on the third line went to ' + to);
+      ly.setOverlay(false); doc.body.classList.remove('audio-viz'); delete eng.currentTime;
+    });
+    await step('lyrics: words without times shown as they are, none found said so, the online switch kept', async () => {
+      bridge.lyrics = { source: 'file', synced: null, plain: 'just words\nno times' };
+      await ly.song('/fixtures/music/02 - another.flac', { title: 'x', artist: 'y' });
+      if (doc.querySelector('#np-lyrics .lyr-plain')?.textContent !== 'just words\nno times') throw new Error('plain lyrics not shown');
+      bridge.lyrics = { source: 'none' };
+      await ly.song('/fixtures/music/song & co.ogg', { title: 'x', artist: 'y' });
+      if (!/No lyrics found/.test(doc.getElementById('np-lyrics').textContent)) throw new Error('nothing said when none were found');
+      const box = doc.getElementById('lyr-online');
+      if (!box.checked) throw new Error('the online switch shows off while it is on');
+      box.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));            // a click turns it off
+      if (ly.online !== false || localStorage.getItem('bm_lyrics_online') !== '0') throw new Error('the online switch was not kept');
+      ly.online = true; localStorage.removeItem('bm_lyrics_online'); ly.showTab('queue'); bridge.lyrics = null; eng.stop?.(); app.switchDest('video');
+    });
+  }
+
+  /* ── 18d. The music's speed (v3.38.0) ──────────────────────────── */
+  {
+    const app = window.bmApp, m = window.bmMusic, doc = window.document, eng = m.engine;
+    await step('music speed: set while the music plays itself, kept for the next song and between runs, the film\'s speed untouched', async () => {
+      app.switchDest('music'); m.engineEnabled = true;
+      m.play('/fixtures/music/01 - track.mp3', 0); await tick(20);
+      if (!m.engineOwns()) throw new Error('setup: the engine did not take the mp3');
+      ipcCalls.length = 0;
+      await app.speedMenu.set(1.5);
+      if (eng.el.playbackRate !== 1.5 || eng.el.defaultPlaybackRate !== 1.5) throw new Error(`the song plays at ${eng.el.playbackRate} (default ${eng.el.defaultPlaybackRate})`);
+      if (!eng.el.preservesPitch) throw new Error('the pitch is not kept');
+      if (ipcCalls.some(c => c[0] === 'set_property' && c[1] === 'speed')) throw new Error('mpv, the film\'s player, was given the music\'s speed');
+      if (localStorage.getItem('bm_music_speed') !== '1.5') throw new Error('not kept for the next run');
+      if (doc.getElementById('speed-badge').textContent !== '1.5x' || doc.getElementById('np-speed').textContent !== '1.5x') throw new Error('the speed shown: ' + doc.getElementById('speed-badge').textContent + ' and ' + doc.getElementById('np-speed').textContent);
+      eng.el.playbackRate = 1;                     // as loading the next song does
+      m.play('/fixtures/music/02 - another.flac', 1); await tick(20);
+      if (eng.el.playbackRate !== 1.5) throw new Error('the next song plays at ' + eng.el.playbackRate);
+      // the Music view's own button
+      doc.getElementById('np-speed').dispatchEvent(new window.MouseEvent('click', { bubbles: true })); await tick(10);
+      const two = [...doc.querySelectorAll('.speed-menu-item')].find(b => b.textContent.trim() === '2x');
+      if (!two) throw new Error('the Music view\'s speed button opened no list');
+      two.dispatchEvent(new window.MouseEvent('click', { bubbles: true })); await tick(10);
+      if (eng.el.playbackRate !== 2 || m.speed !== 2) throw new Error('the list did not set the music\'s speed');
+      await app.speedMenu.set(1); eng.stop?.(); app.switchDest('video');
+    });
+    await step('music speed: a song mpv plays gets it, and a film opened after gets its own speed back', async () => {
+      const speeds = () => ipcCalls.filter(c => c[0] === 'set_property' && c[1] === 'speed').map(c => c[2]);
+      app.switchDest('music');
+      app.speedMenu.onSpeedChange(1.25);                    // the film's speed, as mpv told it
+      const keepSpeed = m.speed, keepEngine = m.engineEnabled;
+      m.speed = 1.75; m.engineEnabled = false;              // so mpv plays the song
+      m._filmSpeed = null;                                  // earlier songs here were mpv's too
+      try {
+        ipcCalls.length = 0;
+        m.play('/fixtures/music/01 - track.mp3', 0); await tick(20);
+        if (m.engineOwns()) throw new Error('setup: the engine took the song');
+        if (speeds().at(-1) !== 1.75) throw new Error('mpv plays the song at ' + speeds().at(-1));
+        app.speedMenu.onSpeedChange(1.75);                  // mpv tells of its new speed
+        m.play('/fixtures/music/02 - another.flac', 1); await tick(20);
+        ipcCalls.length = 0;
+        app.playMedia(['/fixtures/video/film.mp4']); await tick(20);
+        if (speeds()[0] !== 1.25) throw new Error('the film was given ' + speeds()[0] + ', not its own 1.25');
+        if (m._filmSpeed != null) throw new Error('the film\'s speed was not let go');
+      } finally { m.speed = keepSpeed; m.engineEnabled = keepEngine; m._filmSpeed = null; app.speedMenu.onSpeedChange(1); app.switchDest('video'); }
+    });
+  }
+
+  /* ── 18c. Rotate and mirror (v3.38.0) ──────────────────────────── */
+  {
+    const app = window.bmApp, doc = window.document;
+    const { rotateCmd, mirrorCmd, REDRAW } = await import(pathToFileURL(path.join(ROOT, 'src/js/modules/video-transform.js')).href);
+    const sent = () => ipcCalls.map(c => JSON.stringify(c));
+    const has = c => sent().includes(JSON.stringify(c));
+    const key = (code, o = {}) => doc.body.dispatchEvent(new window.KeyboardEvent('keydown', { code, key: code.slice(3).toLowerCase(), bubbles: true, ...o }));
+    await step('rotate and mirror: the menu, the keys and the right-click menu send mpv what they should, and Ctrl+M is not mute', async () => {
+      app.transform.reset(true); ipcCalls.length = 0;
+      app.handleAction('rotate-right');
+      if (!has(rotateCmd(90))) throw new Error('Rotate Right sent ' + sent().join(' '));
+      key('KeyR', { ctrlKey: true }); if (!has(rotateCmd(180))) throw new Error('Ctrl+R did not turn it on to 180');
+      key('KeyR', { ctrlKey: true, shiftKey: true }); if (app.transform.rotation !== 90) throw new Error('Ctrl+Shift+R did not turn it back');
+      app.handleAction('rotate-left'); app.handleAction('rotate-left');
+      if (app.transform.rotation !== 270) throw new Error('two turns left from 90 came to ' + app.transform.rotation);
+      const muted = app.muted;
+      key('KeyM', { ctrlKey: true });
+      if (!has(mirrorCmd(true)) || !app.transform.mirrored) throw new Error('Ctrl+M did not mirror');
+      if (app.muted !== muted) throw new Error('Ctrl+M also muted');
+      ipcCalls.length = 0;
+      doc.querySelector('.mr[data-a="transform-reset"]').click();
+      if (!has(rotateCmd(0)) || !has(mirrorCmd(false))) throw new Error('Reset sent ' + sent().join(' '));
+      if (!doc.querySelector('.ctx-item[data-a="rotate-right"]') || !doc.querySelector('.ctx-item[data-a="mirror"]')) throw new Error('not in the right-click menu');
+    });
+    await step('rotate and mirror while paused: the picture is drawn again, and only then', async () => {
+      app.transform.reset(true);
+      const wasPaused = app.isPaused;
+      try {
+        app.isPaused = false; ipcCalls.length = 0;
+        app.transform.rotate(90); app.transform.mirror(true);
+        if (has(REDRAW)) throw new Error('playing, it was sought as well: ' + sent().join(' '));
+        app.isPaused = true; ipcCalls.length = 0;
+        app.transform.rotate(90);
+        if (sent().join(' ') !== [rotateCmd(180), REDRAW].map(c => JSON.stringify(c)).join(' ')) throw new Error('paused, a turn sent ' + sent().join(' '));
+        ipcCalls.length = 0; app.transform.mirror(false);
+        if (sent().join(' ') !== [mirrorCmd(false), REDRAW].map(c => JSON.stringify(c)).join(' ')) throw new Error('paused, the mirror sent ' + sent().join(' '));
+        ipcCalls.length = 0; app.handleAction('transform-reset');
+        if (!has(REDRAW)) throw new Error('paused, putting it back was not drawn: ' + sent().join(' '));
+      } finally { app.isPaused = wasPaused; app.transform.reset(true); }
+    });
+    await step('a new file starts upright and not mirrored', async () => {
+      app.transform.rotate(90); app.transform.mirror(true); ipcCalls.length = 0;
+      fireProp('filename', 'next-film.mkv'); await tick(5);
+      if (app.transform.rotation || app.transform.mirrored) throw new Error('still turned or mirrored on the next file');
+      if (!has(rotateCmd(0)) || !has(mirrorCmd(false))) throw new Error('mpv was not told: ' + sent().join(' '));
+      ipcCalls.length = 0; fireProp('filename', 'next-film.mkv'); await tick(5);
+      if (ipcCalls.length) throw new Error('the same file reported again reset it again');
     });
   }
 

@@ -14,6 +14,7 @@ import { FluidFX } from './fluid.js';
 import { drawNeon, drawBubbles, drawParticles, bands, tone } from './viz-art.js';   // v3.31.0
 import { perf } from './perf.js';
 import { BeatTracker } from './viz-beat.js';   // v3.36.0
+import { NeonGL } from './neon-gl.js';          // v3.38.0
 
 /* MilkDrop (v3.32.0): butterchurn (MIT) plays the MilkDrop presets that
    Poweramp and Winamp are known for, on a WebGL canvas over the visualiser's.
@@ -175,6 +176,7 @@ export class Visualizer {
     this.mode = mode;
     if (mode !== 'fluid' && mode !== 'flow') { this._fluid?.halt?.(); this._fluidStyle = null; if (this._fluidCanvas) this._fluidCanvas.style.display = 'none'; }   // halt: hidden, so no fade (v3.33.0)
     if (mode !== 'milkdrop' && this._mdCanvas) this._mdCanvas.style.display = 'none';
+    if (mode !== 'neon' && this._neonCanvas) this._neonCanvas.style.display = 'none';
     if (mode === 'off') { this.stop(); return; }
     if (!this.active) this.start();
   }
@@ -194,6 +196,36 @@ export class Visualizer {
     this._fluid?.halt?.(); this._fluidStyle = null;   // set up afresh when it comes back
     if (this._fluidCanvas) this._fluidCanvas.style.display = 'none';
     if (this._mdCanvas) this._mdCanvas.style.display = 'none';
+    if (this._neonCanvas) this._neonCanvas.style.display = 'none';
+  }
+
+  // Neon on the graphics card (v3.38.0, neon-gl.js): a canvas of its own over
+  // the visualiser's, made when Neon is first drawn, and kept in place over
+  // it. Null without WebGL, in Lite, or once its picture has been taken away
+  // four times (a driver restarting, say): Neon then draws in 2D as before.
+  _neonLayer () {
+    if (this._neonFailed || document.documentElement.classList.contains('lite-mode') || !this.canvas?.parentNode) return null;
+    let r = this._neonR;
+    if (r && r.lost) {
+      r.destroy(); this._neonCanvas?.remove(); this._neonCanvas = null; this._neonR = r = null;
+      if ((this._neonLost = (this._neonLost || 0) + 1) > 3) { this._neonFailed = true; return null; }
+    }
+    if (!r) {
+      const nc = document.createElement('canvas');
+      nc.className = 'viz-neon-canvas';                       // placed absolutely, clicks pass through (components.css)
+      const z = getComputedStyle(this.canvas).zIndex; if (z && z !== 'auto') nc.style.zIndex = z;
+      this.canvas.parentNode.insertBefore(nc, this.canvas.nextSibling);
+      r = NeonGL.make(nc);
+      if (!r) { nc.remove(); this._neonFailed = true; return null; }
+      this._neonCanvas = nc; this._neonR = r;
+    }
+    const nc = this._neonCanvas, c = this.canvas, px = v => v + 'px';
+    nc.style.display = '';
+    if (nc.style.left !== px(c.offsetLeft)) nc.style.left = px(c.offsetLeft);
+    if (nc.style.top !== px(c.offsetTop)) nc.style.top = px(c.offsetTop);
+    if (nc.style.width !== px(c.offsetWidth)) nc.style.width = px(c.offsetWidth);
+    if (nc.style.height !== px(c.offsetHeight)) nc.style.height = px(c.offsetHeight);
+    return r;
   }
 
   // The clock in sixtieths of a second (v3.36.0), for what turns or drifts at a

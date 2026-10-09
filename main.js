@@ -38,6 +38,7 @@ function writePluginState(state) {
   try { fs.writeFileSync(getPluginStatePath(), JSON.stringify(state, null, 2)); } catch(_) {}
 }
 const PS = require('./plugin-safety');
+const { makeLyrics } = require('./lyrics');   // v3.38.0
 /* Plugins: see plugin-safety.js for the rules. Bundled plugins ship with the
    app and are trusted. Plugins you add are checked: files must stay inside
    their folder, script plugins start switched off and need a native
@@ -232,7 +233,13 @@ const IS_LITE_BUILD = (process.env.BM_LITE === '1')
 process.env.BM_LITE = IS_LITE_BUILD ? '1' : '0';
 
 app.whenReady().then(()=>{
-  setTimeout(() => { pruneCache('thumbs'); pruneCache('covers'); }, 30000).unref?.();   // v3.33.0
+  // No built-in menu (v3.38.0). The windows have no menu bar, but Electron's
+  // default menu was there all the same, with its keys: Ctrl+R reloaded the
+  // whole page in the middle of a film or a song, Ctrl+W closed the window,
+  // Ctrl+minus shrank everything. The app's own keys are its shortcuts. On a
+  // Mac the menu stays: copy and paste go through it there.
+  if (!IS_MAC) { try { Menu.setApplicationMenu(null); } catch (_) {} }
+  setTimeout(() => { pruneCache('thumbs'); pruneCache('covers'); pruneCache('lyrics', 20 * 1024 * 1024, 365); }, 30000).unref?.();   // v3.33.0, lyrics v3.38.0
   try { protocol.handle('bmfile', serveBmFile); }
   catch (e) { console.error('[main] could not register bmfile://:', e); }
   registerIpc();
@@ -911,6 +918,23 @@ function registerIpc(){
   // ── Audio tags ─────────────────────────────────────────────────
   // Track names came from filenames run through a regex. Real ID3/Vorbis/MP4
   // tags give title, artist, album, track number, duration and embedded art.
+  // Lyrics for a song (v3.38.0, lyrics.js): beside it, inside it, then LRCLIB
+  // when looking online is on. Electron's own fetch: it goes through the
+  // system's proxy, as the rest of Chromium does.
+  const lyrics = makeLyrics({
+    fetchJson: async (url, ua) => {
+      const stop = new AbortController(), t = setTimeout(() => stop.abort(), 8000);
+      try {
+        const r = await electronNet.fetch(url, { headers: { 'User-Agent': ua, Accept: 'application/json' }, signal: stop.signal });
+        let json = null; try { json = await r.json(); } catch (_) {}
+        return { status: r.status, json };
+      } catch (_) { return null; } finally { clearTimeout(t); }
+    },
+    cacheDir: () => cacheDir('lyrics'),
+    ua: `BM Player ${app.getVersion()} (https://github.com/BritMat/bm-player)`,
+  });
+  ipcMain.handle('lyrics:get', (_, file, meta, opts) => lyrics.get(file, meta, opts));
+
   ipcMain.handle('music:tags', async (_, filePaths) => {
     let mm;
     try { mm = require('music-metadata'); }
