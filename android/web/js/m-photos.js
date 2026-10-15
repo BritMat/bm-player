@@ -15,13 +15,15 @@ import { openImages } from './m-viewer.js';
 
 const st = { state: 'idle', show: 'all', sort: 'newest', list: [], vl: null, vlKind: '', album: null };
 try { st.sort = localStorage.getItem('bm_m_psort') || 'newest'; } catch (_) {}
+// All or Albums, kept as the sort is (v3.43.2).
+try { if (localStorage.getItem('bm_m_pshow') === 'albums') st.show = 'albums'; } catch (_) {}
 const SORTS = [['newest', 'Newest first', (a, b) => (b.taken || b.added * 1000) - (a.taken || a.added * 1000)], ['oldest', 'Oldest first', (a, b) => (a.taken || a.added * 1000) - (b.taken || b.added * 1000)],
   ['name', 'Name', (a, b) => a.title.localeCompare(b.title, undefined, { numeric: true, sensitivity: 'base' })], ['size', 'Largest', (a, b) => b.size - a.size]];
 const sorted = list => list.slice().sort((SORTS.find(s => s[0] === st.sort) || SORTS[0])[2]);
 const cols = () => Math.max(3, Math.min(8, Math.floor((window.innerWidth - 8) / 112)));
 
 export function initPhotos () {
-  $('ph-chips').addEventListener('click', e => { const b = e.target.closest('.chip'); if (!b) return; st.show = b.dataset.k; render(); });
+  $('ph-chips').addEventListener('click', e => { const b = e.target.closest('.chip'); if (!b) return; st.show = b.dataset.k; try { localStorage.setItem('bm_m_pshow', st.show); } catch (_) {} render(); });
   $('ph-sort-btn').addEventListener('click', () => sheet({ title: 'Sort pictures', items: SORTS.map(([k, label]) => ({ label, on: st.sort === k, action: () => { st.sort = k; try { localStorage.setItem('bm_m_psort', k); } catch (_) {} render(); } })) }));
   $('ph-open').addEventListener('click', () => sheet({ title: 'Open', items: [
     { icon: 'images', label: 'A picture…', action: () => call('pickMedia', 'image') },

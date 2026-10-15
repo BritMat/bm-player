@@ -658,12 +658,27 @@ public class MainActivity extends Activity {
         getWindow().setAttributes(lp);
     }
 
-    /** The brightness now, 0 to 1: this window's own, or the phone's setting (v3.42.0, the video player's swipe). */
+    /**
+     * The brightness now, 0 to 1: this window's own, or the phone's setting
+     * (v3.42.0, the video player's swipe). The setting counts to 255 on most
+     * phones, but further on some (Xiaomi's to 2047, 4095 or more), which
+     * read as several times full: a swipe down then did nothing for a long
+     * way (v3.43.2). Android's own top is asked for, and past it the next
+     * such top above the value is taken.
+     */
     float screenBrightness() {
         float w = getWindow().getAttributes().screenBrightness;
-        if (w >= 0) return w;
-        try { return Settings.System.getInt(getContentResolver(), Settings.System.SCREEN_BRIGHTNESS) / 255f; }
-        catch (Exception e) { return 0.5f; }
+        if (w >= 0) return Math.min(1f, w);
+        try {
+            int v = Settings.System.getInt(getContentResolver(), Settings.System.SCREEN_BRIGHTNESS);
+            int max = 255;
+            try {
+                int id = android.content.res.Resources.getSystem().getIdentifier("config_screenBrightnessSettingMaximum", "integer", "android");
+                if (id != 0) max = Math.max(max, android.content.res.Resources.getSystem().getInteger(id));
+            } catch (Exception ignored) { }
+            while (v > max && max < (1 << 16)) max = max * 2 + 1;   // 255, 511, 1023, 2047, 4095...
+            return Math.max(0.01f, Math.min(1f, v / (float) max));
+        } catch (Exception e) { return 0.5f; }
     }
 
     /** The music volume as { v, max }, in the phone's own steps. */

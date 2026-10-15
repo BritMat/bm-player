@@ -358,7 +358,8 @@ function swipe (el, fns) {
     const dx = e.clientX - x0, dy = e.clientY - y0, dt = performance.now() - t0;
     if (dt > 700 || Math.max(Math.abs(dx), Math.abs(dy)) < 60) return;
     const f = Math.abs(dx) > Math.abs(dy) * 1.4 ? (dx < 0 ? fns.left : fns.right) : Math.abs(dy) > Math.abs(dx) * 1.4 ? (dy > 0 ? fns.down : fns.up) : null;
-    if (f) { el.dataset.swiped = '1'; f(); setTimeout(() => delete el.dataset.swiped, 50); }
+    // the flag first: a swipe whose action failed left every later tap on the bar swallowed
+    if (f) { el.dataset.swiped = '1'; setTimeout(() => delete el.dataset.swiped, 50); f(); }
   }, { passive: true });
   el.addEventListener('pointercancel', () => { id = null; }, { passive: true });
   el.addEventListener('click', e => { if (el.dataset.swiped) { e.stopImmediatePropagation(); e.preventDefault(); } }, true);

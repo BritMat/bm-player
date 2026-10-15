@@ -35,12 +35,18 @@ import { remember, touch, videoKey, position, savePosition, clearPosition, progr
 import { wireGestures, hud, hudOff } from './m-vgest.js';
 import { favItem, videoFav } from './m-favs.js';
 
+/** The seek bar's steps: ten thousand along the film (v3.43.2). */
+const RANGE = 10000;
 const st = { state: 'idle', show: 'all', view: 'list', sort: 'added', list: [], vl: null, folder: null, sub: null };
 const v = { open: false, item: null, uiT: 0, turn: 'auto', aspect: 'fit', seeking: false, objectUrl: null, subUrls: [],
   waiting: false, failed: false, spinT: 0, lifted: false, besideTried: false, list: null, index: -1, locked: false,
   zoom: 1, pan: [0, 0], boost: 100, ab: { a: null, b: null }, sleepT: 0, sleepAt: 0, sleepEnd: false, held: false, speedBefore: 1,
   saveT: 0, clockT: 0, nextT: 0, lastSeek: 0, startAt: 0 };
 try { st.sort = localStorage.getItem('bm_m_vsort') || 'added'; st.view = localStorage.getItem('bm_m_vview') === 'grid' ? 'grid' : 'list'; } catch (_) {}
+// All, Folders or Continue, kept too (v3.43.2). Only list or grid and the
+// sort were, so when Android had closed the app in the background it came
+// back on All, whatever had been chosen.
+try { const s = localStorage.getItem('bm_m_vshow'); if (s === 'folders' || s === 'continue') st.show = s; } catch (_) {}
 
 const SORTS = [['added', 'Recently added', (a, b) => b.added - a.added], ['name', 'Name', (a, b) => a.title.localeCompare(b.title, undefined, { numeric: true, sensitivity: 'base' })],
   ['length', 'Longest', (a, b) => b.duration - a.duration], ['size', 'Largest', (a, b) => b.size - a.size]];
@@ -118,7 +124,7 @@ const mp = {
 let eng = web;
 
 export function initVideos () {
-  $('vd-chips').addEventListener('click', e => { const b = e.target.closest('.chip'); if (!b) return; st.show = b.dataset.k; render(); });
+  $('vd-chips').addEventListener('click', e => { const b = e.target.closest('.chip'); if (!b) return; st.show = b.dataset.k; try { localStorage.setItem('bm_m_vshow', st.show); } catch (_) {} render(); });
   $('vd-sort-btn').addEventListener('click', () => sheet({ title: 'Sort videos', items: SORTS.map(([k, label]) => ({ label, on: st.sort === k, action: () => { st.sort = k; try { localStorage.setItem('bm_m_vsort', k); } catch (_) {} render(); refreshSub(); } })) }));
   $('vd-view-btn').addEventListener('click', () => setView(st.view === 'grid' ? 'list' : 'grid'));
   setIcon($('vd-view-btn'), st.view === 'grid' ? 'list' : 'grid');
@@ -323,9 +329,29 @@ function wirePlayer () {
   $('vp-audio').addEventListener('click', audioMenu);
   $('vp-subs').addEventListener('click', subsMenu);
   $('vp-more').addEventListener('click', moreMenu);
+  // The seek bar (v3.43.2): steps of a ten-thousandth (they were a
+  // thousandth, 7 seconds of a two hour film), and while it is dragged the
+  // picture follows (quick seeks to keyframes, as the sideways swipe does),
+  // the time and how far it moves show in the middle, and the controls stay.
   const r = $('vp-range');
-  r.addEventListener('input', () => { v.seeking = true; fillRange(r); $('vp-cur').textContent = fmtTime(r.value / 1000 * eng.duration); showUi(); });
-  r.addEventListener('change', () => { if (eng.duration) eng.seek(r.value / 1000 * eng.duration); v.seeking = false; });
+  r.max = String(RANGE);
+  let from = null;
+  r.addEventListener('input', () => {
+    const d = eng.duration; if (!d) return;
+    if (from == null) from = eng.time;
+    v.seeking = true; fillRange(r);
+    const t = r.value / RANGE * d, delta = t - from;
+    $('vp-cur').textContent = fmtTime(t);
+    showUi(true);
+    hud(delta < 0 ? 'rew' : 'fwd', fmtTime(t), (delta < 0 ? '-' : '+') + fmtTime(Math.abs(delta)), t / d);
+    const now = performance.now();
+    if (now - v.lastSeek > 160) { v.lastSeek = now; eng.quickSeek(t); }
+  });
+  r.addEventListener('change', () => {
+    if (eng.duration) eng.seek(r.value / RANGE * eng.duration);
+    v.seeking = false; from = null;
+    hudOff(400); showUi();
+  });
   // The web engine's news.
   const mine = fn => () => { if (eng === web && v.open) fn(); };
   vid.addEventListener('timeupdate', mine(time));
@@ -351,6 +377,14 @@ function wirePlayer () {
       if (final) { eng.seek(t); return; }
       const now = performance.now();
       if (now - v.lastSeek > 160) { v.lastSeek = now; eng.quickSeek(t); }
+    },
+    // the seek bar follows a sideways swipe, and lets go after it (null)
+    preview: t => {
+      const r = $('vp-range'), d = eng.duration;
+      if (t == null || !d) { v.seeking = false; return; }
+      v.seeking = true;
+      r.value = Math.round(t / d * RANGE); fillRange(r);
+      $('vp-cur').textContent = fmtTime(t);
     },
     speedHold: on => {
       if (on) { v.held = true; v.speedBefore = eng.speed; eng.setSpeed(2); hud('fwd', '2× speed', 'While held'); }
@@ -567,7 +601,7 @@ function time () {
   const d = eng.duration, t = eng.time;
   if (!v.seeking) {
     $('vp-cur').textContent = fmtTime(t);
-    $('vp-range').value = d ? Math.round(t / d * 1000) : 0;
+    $('vp-range').value = d ? Math.round(t / d * RANGE) : 0;
     fillRange($('vp-range'));
   }
   $('vp-dur').textContent = fmtTime(d);

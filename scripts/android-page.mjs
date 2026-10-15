@@ -236,6 +236,15 @@ try {
   await ev(() => window.BMNative.event('remote', { action: 'prev' }));
   ok(await until(() => window.__bmPlayback?.title === 'Night Lights'), 'previous goes back to it (the next song had only just begun)');
   await shot('02-playing');
+  // v3.43.2: a sideways swipe on the music bar is the bar's, not taken by the browser as a pan
+  { const c = await page.context().newCDPSession(page);
+    const tch = (type, x, y) => c.send('Input.dispatchTouchEvent', { type, touchPoints: type === 'touchEnd' ? [] : [{ x, y }] });
+    const b = await ev(() => { const r = document.getElementById('mini-open').getBoundingClientRect(); return { x: r.left + r.width * 0.7, y: r.top + r.height / 2 }; });
+    await tch('touchStart', b.x, b.y); for (let i = 1; i <= 8; i++) { await tch('touchMove', b.x - i * 18, b.y + 1); await sleep(20); } await tch('touchEnd');
+    ok(await until(() => window.__bmPlayback?.title && window.__bmPlayback.title !== 'Night Lights'), `a swipe to the left on the music bar: the next song (now "${await ev(() => window.__bmPlayback?.title)}")`);
+    await ev(() => window.BMNative.event('remote', { action: 'prev' }));
+    await until(() => window.__bmPlayback?.title === 'Night Lights');
+    await sleep(250); }   // a tap just after a swipe is the swipe's own, and is let go
 
   step = 'Now Playing';
   console.log('\n' + step);
@@ -300,6 +309,17 @@ try {
   ok(await ev(() => window.BMNative.back()) === 'handled' && await ev(() => !document.getElementById('v-home').classList.contains('hidden')), 'from another tab, back to Home');
   ok(await ev(() => window.BMNative.back()) === 'background', 'at Home, the app goes behind the others (the music plays on)');
   ok(await ev(() => !document.getElementById('home-resume').classList.contains('hidden') && /Resume/.test(document.getElementById('home-resume').textContent)), 'Home offers to resume what played');
+  // v3.43.2: a long name under Resume made the button wider than the screen, and Home could be slid sideways
+  await ev(() => { const s = document.getElementById('home-resume-sub'); s.dataset.was = s.textContent; s.textContent = 'x2mate.com-Matthew West - Because of Bethlehem (Lyrics) [Official Video] [4K Remastered] and a good deal more'; });
+  await sleep(150);
+  { const m = await ev(() => {
+      const sc = document.querySelector('#v-home .home-scroll'), W = window.innerWidth;
+      const b = document.getElementById('home-browse').getBoundingClientRect(), r = document.getElementById('home-resume').getBoundingClientRect();
+      return { sw: sc.scrollWidth, cw: sc.clientWidth, W, bl: Math.round(b.left), bw: Math.round(b.width), rr: Math.round(r.right), rw: Math.round(r.width) };
+    });
+    ok(m.sw <= m.cw + 1 && m.bl >= 0 && m.rr <= m.W + 1 && Math.abs(m.bw - m.rw) < 2, `a long name under Resume: both buttons keep their size, and Home does not slide sideways (${JSON.stringify(m)})`); }
+  await shot('00-home-long-resume');
+  await ev(() => { const s = document.getElementById('home-resume-sub'); s.textContent = s.dataset.was || ''; });
   await page.tap('#nav button[data-tab="music"]');
 
   step = 'queue';
@@ -471,6 +491,13 @@ try {
     await ev(() => { window.__bmMpv.commands = []; });
     const W = 892, H = 412;   // landscape is asked for; the test window stays as it is
     void W; void H;
+    // v3.43.2: the seek bar follows a sideways swipe while it goes
+    { const r0 = await ev(() => +document.getElementById('vp-range').value);
+      await touch('touchStart', 100, 450); for (let i = 1; i <= 8; i++) { await touch('touchMove', 100 + i * 25, 452); await sleep(20); }
+      const r1 = await ev(() => +document.getElementById('vp-range').value), hudOn = await ev(() => document.getElementById('vp-hud').classList.contains('on'));
+      await touch('touchEnd');
+      ok(r1 > r0 && hudOn, `the seek bar follows a sideways swipe (${r0} to ${r1} of 10000), the time in the middle`); }
+    await sleep(300);
     await swipe(100, 450, 330, 450);
     ok(await until(() => window.__bmMpv.commands.some(cm => cm[0] === 'seek' && cm[2] === 'absolute+keyframes') && window.__bmMpv.commands.some(cm => cm[0] === 'seek' && cm[2] === 'absolute')), 'a sideways swipe moves through the video (quick seeks, then exact)');
     await ev(() => { window.__bmVol = 8; });
@@ -479,6 +506,20 @@ try {
     await ev(() => { window.__bmBright = 0.5; });
     await swipe(80, 600, 80, 350);
     ok(await until(() => window.__bmBright > 0.5), 'up on the left: brighter');
+    // v3.43.2: a swipe from the edge is Android's (Back), and changes nothing here
+    await ev(() => { window.__bmBright = 0.5; });
+    await swipe(6, 600, 6, 350);
+    await sleep(200);
+    ok(await ev(() => window.__bmBright === 0.5), 'a swipe from the very edge is left to Android: the brightness stays');
+    // v3.43.2: a phone that counts brightness past 255 (Xiaomi) read as several times full, and a swipe down did nothing
+    await ev(() => { window.__bmBright = 4.7; });
+    await swipe(80, 350, 80, 600);
+    ok(await until(() => window.__bmBright < 0.9), `from a level read as more than full, down on the left: darker at once (${(await ev(() => window.__bmBright)).toFixed(2)})`);
+    // v3.43.2: the seek bar dragged: the picture follows, the time shows, and the end is exact
+    await ev(() => { window.__bmMpv.commands = []; const r = document.getElementById('vp-range'); r.value = '5000'; r.dispatchEvent(new Event('input', { bubbles: true })); });
+    ok(await until(() => window.__bmMpv.commands.some(cm => cm[0] === 'seek' && cm[2] === 'absolute+keyframes') && document.getElementById('vp-hud').classList.contains('on') && /1:0[23]/.test(document.getElementById('vp-hud-txt').textContent)), `dragging the seek bar: the picture follows, the time in the middle (${await ev(() => document.getElementById('vp-hud-txt').textContent)})`);
+    await ev(() => { const r = document.getElementById('vp-range'); r.dispatchEvent(new Event('change', { bubbles: true })); });
+    ok(await until(() => window.__bmMpv.commands.some(cm => cm[0] === 'seek' && cm[2] === 'absolute')), 'and let go, the exact place');
     await ev(() => { window.__bmMpv.commands = []; document.getElementById('vp-fit').click(); });
     ok(await until(() => window.__bmMpv.commands.some(cm => cm.join(' ') === 'set panscan 1')), 'the size button: Fill crops the picture');
     await ev(() => document.getElementById('vp-fit').click());
@@ -502,6 +543,13 @@ try {
     await ev(() => window.BMNative.back());
     ok(await until(() => !!document.querySelector('#vd-list .vbar')), 'the list shows how far it was watched');
     await ev(() => localStorage.removeItem('mock_mpv'));
+    // v3.43.2: the view chosen is kept when Android closes the app in the background (it came back on All)
+    await page.tap('#vd-chips .chip[data-k="folders"]');
+    await page.reload();
+    await until(() => window.__bmStarted === true);
+    await page.tap('#nav button[data-tab="videos"]');
+    ok(await until(() => document.querySelector('#vd-chips .chip.on')?.dataset.k === 'folders' && document.querySelectorAll('#vd-list .vfolder').length > 0), 'Folders is still the view after the app starts again');
+    await page.tap('#vd-chips .chip[data-k="all"]');
   }
 
   // ── v3.42.0: Photos and the picture viewer ────────────────────────
@@ -524,6 +572,11 @@ try {
     ok(await ev(() => window.BMNative.back()) === 'handled' && await until(() => document.getElementById('iv').classList.contains('hidden')), 'Back closes it');
     await page.tap('#ph-chips .chip[data-k="albums"]');
     ok(await until(() => document.querySelectorAll('#ph-list .acard').length === 2), 'by album (Camera, Screenshots)');
+    // v3.43.2: and kept, as the Videos tab's view is
+    await page.reload();
+    await until(() => window.__bmStarted === true);
+    await page.tap('#nav button[data-tab="photos"]');
+    ok(await until(() => document.querySelector('#ph-chips .chip.on')?.dataset.k === 'albums' && document.querySelectorAll('#ph-list .acard').length === 2), 'Albums is still the view after the app starts again');
     await ev(() => window.BMNative.event('open', { url: '/opened/2', kind: 'image', name: 'From a chat.jpg', mime: 'image/jpeg' }));
     ok(await until(() => !document.getElementById('iv').classList.contains('hidden') && document.getElementById('iv-title').textContent === 'From a chat.jpg'), 'a picture from another app opens in the viewer');
     await ev(() => window.BMNative.back());
