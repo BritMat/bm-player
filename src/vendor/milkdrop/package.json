@@ -1,0 +1,4 @@
+{
+  "//": "presets.js and previews.js, made by the scripts, are ES modules (v3.43.0). butterchurn.min.js is loaded by a script tag, not by Node.",
+  "type": "module"
+}

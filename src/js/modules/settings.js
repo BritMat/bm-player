@@ -91,17 +91,15 @@ class Settings {
     // applyToMpv() once the renderer learns mpv is ready.
   }
 
-  /** Apply subtitle styling settings to the currently-running mpv instance. */
+  /** Apply subtitle styling settings to the currently-running mpv instance.
+   *  The font, colour, edge and bold are sub-style.js's since v3.39.0: set here
+   *  as well, they were put back the moment a file started, and the outline 3
+   *  and shadow 2 kept here were what drew the dark smudge round the letters. */
   applyToMpv(mpvApi) {
     if (!mpvApi) return;
     const s = this._state.subtitles;
     const promises = [
-      mpvApi.cmd('set_property', 'sub-font', s.fontFamily),
       mpvApi.cmd('set_property', 'sub-font-size', s.fontSize),
-      mpvApi.cmd('set_property', 'sub-bold', s.bold ? 'yes' : 'no'),
-      mpvApi.cmd('set_property', 'sub-color', hexToMpvRgba(s.color)),
-      mpvApi.cmd('set_property', 'sub-border-size', s.outlineSize),
-      mpvApi.cmd('set_property', 'sub-shadow-offset', s.shadowOffset),
       mpvApi.cmd('set_property', 'sub-pos', s.position),
     ];
     promises.forEach(p => p?.catch?.(() => {})); // mpv may not be ready yet

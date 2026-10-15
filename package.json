@@ -1,8 +1,8 @@
 {
   "name": "bm-player",
   "productName": "BM Player",
-  "version": "3.38.0",
-  "description": "A professional media player powered by mpv \u2014 TV/IPTV, gallery, music library with tag reading, and a PDF suite",
+  "version": "3.43.1",
+  "description": "A professional media player powered by mpv — TV/IPTV, gallery, music library with tag reading, and a PDF suite",
   "main": "main.js",
   "scripts": {
     "start": "electron . --no-sandbox",
@@ -28,7 +28,9 @@
     "start:compat": "electron . --no-sandbox --compat",
     "test:mpv": "node scripts/integration-mpv.cjs",
     "test:e2e": "node scripts/e2e.mjs --part=a && node scripts/e2e.mjs --part=b && node scripts/e2e.mjs --part=c",
-    "test:plugins": "node scripts/smoke-plugins.cjs"
+    "test:plugins": "node scripts/smoke-plugins.cjs",
+    "build:android": "node android/build-apk.mjs",
+    "test:android": "node scripts/android-page.mjs"
   },
   "author": "BM Player",
   "license": "MIT",
@@ -38,10 +40,10 @@
   },
   "dependencies": {
     "electron-updater": "^6.1.7",
-    "music-metadata": "^7.14.0"
+    "music-metadata": "^12.2.1"
   },
   "devDependencies": {
-    "electron": "^44.3.0",
+    "electron": "^44.7.2",
     "electron-builder": "^26.0.12",
     "jimp": "^1.6.0",
     "jsdom": "^24.1.3",

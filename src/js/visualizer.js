@@ -15,6 +15,7 @@ import { drawNeon, drawBubbles, drawParticles, bands, tone } from './viz-art.js'
 import { perf } from './perf.js';
 import { BeatTracker } from './viz-beat.js';   // v3.36.0
 import { NeonGL } from './neon-gl.js';          // v3.38.0
+import { frameGap, power } from './power.js';   // v3.39.0
 
 /* MilkDrop (v3.32.0): butterchurn (MIT) plays the MilkDrop presets that
    Poweramp and Winamp are known for, on a WebGL canvas over the visualiser's.
@@ -42,6 +43,21 @@ function loadMilkdrop () {
    running needed that, it is the machine and not the presets, and its own
    size goes down for the rest of this run. */
 export const MD_SCALES = [1, 0.8, 0.64, 0.5];
+
+/* MilkDrop favourites (v3.39.0), starred in the preset browser and kept
+   between sessions. The shuffle can deal from them alone (opts.mdFav). */
+const MD_FAV_KEY = 'bm_md_favs';
+export function mdFavs () {
+  try { const a = JSON.parse(localStorage.getItem(MD_FAV_KEY) || '[]'); return Array.isArray(a) ? a.filter(x => typeof x === 'string') : []; } catch (_) { return []; }
+}
+export function setMdFav (name, on) {
+  const set = new Set(mdFavs()); if (on) set.add(name); else set.delete(name);
+  try { localStorage.setItem(MD_FAV_KEY, JSON.stringify([...set])); } catch (_) {}
+  for (const v of allVisualisers()) v.mdReshuffle?.();
+  return [...set];
+}
+/** Called with (name, visualiser) whenever a preset starts: the browser keeps its highlight by it. */
+export const mdWatchers = new Set();
 export const MD = { level: 0, start: 0, set: false, streak: 0 };   // the machine's size, the one it began at, whether that was decided, and how many presets running were slow
 
 /* v3.29.0: an analyser any visualiser falls back on, the audio shadow's while
@@ -49,6 +65,8 @@ export const MD = { level: 0, start: 0, set: false, streak: 0 };   // the machin
    it here; those that exist are given it directly. */
 let SHARED = null;
 export function setSharedAnalyser (a) { SHARED = a || null; }
+/** That analyser, or null (v3.42.0: the fox nods to it). */
+export const sharedAnalyser = () => SHARED;
 
 /* HD Flow's quality levels, best first (v3.36.0). At the top the dye is pixel
    for pixel with the screen, which is what HD means, and the fluid steps down
@@ -96,11 +114,14 @@ function hsl2rgb (h, s, l) {
    (the visual mode for audio and the music player's). Set in the panel that
    opens from their settings button (viz-settings.js). */
 const VIZ_KEY = 'bm_viz';
-export const VIZ_DEFAULTS = { style: 'bars', colors: 'auto', sensitivity: 1, bars: 80, smoothing: 0.8, spin: true, mdAuto: 30 };   // mdAuto: seconds per MilkDrop preset, 0 for never (v3.32.0)   // spin: Radial turns (v3.30.1)
+export const VIZ_DEFAULTS = { style: 'bars', colors: 'auto', sensitivity: 1, bars: 80, smoothing: 0.8, spin: true, mdAuto: 30, mdFav: false };   // mdAuto: seconds per MilkDrop preset, 0 for never (v3.32.0)   // spin: Radial turns (v3.30.1)
 export function vizSettings() {
   try { return { ...VIZ_DEFAULTS, ...JSON.parse(localStorage.getItem(VIZ_KEY) || '{}') }; } catch { return { ...VIZ_DEFAULTS }; }
 }
-export function saveVizSettings(o) { try { localStorage.setItem(VIZ_KEY, JSON.stringify(o)); } catch {} }
+export function saveVizSettings(o) { try { localStorage.setItem(VIZ_KEY, JSON.stringify(o)); } catch {} markStyle(o); }
+// The style on the page's root (v3.39.0): the presets button shows only for MilkDrop (components.css).
+function markStyle(o) { try { if (typeof document !== 'undefined') document.documentElement.dataset.vizStyle = (o && o.style) || 'bars'; } catch {} }
+markStyle(vizSettings());
 const ALL = new Set();
 export const allVisualisers = () => [...ALL];
 // The hue of a CSS colour (#rgb, #rrggbb or rgb()), for the Theme colours.
@@ -280,7 +301,7 @@ export class Visualizer {
     // style drew 144 times a second, twice the work for motion the eye cannot
     // tell apart. A 60 Hz screen draws every frame as before.
     const now = performance.now();
-    if (now - (this._lastDraw || 0) < 12) return;
+    if (now - (this._lastDraw || 0) < frameGap('viz')) return;   // 30 a second with the battery saver on (v3.39.0)
     // Not on screen: nothing is drawn (v3.36.0). The music view's visualiser
     // went on drawing, and reading the sound, after the view was left for
     // another, 72 times a second into a canvas no one could see. Its fluid, if
@@ -685,7 +706,8 @@ export class Visualizer {
   }
 
   // Which size MilkDrop is drawn at now: the machine's, and smaller for a preset that was slow.
-  _mdLevel () { return Math.min(MD_SCALES.length - 1, Math.max(0, MD.level) + (this._mdDown || 0)); }
+  // One size smaller again with the battery saver on (v3.39.0): about a third fewer pixels.
+  _mdLevel () { return Math.min(MD_SCALES.length - 1, Math.max(0, MD.level) + (this._mdDown || 0) + (power.saver ? 1 : 0)); }
 
   // The size in pixels: the canvas's own, times that size's share.
   _mdSize () {
@@ -705,7 +727,7 @@ export class Visualizer {
     this._mdEma = this._mdEma ? this._mdEma + (gap - this._mdEma) * 0.08 : gap;
     // 27 ms: under about 37 frames a second. More on a screen that is itself
     // slower than that (30 Hz: a frame every 33 ms on any machine).
-    if (this._mdEma <= Math.max(27, (perf.refreshMs || 0) * 1.45 + 2)) { this._mdN = 0; return; }
+    if (this._mdEma <= Math.max(27, (Math.max(perf.refreshMs || 0, frameGap('viz'))) * 1.45 + 2)) { this._mdN = 0; return; }   // the battery saver's 30 a second is not slow (v3.39.0)
     if (++this._mdN < 60) return;
     this._mdDown = (this._mdDown || 0) + 1; this._mdN = 0; this._mdEma = 0; this._mdSkip = 24;
   }
@@ -746,7 +768,9 @@ export class Visualizer {
         try { const gl = fc.getContext('webgl2'), ext = gl?.getExtension('WEBGL_debug_renderer_info'); soft = /swiftshader|llvmpipe|software|basic render/i.test(String((ext && gl.getParameter(ext.UNMASKED_RENDERER_WEBGL)) || '')); } catch (_) {}
         MD.level = MD.start = soft ? MD_SCALES.length - 1 : perf.tier === 'low' ? 2 : 0;
       }
-      this.mdNext(0);
+      // The first preset: the one chosen in the browser while this was loading, or the shuffle's.
+      const want = this._mdWant; this._mdWant = null;
+      if (!(want && this.mdLoad(want, 0))) this.mdNext(0);
     }).catch(e => { console.warn('[BM Player] MilkDrop unavailable, drawing bars:', e); this._mdFailed = true; });
   }
 
@@ -755,23 +779,51 @@ export class Visualizer {
     if (!this._md || !this._mdNames?.length) return null;
     // Dealt like cards (v3.36.0): every preset once, in a new order, before any
     // comes round again. Picked at random each time, a few kept coming back and
-    // others were not seen in an hour.
+    // others were not seen in an hour. From the favourites only, when that is
+    // asked for and there are two or more (v3.39.0).
     if (!this._mdBag?.length) {
-      const bag = this._mdNames.slice();
+      const bag = this._mdPool().slice();
       for (let i = bag.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [bag[i], bag[j]] = [bag[j], bag[i]]; }
       if (bag.length > 1 && bag[bag.length - 1] === this._mdName) bag.unshift(bag.pop());   // not the same one twice running
       this._mdBag = bag;
     }
+    return this._mdUse(this._mdBag.pop(), blend);
+  }
+
+  /** A preset by its name (v3.39.0, the preset browser). Its name, or null. */
+  mdLoad (name, blend = 1.5) {
+    if (!this._md || !this._mdPresets?.[name]) return null;
+    const i = this._mdBag ? this._mdBag.indexOf(name) : -1;
+    if (i >= 0) this._mdBag.splice(i, 1);                     // chosen now, so not dealt again this round
+    return this._mdUse(name, blend);
+  }
+
+  /** A preset chosen in the browser: now if MilkDrop is ready, or as soon as it is. */
+  mdPick (name) {
+    if (this._md) return this.mdLoad(name, 1.5);
+    this._mdWant = name; return name;
+  }
+
+  /** The shuffle starts a new round, from the pool as it is now (favourites changed). */
+  mdReshuffle () { this._mdBag = null; }
+
+  _mdPool () {
+    if (this.opts?.mdFav) { const f = mdFavs().filter(n => this._mdPresets?.[n]); if (f.length >= 2) return f; }
+    return this._mdNames;
+  }
+
+  _mdUse (name, blend) {
     // The preset just left: was it slow? Three slow ones running, and the machine's own size goes down.
     if (this._mdName) {
       MD.streak = this._mdDown ? MD.streak + 1 : 0;
       if (MD.streak >= 3 && MD.level < MD_SCALES.length - 1) { MD.level++; MD.streak = 0; }
     }
     this._mdDown = 0;
-    this._mdName = this._mdBag.pop(); this._mdAt = performance.now(); this._mdSkip = 30 + Math.round(blend * 60);
-    try { this._md.loadPreset(this._mdPresets[this._mdName](), blend); }
-    catch (e) { console.warn('[BM Player] MilkDrop preset failed:', this._mdName, e); }
-    return this._mdName;
+    this._mdName = name; this._mdAt = performance.now(); this._mdSkip = 30 + Math.round(blend * 60);
+    try { this._md.loadPreset(this._mdPresets[name](), blend); }
+    catch (e) { console.warn('[BM Player] MilkDrop preset failed:', name, e); }
+    for (const f of mdWatchers) { try { f(name, this); } catch (_) {} }
+    return name;
   }
 
   /** The album art for the middle of Radial (v3.32.0), or null for none. */

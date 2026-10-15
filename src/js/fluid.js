@@ -35,6 +35,7 @@
  */
 
 import { perf } from './perf.js';
+import { frameGap } from './power.js';   // v3.39.0
 
 /* ─── Per-theme dye colours (0–1 range, matched to the CSS accents) ─── */
 export const PALETTES = {
@@ -331,6 +332,23 @@ void main () {
   gl_FragColor = vec4(lit, 1.0);
 }`;
 
+/* Dye that falls (v3.42.0, the Flow play mode's tilt): where there is dye
+   the fluid is pushed along uForce, so tilting the phone pours it. Plain
+   gravity would do nothing here: the pressure solve cancels any push that
+   is the same everywhere, so only the dyed fluid is pushed. */
+const BUOY_FRAG = `
+precision highp float; precision highp sampler2D;
+varying vec2 vUv;
+uniform sampler2D uVelocity, uDye;
+uniform vec2 uForce;
+uniform float dt;
+void main () {
+  vec2 v = texture2D(uVelocity, vUv).xy;
+  vec3 d = texture2D(uDye, vUv).rgb;
+  float m = min(1.0, max(d.r, max(d.g, d.b)) * 4.0);
+  gl_FragColor = vec4(v + uForce * (m * dt), 0.0, 1.0);
+}`;
+
 /* Bloom, as in the WebGL Fluid Simulation: keep what is bright (with a soft
    knee, so nothing pops in), then halve it again and again, and add the
    levels back up. Small levels are wide glows, large ones tight. */
@@ -564,6 +582,7 @@ export class FluidFX {
       bloomBlur:extra(BLOOM_BLUR_FRAG, 'glow'),
       splatAdd: extra(SPLAT_ADD_FRAG, 'quick splats'),
       shade:    extra(SHADE_FRAG, 'contour lines'),
+      buoy:     extra(BUOY_FRAG, 'falling dye'),
     };
   }
 
@@ -685,7 +704,9 @@ export class FluidFX {
     // 26 ms at 60 a second: under 38 frames a second. Measured against the
     // screen where that is slower than the level: on a 30 Hz screen frames come
     // 33 ms apart on any machine, and every level stepped down in turn.
-    const limit = Math.max(this._frameInterval, 16.7, perf.refreshMs || 0) * 1.45 + 2;
+    // And against the battery saver's 30 a second (v3.39.0), or every level
+    // would have been taken for too slow the moment it came on.
+    const limit = Math.max(this._frameInterval, 16.7, perf.refreshMs || 0, frameGap(this.audioDriven ? 'viz' : 'decor')) * 1.45 + 2;
     // Slow for 60 frames running, about two seconds: a stumble of half a second
     // (another program starting, a window being dragged) is not a slow machine.
     if (this._govEma <= limit) { this._govN = 0; return; }
@@ -817,6 +838,15 @@ export class FluidFX {
     gl.uniform1f(P.vorticity.uniforms.curl, cfg.curl * this.flow.swirl);
     gl.uniform1f(P.vorticity.uniforms.dt, dt);
     this._blit(this.velocity.write); this.velocity.swap();
+
+    if (this._gravity && P.buoy) {
+      P.buoy.bind();
+      gl.uniform1i(P.buoy.uniforms.uVelocity, this.velocity.read.attach(0));
+      gl.uniform1i(P.buoy.uniforms.uDye, this.dye.read.attach(1));
+      gl.uniform2f(P.buoy.uniforms.uForce, this._gravity[0], this._gravity[1]);
+      gl.uniform1f(P.buoy.uniforms.dt, dt);
+      this._blit(this.velocity.write); this.velocity.swap();
+    }
 
     P.diverge.bind();
     gl.uniform2f(P.diverge.uniforms.texelSize, this.velocity.texelSizeX, this.velocity.texelSizeY);
@@ -971,6 +1001,40 @@ export class FluidFX {
   }
   resume() { this.paused = false; if (this.mode === 'fluid') this._start(); }
 
+  /* ── Borrowed (v3.42.0): the Flow play mode takes this fluid over and gives
+     it back as it was. snapshot() is everything it changes. ─────────── */
+  snapshot() {
+    return { flow: { ...this.flow }, bloom: this.bloom, bloomOpts: { ...this.bloomOpts }, neon: this.neon, exposure: this.exposure,
+      edge: this.edge, fill: this.fill, lines: { ...this.lines }, ladder: this._ladder, level: this._level, key: this._ladderKey,
+      governed: this.governed, audioDriven: this.audioDriven, onFrame: this.onFrame, shading: this.shading, gravity: this._gravity, mode: this.mode };
+  }
+  restore(s) {
+    if (!s) return;
+    this.configure(f => {
+      f.flow = { ...s.flow }; f.setBloom(s.bloom, s.bloomOpts);
+      f.setNeon(s.neon, s.exposure, { edge: s.edge, fill: s.fill, level0: s.lines.level0, octaves: s.lines.octaves, width: s.lines.width });
+      f.shading = s.shading; f._gravity = s.gravity || null;
+      if (s.ladder) f._setLadder(s.key, s.ladder, s.level, s.governed);
+    });
+    this.audioDriven = s.audioDriven; this.onFrame = s.onFrame;
+  }
+  /** Quality levels (see setLadder), starting at level `at`. */
+  useLadder(key, levels, at = 0, governed = true) { this._setLadder(key, levels, Math.max(0, Math.min(at, levels.length - 1)), governed); }
+  /** The dyed fluid falls along (gx, gy), in the picture's own units (up is +y); null or 0 for none. */
+  setGravity(gx, gy) { this._gravity = (gx || gy) ? [+gx || 0, +gy || 0] : null; }
+  /** Empties the picture: no dye and no motion. */
+  clear() {
+    const gl = this.gl, P = this.progs;
+    if (!this.dye) return;
+    gl.disable(gl.BLEND);
+    P.clear.bind();
+    gl.uniform1f(P.clear.uniforms.value, 0);
+    for (const d of [this.dye, this.velocity, this.pressure]) {
+      gl.uniform1i(P.clear.uniforms.uTexture, d.read.attach(0));
+      this._blit(d.write); d.swap();
+    }
+  }
+
   /* The pointer's trail. It used the ambient splat size at a brighter colour
      and a hard push, so every mouse movement threw a big bright blob (called
      "too big" on a real machine). Now about a third of the size, under half
@@ -991,7 +1055,8 @@ export class FluidFX {
       this._lastTime = now;
       // 4 ms of slack (v3.36.0): on a 144 Hz screen two refreshes are 13.9 ms,
       // just short of a 60-a-second level's 16.7, so it drew every third: 48.
-      if (this._accum < this._frameInterval - 4) return;
+      // On battery (v3.39.0, power.js) at most 30 a second, whatever the level.
+      if (this._accum < Math.max(this._frameInterval, frameGap(this.audioDriven ? 'viz' : 'decor')) - 4) return;
       const gap = this._accum;
       this._accum = 0;
       // The step is the time since the last DRAWN frame (v3.36.0). It was the
@@ -1108,7 +1173,7 @@ export class FluidFX {
     gl.uniform2f(P.display.uniforms.texelSize, this.dye.texelSizeX, this.dye.texelSizeY);
     gl.uniform1i(P.display.uniforms.uTexture, picture.attach(0));
     gl.uniform1f(P.display.uniforms.uAlpha, this._alpha);
-    gl.uniform1f(P.display.uniforms.uShading, this._tier === 'low' ? 0 : 1);
+    gl.uniform1f(P.display.uniforms.uShading, (this.shading ?? this._tier !== 'low') ? 1 : 0);
     gl.uniform1i(P.display.uniforms.uBloom, glow ? this.bloomOut.attach(1) : picture.attach(1));
     gl.uniform1f(P.display.uniforms.uBloomAmt, glow ? this.bloom : 0);
     gl.uniform1f(P.display.uniforms.uNeon, this.neon ? 1 : 0);

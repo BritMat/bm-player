@@ -71,7 +71,23 @@ try {
     if (liteMain !== '1' || !r.liteWindow) fail(`this should be the Lite build, but it runs as the full version (main process BM_LITE=${liteMain}, page Lite layout ${r.liteWindow})`);
   }
   if (errors.length) fail('errors while starting: ' + errors.join(' | '));
-  console.log(`\u2713 the packaged app (${path.basename(exe)}) boots: version ${r.version}, fox ${r.fox ? 'drawn' : 'missing'}${EXPECT_LITE ? ', in Lite mode' : ''}`);
+  // v3.42.0: music-metadata 12 is an ES module, loaded from inside app.asar
+  // by require(). The tags of the smallest FLAC there is show it loads there.
+  const flac = path.join(profile, 'Tune One.flac');
+  {
+    const si = Buffer.alloc(34);
+    si.writeUInt16BE(4096, 0); si.writeUInt16BE(4096, 2);
+    si.writeBigUInt64BE((44100n << 44n) | (1n << 41n) | (15n << 36n) | BigInt(44100 * 6), 10);
+    const tags = ['TITLE=Tune One', 'ARTIST=The Testers'], vendor = Buffer.from('BM Player test'), parts = [Buffer.alloc(4), vendor, Buffer.alloc(4)];
+    parts[0].writeUInt32LE(vendor.length); parts[2].writeUInt32LE(tags.length);
+    for (const t of tags) { const b = Buffer.from(t), l = Buffer.alloc(4); l.writeUInt32LE(b.length); parts.push(l, b); }
+    const vc = Buffer.concat(parts);
+    const head = (last, type, len) => Buffer.from([(last ? 0x80 : 0) | type, (len >> 16) & 255, (len >> 8) & 255, len & 255]);
+    fs.writeFileSync(flac, Buffer.concat([Buffer.from('fLaC'), head(false, 0, 34), si, head(true, 4, vc.length), vc]));
+  }
+  const tags = await page.evaluate(f => window.api.music.tags([f]), flac);
+  if (!tags?.[0] || tags[0].title !== 'Tune One' || tags[0].artist !== 'The Testers') fail('the music tags could not be read in the package (music-metadata): ' + JSON.stringify(tags));
+  console.log(`\u2713 the packaged app (${path.basename(exe)}) boots: version ${r.version}, fox ${r.fox ? 'drawn' : 'missing'}${EXPECT_LITE ? ', in Lite mode' : ''}, music tags read`);
 } catch (e) {
   fail('the packaged app did not boot: ' + String(e.message || e).split('\n')[0] + (errors.length ? ' | ' + errors[0] : ''));
 } finally {

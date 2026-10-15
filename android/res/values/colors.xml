@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- The dark theme's background (src/css/style.css, data-theme="dark"). -->
+    <color name="bm_bg">#080B14</color>
+</resources>

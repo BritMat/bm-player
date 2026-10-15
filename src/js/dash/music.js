@@ -11,6 +11,7 @@
 
 import { el, fileURL, fmtSec, seedGrad, cleanTitle, pickFolder } from '../util.js';
 import { setIcon, setPlaying } from '../icons.js';
+import { isFav, toggleFav } from '../favourites.js';   // v3.43.0: a star on each song
 import { Visualizer } from '../visualizer.js';
 import { AudioEngine } from '../audio-engine.js';
 import SpeedMenu from '../modules/speed-menu.js';
@@ -355,6 +356,12 @@ _renderTrackPage(){
     d.className='tr-dur'; d.textContent=dur;
     const pb=document.createElement('div');
     pb.className='tr-play-btn'; setIcon(pb,'play');
+    // The star (v3.43.0): the song in the welcome screen's Favourites row.
+    const fv=document.createElement('button');
+    const mark=on=>{ fv.className='tr-fav'+(on?' on':''); setIcon(fv,on?'starFill':'star'); fv.title=on?'Remove from favourites':'Add to favourites'; fv.setAttribute('aria-label',fv.title); fv.setAttribute('aria-pressed',String(on)); };
+    fv.type='button'; mark(isFav(t.path));
+    fv.addEventListener('click',e=>{ e.stopPropagation(); const on=toggleFav(t.path); mark(on); window.bmApp?.showOSD?.(on?'Added to favourites: it is on the home screen':'Taken out of favourites'); });
+    fv.addEventListener('keydown',e=>e.stopPropagation());   // Enter on the star is the star's, not the row's
 
     if(this.groupByAlbum){
       const key=this._albumHeader(t);
@@ -366,7 +373,7 @@ _renderTrackPage(){
         frag.appendChild(hd);
       }
     }
-    row.append(num,art,info,d,pb);
+    row.append(num,art,info,fv,d,pb);
     const go=()=>this.play(t.path,i);
     row.addEventListener('click',go);
     row.addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();go();}});

@@ -39,6 +39,7 @@ function writePluginState(state) {
 }
 const PS = require('./plugin-safety');
 const { makeLyrics } = require('./lyrics');   // v3.38.0
+const { makeYtdlp } = require('./ytdlp');     // v3.39.0: YouTube captions as lyrics
 /* Plugins: see plugin-safety.js for the rules. Bundled plugins ship with the
    app and are trusted. Plugins you add are checked: files must stay inside
    their folder, script plugins start switched off and need a native
@@ -239,6 +240,13 @@ app.whenReady().then(()=>{
   // Ctrl+minus shrank everything. The app's own keys are its shortcuts. On a
   // Mac the menu stays: copy and paste go through it there.
   if (!IS_MAC) { try { Menu.setApplicationMenu(null); } catch (_) {} }
+  // On battery or not (v3.39.0), for the page's battery saver (power.js).
+  // --simulate-battery: as if on battery, for the field check.
+  try {
+    const { powerMonitor } = require('electron');
+    const tell = () => send('power:battery', onBattery());
+    powerMonitor.on('on-battery', tell); powerMonitor.on('on-ac', tell);
+  } catch (_) {}
   setTimeout(() => { pruneCache('thumbs'); pruneCache('covers'); pruneCache('lyrics', 20 * 1024 * 1024, 365); }, 30000).unref?.();   // v3.33.0, lyrics v3.38.0
   try { protocol.handle('bmfile', serveBmFile); }
   catch (e) { console.error('[main] could not register bmfile://:', e); }
@@ -250,13 +258,14 @@ app.whenReady().then(()=>{
     // frameless transparent windows in sync (resize, move, maximize) was
     // a per-frame compositor cost on the bgWin sync path that low-end GPUs
     // can't really afford. One window = one paint target.
-    win=new BrowserWindow({width:1280,height:780,minWidth:900,minHeight:560,frame:false,transparent:false,backgroundColor:'#0b0c10',show:false,title:'BM Player Lite',webPreferences:{nodeIntegration:false,contextIsolation:true,preload:path.join(__dirname,'preload.js'),webSecurity:FLAGS.fileScheme==='bmfile',sandbox:false}});
+    win=new BrowserWindow({width:1280,height:780,minWidth:900,minHeight:560,frame:false,transparent:false,backgroundColor:'#0b0c10',show:false,title:'BM Player Lite',webPreferences:{nodeIntegration:false,contextIsolation:true,preload:path.join(__dirname,'preload.js'),webSecurity:FLAGS.fileScheme==='bmfile',sandbox:FLAGS.rendererSandbox}});
     win.on('maximize',()=>{send('win:state',winState());});
     // Minimised or hidden: the page pauses its decorative loops (v3.30.0).
     for(const [ev,h] of [['minimize',true],['hide',true],['restore',false],['show',false]]) win.on(ev,()=>send('win:hidden',h));
     win.on('unmaximize',()=>{send('win:state',winState());});
     watchFull(win);
     win.loadFile(path.join(__dirname,'src','index.html'),{query:flagQuery()});
+    guardPage(win);
     // CSP. 'unsafe-eval' was here on the claim that Three.js and dynamic
     // imports need it. Neither does, and nothing in this codebase calls
     // eval() or new Function() — verified by grep and enforced by the
@@ -314,7 +323,7 @@ app.whenReady().then(()=>{
     // bgWin is a pure opaque visual backdrop (no interactive content) — never
     // let it intercept clicks meant for the transparent UI window above it.
     try{bgWin.setIgnoreMouseEvents(true);}catch(_){}
-    win=new BrowserWindow({parent:bgWin,width:1280,height:780,minWidth:900,minHeight:560,frame:false,transparent:true,backgroundColor:'#00000000',show:false,title:'BM Player',webPreferences:{nodeIntegration:false,contextIsolation:true,preload:path.join(__dirname,'preload.js'),webSecurity:FLAGS.fileScheme==='bmfile',sandbox:false}});
+    win=new BrowserWindow({parent:bgWin,width:1280,height:780,minWidth:900,minHeight:560,frame:false,transparent:true,backgroundColor:'#00000000',show:false,title:'BM Player',webPreferences:{nodeIntegration:false,contextIsolation:true,preload:path.join(__dirname,'preload.js'),webSecurity:FLAGS.fileScheme==='bmfile',sandbox:FLAGS.rendererSandbox}});
     const sync=alignBg;
     win.on('resize',sync);win.on('move',sync);
     // Also the end of a drag, restoring and fullscreen, and a light check that
@@ -328,6 +337,7 @@ app.whenReady().then(()=>{
     win.on('unmaximize',()=>{sync();send('win:state',winState());});
     watchFull(win);
     win.loadFile(path.join(__dirname,'src','index.html'),{query:flagQuery()});
+    guardPage(win);
     // CSP. 'unsafe-eval' was here on the claim that Three.js and dynamic
     // imports need it. Neither does, and nothing in this codebase calls
     // eval() or new Function() — verified by grep and enforced by the
@@ -349,6 +359,8 @@ app.whenReady().then(()=>{
 app.on('window-all-closed',()=>{killMpv();if(process.platform!=='darwin')app.quit();});
 app.on('will-quit',killMpv);
 const send=(ch,...d)=>{try{if(win&&!win.isDestroyed())win.webContents.send(ch,...d);}catch(_){}};
+// On battery power (v3.39.0): Electron's powerMonitor, after the app is ready.
+function onBattery(){ if(process.argv.includes('--simulate-battery'))return true; try{ return !!require('electron').powerMonitor.isOnBatteryPower(); }catch(_){ return false; } }
 
 // ── Runtime flags ────────────────────────────────────────────────
 // Several large changes have landed without ever running on real hardware:
@@ -374,7 +386,15 @@ function resolveFlags() {
   // controls vanish while video plays. 'back' shows both. Windows composites
   // Chromium above child windows, so 'front' may behave there; until that is
   // confirmed on real hardware, only Linux changes by default.
-  const flags = { compat: false, fileScheme: 'bmfile', audioEngine: true, gpuFluid: true,
+  // rendererSandbox (v3.42.0): the windows' pages run in Chromium's sandbox,
+  // as every web page in a browser does. The preload only needs what a
+  // sandboxed one has (contextBridge, ipcRenderer, webUtils). Measured on
+  // Linux with the whole sandbox on and off (the field check's sandbox
+  // section, which the .bat runs on Windows too): the same frame rates on
+  // the home screen and in Flow, the same start, 30 to 45 MB less memory,
+  // and a call to this process up to 0.07 ms slower, which the page's few
+  // calls a second never feel. flags.json can turn it off.
+  const flags = { compat: false, fileScheme: 'bmfile', audioEngine: true, gpuFluid: true, rendererSandbox: true,
                   // Front mode on Windows was confirmed black by eye on a real machine.
                   videoLayer: (IS_LINUX || IS_WIN) ? 'back' : 'front' };
   try {
@@ -385,7 +405,9 @@ function resolveFlags() {
   if (process.argv.includes('--compat')) flags.compat = true;
   if (process.argv.includes('--video-back'))  flags.videoLayer = 'back';
   if (process.argv.includes('--video-front')) flags.videoLayer = 'front';
-  if (flags.compat) Object.assign(flags, { fileScheme: 'file', audioEngine: false, gpuFluid: false, videoLayer: 'front' });
+  if (process.argv.includes('--no-renderer-sandbox')) flags.rendererSandbox = false;
+  if (flags.compat) Object.assign(flags, { fileScheme: 'file', audioEngine: false, gpuFluid: false, videoLayer: 'front', rendererSandbox: false });
+  flags.rendererSandbox = flags.rendererSandbox !== false;
   // The single-window layout has no back window to draw into.
   if (IS_LITE_BUILD || flags.videoLayer !== 'back') flags.videoLayer = 'front';
   if (flags.fileScheme !== 'file') flags.fileScheme = 'bmfile';
@@ -393,6 +415,21 @@ function resolveFlags() {
 }
 const FLAGS = resolveFlags();
 if (FLAGS.compat) console.log('[main] compatibility mode: file://, mpv-only audio, particle background');
+
+/**
+ * The app's page stays the app's page (v3.42.0). A link, or a file dropped
+ * where nothing takes it, would make Chromium open that address in the
+ * window, and the player would be gone until a restart. Web addresses open
+ * in the browser instead; anything else is refused. Reloading (Lite and Pro
+ * switch by reloading) is not a navigation and is not affected.
+ */
+function guardPage(w) {
+  const wc = w.webContents;
+  const ours = u => { try { const a = new URL(u), b = new URL(wc.getURL()); return a.protocol === b.protocol && a.pathname === b.pathname; } catch (_) { return false; } };
+  const outside = u => { const safe = PS.safeExternalUrl(u); if (safe) shell.openExternal(safe).catch(() => {}); };
+  wc.on('will-navigate', (e, url) => { if (!ours(url)) { e.preventDefault(); outside(url); } });
+  wc.setWindowOpenHandler(({ url }) => { outside(url); return { action: 'deny' }; });
+}
 
 /** Query string the renderer reads in its boot script. */
 function flagQuery() {
@@ -918,9 +955,25 @@ function registerIpc(){
   // ── Audio tags ─────────────────────────────────────────────────
   // Track names came from filenames run through a regex. Real ID3/Vorbis/MP4
   // tags give title, artist, album, track number, duration and embedded art.
-  // Lyrics for a song (v3.38.0, lyrics.js): beside it, inside it, then LRCLIB
-  // when looking online is on. Electron's own fetch: it goes through the
+  // Lyrics for a song (v3.38.0, lyrics.js): chosen by the person, beside it,
+  // inside it, then LRCLIB when looking online is on, and YouTube's captions
+  // when that is on too (v3.39.0). Electron's own fetch: it goes through the
   // system's proxy, as the rest of Chromium does.
+  const lyricsUA = `BM Player ${app.getVersion()} (https://github.com/BritMat/bm-player)`;
+  // yt-dlp, fetched on first use (ytdlp.js). BM_TOOLS_DIR: the field check
+  // keeps it in one place between runs, rather than in each run's profile.
+  const ytdlp = makeYtdlp({
+    dir: () => process.env.BM_TOOLS_DIR || path.join(app.getPath('userData'), 'tools'),
+    fetchBuffer: async url => {
+      const stop = new AbortController(), t = setTimeout(() => stop.abort(), 180000);
+      try {
+        const r = await electronNet.fetch(url, { headers: { 'User-Agent': lyricsUA }, signal: stop.signal });
+        if (!r.ok) throw new Error('GitHub answered ' + r.status);
+        return Buffer.from(await r.arrayBuffer());
+      } finally { clearTimeout(t); }
+    },
+  });
+  const lyricsWarned = { error: '', at: 0 };
   const lyrics = makeLyrics({
     fetchJson: async (url, ua) => {
       const stop = new AbortController(), t = setTimeout(() => stop.abort(), 8000);
@@ -928,12 +981,41 @@ function registerIpc(){
         const r = await electronNet.fetch(url, { headers: { 'User-Agent': ua, Accept: 'application/json' }, signal: stop.signal });
         let json = null; try { json = await r.json(); } catch (_) {}
         return { status: r.status, json };
-      } catch (_) { return null; } finally { clearTimeout(t); }
+      } catch (e) {
+        // v3.43.0: why, for the log and the field check, which said only
+        // "could not be reached" on a real machine.
+        const error = stop.signal.aborted ? 'no answer in 8 seconds' : String((e && e.message) || e).slice(0, 160);
+        // Once a minute in the log at most: a song asks up to three times.
+        if (error !== lyricsWarned.error || Date.now() - lyricsWarned.at > 60000) { lyricsWarned.error = error; lyricsWarned.at = Date.now(); console.warn('[lyrics] LRCLIB not reached: ' + error); }
+        return { status: 0, error };
+      } finally { clearTimeout(t); }
     },
     cacheDir: () => cacheDir('lyrics'),
-    ua: `BM Player ${app.getVersion()} (https://github.com/BritMat/bm-player)`,
+    ua: lyricsUA,
+    youtube: song => ytdlp.find(song),
   });
+  const songArg = f => (typeof f === 'string' ? f : '');
+  ipcMain.handle('power:battery', () => onBattery());   // v3.39.0
   ipcMain.handle('lyrics:get', (_, file, meta, opts) => lyrics.get(file, meta, opts));
+  ipcMain.handle('lyrics:search', (_, query, meta) => lyrics.search(query, meta));
+  ipcMain.handle('lyrics:pick', (_, file, meta, id) => lyrics.pick(songArg(file), meta, id));
+  ipcMain.handle('lyrics:unpin', (_, file, meta) => lyrics.unpin(songArg(file), meta));
+  ipcMain.handle('lyrics:youtube', (_, file, meta) => lyrics.youtube(songArg(file), meta));
+  ipcMain.handle('lyrics:ytdlp', () => ytdlp.status());
+  // A lyrics file for this song: the one dropped on the lyrics (only these
+  // kinds of file), or one chosen in a dialog.
+  ipcMain.handle('lyrics:load', async (_, file, meta, p) => {
+    if (typeof p === 'string' && p) {
+      if (!/\.(lrc|srt|vtt|txt)$/i.test(p) || !path.isAbsolute(p)) return { source: 'none', unreadable: true };
+      return lyrics.load(songArg(file), meta, p);
+    }
+    const r = await dialog.showOpenDialog(win && !win.isDestroyed() ? win : undefined, {
+      title: 'Lyrics for this song', properties: ['openFile'],
+      filters: [{ name: 'Lyrics or subtitles', extensions: ['lrc', 'srt', 'vtt', 'txt'] }],
+    });
+    if (r.canceled || !r.filePaths || !r.filePaths[0]) return { source: 'none', canceled: true };
+    return lyrics.load(songArg(file), meta, r.filePaths[0]);
+  });
 
   ipcMain.handle('music:tags', async (_, filePaths) => {
     let mm;
@@ -1260,7 +1342,7 @@ function startMpv(exe, minimalArgs){
   ];
   const extraArgs = [
     '--sub-auto=fuzzy',
-    '--sub-ass-override=force', '--sub-use-margins=yes', '--sub-margin-y=90',
+    '--sub-ass-override=scale', '--sub-use-margins=yes', '--sub-margin-y=90',
     '--sub-bold=yes',
     // Let Electron's DOM handle mouse/keyboard input instead of mpv's own
     // embedded VO surface swallowing it — without these, right-click and
@@ -1271,7 +1353,10 @@ function startMpv(exe, minimalArgs){
     // likely of the three to be genuinely unrecognized and fail the launch.
     '--input-cursor=no', '--input-vo-keyboard=no',
     ...(IS_WIN ? ['--sub-font=Segoe UI'] : []),
-    '--sub-font-size=44', '--sub-shadow-offset=2', '--sub-border-size=3',
+    // A thin outline and no shadow, as sub-style.js's default look (v3.39.0).
+    // Outline 3 with shadow 2 drew a dark smudge round the letters on newer
+    // mpv (0.41 on the laptop), where the shadow is 70% black.
+    '--sub-font-size=44', '--sub-shadow-offset=0', '--sub-border-size=2.2',
     '--sub-color=1.0/1.0/1.0/1.0',
   ];
   const args = minimalArgs ? coreArgs : [...coreArgs, ...extraArgs];

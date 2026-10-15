@@ -52,6 +52,11 @@ export const ICONS = {
   // ── Accent color ──────────────────────────────────────────────
   palette:   S(`<circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="1.8" fill="none"/><circle cx="8" cy="9" r="2.5" fill="currentColor" opacity=".5"/><circle cx="15.5" cy="9.5" r="2.5" fill="currentColor" opacity=".75"/><circle cx="12" cy="15" r="2.5" fill="currentColor"/>`),
 
+  // ── Play on the home screen (v3.42.0) ────────────────────────────
+  mic:       S(`<rect x="9" y="3" width="6" height="11" rx="3" stroke="currentColor" stroke-width="1.8"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" fill="none"/>`),
+  trash:     S(`<path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" fill="none"/>`),
+  burst:     S(`<path d="M12 3v4M12 17v4M3 12h4M17 12h4M5.6 5.6l2.8 2.8M15.6 15.6l2.8 2.8M5.6 18.4l2.8-2.8M15.6 8.4l2.8-2.8" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" fill="none"/>`),
+
   // ── Misc ───────────────────────────────────────────────────────
   heart:     S(`<path d="M12 21C12 21 3 14.5 3 8.5C3 5.5 5.5 3 8 3C9.5 3 11 3.8 12 5C13 3.8 14.5 3 16 3C18.5 3 21 5.5 21 8.5C21 14.5 12 21 12 21Z" stroke="currentColor" stroke-width="1.8" fill="none"/>`),
   clock:     S(`<circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="1.8" fill="none"/><path d="M12 7v5l3 3" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" fill="none"/>`),

@@ -1,0 +1,59 @@
+BM Player for Android: the video engine
+=======================================
+
+BM Player for Android plays videos with mpv (https://mpv.io), which uses
+FFmpeg (https://ffmpeg.org) and the other libraries listed below. The APK
+carries them exactly as the mpv-android project built them: the native
+libraries in lib/arm64-v8a and lib/armeabi-v7a are copied unchanged from
+mpv-android's release 2026-09-17.
+
+  mpv-android   https://github.com/mpv-android/mpv-android
+  the release   https://github.com/mpv-android/mpv-android/releases/tag/2026-09-17
+
+What those libraries are, and the licence of each
+-------------------------------------------------
+
+  mpv v0.41.0-1049-g0b7ed670f    GPL version 2 or later
+  FFmpeg N-126627-g094a2f8a2a    GPL version 3 or later (built with
+                                 --enable-gpl --enable-version3)
+  dav1d 1.5.4-9-g362bc113        BSD 2-clause
+  libass                         ISC
+  libplacebo                     LGPL version 2.1 or later
+  FreeType 2.14.3                FreeType License
+  fontconfig 2.18.3              MIT style
+  FriBidi 1.0.16                 LGPL version 2.1 or later
+  HarfBuzz 14.4.0                MIT style ("Old MIT")
+  libunibreak 8.0                zlib
+  Lua 5.2.4                      MIT
+  libxml2 2.15.4                 MIT
+  Mbed TLS 3.6.7                 Apache 2.0, or GPL version 2 or later
+  curl 8.21.0                    curl licence (MIT style)
+  libc++ (LLVM)                  Apache 2.0 with LLVM exception
+  libplayer (mpv-android's glue
+  between mpv and Java)          MIT (mpv-android-LICENSE.txt)
+
+libass, libplacebo and dav1d come from their own git repositories as
+they were when mpv-android built the release. The other versions are
+the ones mpv-android's buildscripts/include/depinfo.sh names for it.
+
+Taken together the video engine is covered by the GNU General Public
+License version 3 (GPL-3.0.txt), and it is passed on here under that
+licence. The LGPL text is LGPL-2.1.txt, and mpv's own notes on its
+licensing are in mpv-Copyright.txt. BM Player's own code (the Java app
+and the page) stays under its MIT licence (LICENSE.txt).
+
+The source code
+---------------
+
+The corresponding source for these libraries:
+
+  mpv-android at tag 2026-09-17, with buildscripts/, which downloads
+  and builds every library above in the versions named there:
+    https://github.com/mpv-android/mpv-android/tree/2026-09-17
+  mpv at commit 0b7ed670f:
+    https://github.com/mpv-player/mpv
+  FFmpeg at commit 094a2f8a2a:
+    https://github.com/FFmpeg/FFmpeg
+
+If any of it can no longer be found there, ask at
+https://github.com/BritMat/bm-player/issues and it will be provided.

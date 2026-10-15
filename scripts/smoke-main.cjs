@@ -400,6 +400,31 @@ async function main() {
     if (!Array.isArray(out)) throw new Error('expected an array');
   });
 
+  // v3.42.0: music-metadata 12, an ES module loaded with require(). Version
+  // 7 could be made to loop for ever or crash by a broken WMA, MP4, APE,
+  // MKV or DSF file, in the main process. Timed lyrics in a tag now come as
+  // lines with times, the times taken out of the text: put back as LRC.
+  await step('music:tags reads a real file, and timed lyrics in its tags stay timed', async () => {
+    const dir = fs.mkdtempSync(path.join(TMP, 'tags-'));
+    const f = path.join(dir, 'Tune One.flac');
+    // The smallest FLAC there is: its header, STREAMINFO and Vorbis comments.
+    const si = Buffer.alloc(34);
+    si.writeUInt16BE(4096, 0); si.writeUInt16BE(4096, 2);
+    si.writeBigUInt64BE((44100n << 44n) | (1n << 41n) | (15n << 36n) | BigInt(44100 * 6), 10);
+    const tags = ['TITLE=Tune One', 'ARTIST=The Testers', 'ALBUM=Fixtures', 'DATE=2024', 'TRACKNUMBER=3', 'LYRICS=[00:01.00]first line\n[00:02.50]second line'];
+    const vendor = Buffer.from('BM Player test'), parts = [Buffer.alloc(4), vendor, Buffer.alloc(4)];
+    parts[0].writeUInt32LE(vendor.length); parts[2].writeUInt32LE(tags.length);
+    for (const t of tags) { const b = Buffer.from(t), l = Buffer.alloc(4); l.writeUInt32LE(b.length); parts.push(l, b); }
+    const vc = Buffer.concat(parts);
+    const head = (last, type, len) => Buffer.from([(last ? 0x80 : 0) | type, (len >> 16) & 255, (len >> 8) & 255, len & 255]);
+    fs.writeFileSync(f, Buffer.concat([Buffer.from('fLaC'), head(false, 0, 34), si, head(true, 4, vc.length), vc]));
+    const [t] = await call('music:tags', [f]);
+    if (!t || t.title !== 'Tune One' || t.artist !== 'The Testers' || t.album !== 'Fixtures' || t.year !== 2024 || t.trackNo !== 3 || Math.round(t.duration) !== 6)
+      throw new Error('tags read as ' + JSON.stringify(t));
+    const ly = await call('lyrics:get', f, { title: 'Tune One' }, { online: false });
+    if (ly.source !== 'tags' || ly.synced !== '[00:01.00]first line\n[00:02.50]second line') throw new Error('lyrics in the tags: ' + JSON.stringify(ly));
+  });
+
 /* ── 5. bmfile:// — the new trust boundary ───────────────────── */
   await step('bmfile scheme is registered as privileged', () => {
     if (!rec.schemes) throw new Error('registerSchemesAsPrivileged was never called');
@@ -696,17 +721,18 @@ await step('PiP size button cycles three sizes, anchored and on screen', async (
     if (rec.appMenu !== null) throw new Error('the application menu was not set to none: ' + String(rec.appMenu));
   });
 
-  /* ── 7c. Lyrics (v3.38.0) ──────────────────────────────────────── */
+  /* ── 7c. Lyrics (v3.38.0, more in v3.39.0) ─────────────────────── */
   await step('lyrics: the .lrc beside the song first, then LRCLIB, asked once, with the app named', async () => {
     const dir = fs.mkdtempSync(path.join(TMP, 'lyr-'));
     const song = path.join(dir, 'Song One.mp3'); fs.writeFileSync(song, Buffer.from('not really an mp3'));
-    fs.writeFileSync(path.join(dir, 'song one.LRC'), '\uFEFF[00:01.00]beside it\r\n[00:02.00]line two');
+    fs.writeFileSync(path.join(dir, 'song one.LRC'), '﻿[00:01.00]beside it\r\n[00:02.00]line two');
     const a = await call('lyrics:get', song, { artist: 'A', title: 'T' }, { online: true });
     if (a.source !== 'file' || !/beside it/.test(a.synced || '')) throw new Error('the .lrc beside it: ' + JSON.stringify(a));
     // online, with the network stood in for
     const asked = [], real = electronStub.net.fetch;
     let reply = url => /\/api\/get\?/.test(url) ? { status: 404, json: {} }
-      : { status: 200, json: [{ duration: 300, syncedLyrics: '[00:01.00]wrong length' }, { duration: 181, plainLyrics: 'plain', syncedLyrics: '[00:01.00]right one' }] };
+      : { status: 200, json: [{ id: 1, trackName: 'Some Song', artistName: 'Some Artist', duration: 300, syncedLyrics: '[00:01.00]wrong length' },
+                              { id: 2, trackName: 'Some Song', artistName: 'Some Artist', duration: 181, plainLyrics: 'plain', syncedLyrics: '[00:01.00]right one' }] };
     electronStub.net.fetch = async (url, o) => { asked.push({ url, ua: o?.headers?.['User-Agent'] }); const r = reply(url); if (r instanceof Error) throw r; return { status: r.status, json: async () => r.json }; };
     try {
       const other = path.join(dir, 'Other.mp3'); fs.writeFileSync(other, 'x');
@@ -726,11 +752,113 @@ await step('PiP size button cycles three sizes, anchored and on screen', async (
       reply = () => new Error('offline');
       const off = await call('lyrics:get', other, { ...meta, title: 'Later' }, { online: true });
       const k = asked.length; await call('lyrics:get', other, { ...meta, title: 'Later' }, { online: true });
-      if (!off.offline || asked.length !== k + 1) throw new Error('an unreachable site was taken for an answer');
+      if (!off.offline || asked.length <= k) throw new Error('an unreachable site was taken for an answer');
+      // v3.43.0: and why, for the log and the field check
+      if (off.why !== 'offline') throw new Error('the reason it was not reached was lost: ' + JSON.stringify(off.why));
+      reply = () => ({ status: 503, json: {} });
+      const busy = await call('lyrics:get', other, { ...meta, title: 'Busy' }, { online: true });
+      if (!busy.offline || busy.why !== 'LRCLIB answered 503') throw new Error('a refusal by LRCLIB: ' + JSON.stringify(busy));
       // online off: nothing goes out
       const quiet = asked.length; await call('lyrics:get', other, { ...meta, title: 'Private' }, { online: false });
       if (asked.length !== quiet) throw new Error('looked online with online off');
     } finally { electronStub.net.fetch = real; }
+  });
+
+  // v3.39.0: songs that were never found. No artist in the tags was not looked
+  // for at all, and "(Official Video)" or a track number in the title missed.
+  await step('lyrics: a cleaned title, "Artist - Title" from the name, and a search by words when there is no artist', async () => {
+    const { cleanTitle, songOf } = require(path.join(ROOT, 'lyrics.js'));
+    const cases = [['01 - Yellow (Official Video).mp3', 'Yellow'], ['Hey Jude - Remastered 2015', 'Hey Jude'], ['Lean On (feat. MØ) [Official Music Video]', 'Lean On'],
+                   ['Live and Let Die', 'Live and Let Die'], ['Something ft. Someone Else', 'Something'], ['07. Roads (Live)', 'Roads']];
+    for (const [i, o] of cases) if (cleanTitle(i) !== o) throw new Error(`"${i}" cleaned to "${cleanTitle(i)}", not "${o}"`);
+    const m = songOf({ title: 'Coldplay - Yellow (Official Video)', duration: 269 });
+    if (m.artist !== 'Coldplay' || m.title !== 'Yellow') throw new Error('artist and title from the name: ' + JSON.stringify(m));
+    const asked = [], real = electronStub.net.fetch;
+    electronStub.net.fetch = async url => { asked.push(url); return { status: 200, json: async () => /q=/.test(url)
+      ? [{ id: 9, trackName: 'Another Yellow', artistName: 'Other', duration: 269, syncedLyrics: '[00:01.00]no' }, { id: 7, trackName: 'Yellow', artistName: 'Coldplay', duration: 268, syncedLyrics: '[00:01.00]look at the stars' }]
+      : [] }; };
+    try {
+      const dir = fs.mkdtempSync(path.join(TMP, 'lyr2-')), f = path.join(dir, 'Coldplay - Yellow (Official Video).mp3'); fs.writeFileSync(f, 'x');
+      const r = await call('lyrics:get', f, { title: 'Coldplay - Yellow (Official Video)', duration: 269 }, { online: true });
+      if (r.source !== 'lrclib' || !/look at the stars/.test(r.synced || '')) throw new Error('not found: ' + JSON.stringify(r) + ' asked ' + asked.join(' , '));
+      if (!asked.some(u => /q=Coldplay%20Yellow/.test(u))) throw new Error('no search by words: ' + asked.join(' , '));
+      // with no length and no artist, a song of the same name by anyone is not taken
+      const g = await call('lyrics:get', path.join(dir, 'x.mp3'), { title: 'Yellow' }, { online: true });
+      if (g.source === 'lrclib') throw new Error('took a song of the same name with nothing else to go by');
+    } finally { electronStub.net.fetch = real; }
+  });
+
+  await step('lyrics: subtitles beside the song as timed lyrics, YouTube\'s typed-in captions read once a line', async () => {
+    const { subsToLrc } = require(path.join(ROOT, 'lyrics.js'));
+    const dir = fs.mkdtempSync(path.join(TMP, 'lyr3-')), song = path.join(dir, 'Tune.flac'); fs.writeFileSync(song, 'x');
+    fs.writeFileSync(path.join(dir, 'Tune.srt'), '1\r\n00:00:01,000 --> 00:00:03,000\r\n<i>First line</i>\r\n\r\n2\r\n00:00:03,500 --> 00:00:05,000\r\nSecond line\r\n\r\n3\r\n00:00:05,500 --> 00:00:06,000\r\n[Music]\r\n');
+    const a = await call('lyrics:get', song, { title: 'Tune' }, { online: false });
+    if (a.source !== 'file' || a.synced !== '[00:01.00]First line\n[00:03.50]Second line') throw new Error('the .srt beside it: ' + JSON.stringify(a));
+    const vtt = 'WEBVTT\nKind: captions\n\n00:00:01.270 --> 00:00:03.869 align:start position:0%\n \nI<00:00:01.360><c> said</c><00:00:01.520><c> hey</c>\n\n'
+      + '00:00:03.869 --> 00:00:03.879 align:start position:0%\nI said hey\n \n\n'
+      + '00:00:03.879 --> 00:00:06.230 align:start position:0%\nI said hey\nwhat\'s<00:00:04.080><c> going</c><00:00:04.240><c> on</c>\n\n'
+      + '00:00:06.230 --> 00:00:06.240 align:start position:0%\nwhat\'s going on\n \n\n'
+      + '00:00:12.000 --> 00:00:14.000 align:start position:0%\nwhat\'s going on\n[Music]<00:00:12.500><c> ♪</c>\n\n'
+      + '00:00:14.000 --> 00:00:16.000 align:start position:0%\n \nand<00:00:14.200><c> again</c>\n';
+    const lrc = subsToLrc(vtt);
+    if (lrc !== '[00:01.27]I said hey\n[00:03.87]what\'s going on\n[00:06.23]\n[00:14.00]and again') throw new Error('YouTube captions read as:\n' + lrc);
+  });
+
+  await step('lyrics: chosen from a search or a file, kept for the song, and taken back', async () => {
+    const real = electronStub.net.fetch, asked = [];
+    electronStub.net.fetch = async url => { asked.push(url); return { status: 200, json: async () => /\/api\/get\/42$/.test(url) ? { id: 42, trackName: 'Pick', artistName: 'Me', syncedLyrics: '[00:02.00]picked words' }
+      : /\/api\/search/.test(url) ? [{ id: 1, trackName: 'Far', artistName: 'X', duration: 400, plainLyrics: 'p' }, { id: 42, trackName: 'Pick', artistName: 'Me', duration: 200, syncedLyrics: 's' }] : {} }; };
+    try {
+      const dir = fs.mkdtempSync(path.join(TMP, 'lyr4-')), song = path.join(dir, 'Mine.mp3'); fs.writeFileSync(song, 'x');
+      const meta = { title: 'Mine', artist: 'Me', duration: 201 };
+      const s = await call('lyrics:search', { q: 'pick me' }, meta);
+      if (s.results?.[0]?.id !== 42 || !s.results[0].synced || s.results.length !== 2) throw new Error('search: ' + JSON.stringify(s));
+      const p = await call('lyrics:pick', song, meta, 42);
+      if (!p.pinned || !/picked words/.test(p.synced || '')) throw new Error('pick: ' + JSON.stringify(p));
+      const g = await call('lyrics:get', song, meta, { online: false });
+      if (!g.pinned || !/picked words/.test(g.synced || '')) throw new Error('the choice was not kept: ' + JSON.stringify(g));
+      const lrc = path.join(dir, 'other words.lrc'); fs.writeFileSync(lrc, '[00:01.00]from a file');
+      const l = await call('lyrics:load', song, meta, lrc);
+      if (!l.pinned || !/from a file/.test(l.synced || '')) throw new Error('load: ' + JSON.stringify(l));
+      const bad = await call('lyrics:load', song, meta, path.join(dir, 'Mine.mp3'));
+      if (!bad.unreadable) throw new Error('a file that is not lyrics was read as lyrics');
+      await call('lyrics:unpin', song, meta);
+      const back = await call('lyrics:get', song, meta, { online: false });
+      if (back.pinned || back.source !== 'none') throw new Error('taken back, still: ' + JSON.stringify(back));
+    } finally { electronStub.net.fetch = real; }
+  });
+
+  // yt-dlp, fetched on first use and checked against its published sum (v3.39.0).
+  await step('YouTube captions: yt-dlp fetched once and checked, the song found by its length, its own captions first', async () => {
+    const { makeYtdlp, binaryName } = require(path.join(ROOT, 'ytdlp.js'));
+    if (binaryName('win32', 'x64') !== 'yt-dlp.exe' || binaryName('linux', 'arm64') !== 'yt-dlp_linux_aarch64' || binaryName('darwin', 'arm64') !== 'yt-dlp_macos') throw new Error('the release file names are wrong');
+    const dir = fs.mkdtempSync(path.join(TMP, 'ytdlp-')), bytes = Buffer.from('pretend yt-dlp');
+    const sum = require('crypto').createHash('sha256').update(bytes).digest('hex');
+    const fetched = [], ran = [];
+    let good = true;
+    const yt = makeYtdlp({
+      dir: () => dir, platform: 'linux', arch: 'x64',
+      fetchBuffer: async url => { fetched.push(url); return /SHA2-256SUMS$/.test(url) ? Buffer.from(`${good ? sum : 'f'.repeat(64)}  yt-dlp_linux\n${'a'.repeat(64)}  yt-dlp.exe\n`) : bytes; },
+      run: async (file, args) => {
+        ran.push(args);
+        if (args.some(a => /^ytsearch8:/.test(a))) return JSON.stringify({ entries: [{ id: 'far', title: 'Live, longer', duration: 300 }, { id: 'near', title: 'Song (Official Video)', duration: 212 }] });
+        if (args.includes('--dump-single-json')) return JSON.stringify({ language: 'en', subtitles: { en: [{ ext: 'vtt' }] }, automatic_captions: { 'en-orig': [{ ext: 'vtt' }] } });
+        const out = args[args.indexOf('-o') + 1].replace('%(ext)s', 'en.vtt');
+        fs.writeFileSync(out, 'WEBVTT\n\n00:00:01.000 --> 00:00:02.000\nhello\n\n00:00:02.000 --> 00:00:03.000\nworld\n');
+        return '';
+      },
+    });
+    good = false;
+    let threw = false; try { await yt.ensure(); } catch (e) { threw = /checksum/.test(e.message); }
+    if (!threw || fs.existsSync(path.join(dir, 'yt-dlp_linux'))) throw new Error('a download that did not match its sum was kept');
+    good = true;
+    const got = await yt.find({ artist: 'A', title: 'Song', duration: 213 });
+    if (!got || got.video.id !== 'near' || got.auto || !/hello/.test(got.vtt)) throw new Error('found ' + JSON.stringify(got));
+    if (!ran.some(a => a.includes('--write-subs') && a.includes('en'))) throw new Error('the video\'s own captions were not asked for: ' + JSON.stringify(ran.slice(-1)));
+    if (ran.some(a => a.includes('https://www.youtube.com/watch?v=far'))) throw new Error('a video of another length was tried');
+    const n = fetched.length; await yt.find({ artist: 'A', title: 'Song', duration: 213 });
+    if (fetched.length !== n) throw new Error('yt-dlp was fetched again while it was new');
+    if (!yt.status().installed) throw new Error('not marked as fetched');
   });
 
   /* ── 7b. Full screen (v3.37.0) ──────────────────────────────────── */

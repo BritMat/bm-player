@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Android 9 and later: a film in full screen may use the screen
+         beside a camera cutout, in landscape as in portrait. -->
+    <style name="AppTheme" parent="android:Theme.Material.NoActionBar">
+        <item name="android:windowBackground">@color/bm_bg</item>
+        <item name="android:colorBackground">@color/bm_bg</item>
+        <item name="android:statusBarColor">@color/bm_bg</item>
+        <item name="android:navigationBarColor">@color/bm_bg</item>
+        <item name="android:colorAccent">#5B6FF8</item>
+        <item name="android:colorPrimary">#111624</item>
+        <item name="android:colorPrimaryDark">@color/bm_bg</item>
+        <item name="android:windowLayoutInDisplayCutoutMode">shortEdges</item>
+    </style>
+</resources>

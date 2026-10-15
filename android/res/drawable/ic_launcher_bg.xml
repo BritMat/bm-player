@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The icon's own navy, top to bottom (buildResources/icon.png). -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="rectangle">
+    <gradient android:angle="270" android:startColor="#2F3758" android:endColor="#1B2039" />
+</shape>

@@ -73,7 +73,16 @@ function makeApi() {
       path: p, title: 'Title ' + p.slice(-5), artist: 'Artist A',
       album: 'Album One', year: 2024, trackNo: 1, duration: 183, cover: null,
     })),
-      lyrics: async (file, meta, opts) => { bridge.lyricsAsked = (bridge.lyricsAsked || []).concat([{ file, meta, opts }]); return bridge.lyrics || { source: 'none' }; } },
+      lyrics: async (file, meta, opts) => { bridge.lyricsAsked = (bridge.lyricsAsked || []).concat([{ file, meta, opts }]); return bridge.lyrics || { source: 'none' }; },
+      // v3.39.0: searched, chosen, loaded, taken back, YouTube, yt-dlp's state
+      lyricsSearch: async (query, meta) => { (bridge.lyr ||= {}).searched = { query, meta }; return bridge.lyr.results || { results: [] }; },
+      lyricsPick: async (file, meta, id) => { (bridge.lyr ||= {}).picked = { file, id }; return bridge.lyr.pick || { source: 'none' }; },
+      lyricsLoad: async (file, meta, path) => { (bridge.lyr ||= {}).loaded = { file, path }; return bridge.lyr.load || { source: 'none', canceled: true }; },
+      lyricsUnpin: async file => { (bridge.lyr ||= {}).unpinned = file; return true; },
+      lyricsYoutube: async (file, meta) => { (bridge.lyr ||= {}).youtube = (bridge.lyr.youtube || 0) + 1; return bridge.lyr.yt || { source: 'none' }; },
+      ytdlp: async () => ({ available: true, installed: !!bridge.lyr?.ytInstalled }) },
+    files: { pathOf: f => (bridge.pathOf ? bridge.pathOf(f) : (f && f.fakePath) || '') },
+    power: { battery: async () => !!bridge.battery, onBattery: cb => { bridge.batteryCb = cb; } },
     adj: group('subDelay', 'audioDelay', 'resetSub', 'resetAudio'),
     app: { ...group('perfInfo', 'version', 'getPlugins', 'setPluginEnabled', 'openPluginsDir', 'addRecent'),
            diagnostics: async () => ({
@@ -1252,6 +1261,167 @@ async function main() {
     });
   }
 
+  /* ── 18f. v3.39.0: the preset browser, lyrics search and YouTube,
+     subtitle edges, power, dropped files ─────────────────────────── */
+  {
+    const app = window.bmApp, m = window.bmMusic, doc = window.document, eng = m.engine;
+    const url = f => pathToFileURL(path.join(ROOT, 'src/js', f)).href;
+    const click = n => n.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+    await step('MilkDrop presets: every one has a picture, a click starts it (switching to MilkDrop), favourites kept and dealt alone when asked', async () => {
+      const { presetLabel } = await import(url('md-browser.js'));
+      const { MD_PREVIEWS } = await import(pathToFileURL(path.join(ROOT, 'src/vendor/milkdrop/previews.js')).href);
+      const { PRESETS } = await import(pathToFileURL(path.join(ROOT, 'src/vendor/milkdrop/presets.js')).href);
+      const VZ = await import(url('visualizer.js'));
+      const a = presetLabel('$$$ Royal - Mashup (197)'), b = presetLabel('_geiss_experimental__wavefronts');
+      if (a.title !== 'Mashup (197)' || a.by !== 'Royal' || b.title !== 'geiss experimental wavefronts' || b.by) throw new Error('names read as ' + JSON.stringify([a, b]));
+      const missing = Object.keys(PRESETS).filter(n => !MD_PREVIEWS.names.includes(n));
+      if (missing.length) throw new Error('presets with no picture (run scripts/build-md-previews.mjs): ' + missing.join(', '));
+      if (!fs.existsSync(path.join(ROOT, 'src', MD_PREVIEWS.src))) throw new Error('the sheet of pictures is missing');
+      const br = window.bmMdBrowser; if (!br) throw new Error('the preset browser did not start');
+      localStorage.removeItem('bm_md_favs');
+      const keep = VZ.vizSettings(); VZ.saveVizSettings({ ...keep, style: 'bars' });
+      const v = app.viz, picks = [], realPick = v.mdPick, realMode = v.mode;
+      v.mode = 'bars'; v.mdPick = n => { picks.push(n); return n; };
+      try {
+        br.show();
+        const cards = doc.querySelectorAll('#mdb-grid .mdb-card');
+        if (cards.length !== MD_PREVIEWS.names.length) throw new Error(cards.length + ' pictures for ' + MD_PREVIEWS.names.length + ' presets');
+        if (!/^url\("[a-z]+:.*vendor\/milkdrop\/previews\.jpg"\)$/.test(doc.getElementById('md-browser').style.getPropertyValue('--mdb-sheet'))) throw new Error('the sheet\'s address is not a full one: ' + doc.getElementById('md-browser').style.getPropertyValue('--mdb-sheet'));
+        click(cards[3]);
+        if (VZ.vizSettings().style !== 'milkdrop' || v.mode !== 'milkdrop' || picks[0] !== MD_PREVIEWS.names[3]) throw new Error('a click on a preset with Bars on: style ' + VZ.vizSettings().style + ', started ' + picks[0]);
+        if (doc.documentElement.dataset.vizStyle !== 'milkdrop') throw new Error('the page was not told MilkDrop is the style (the presets button would not show)');
+        click(doc.querySelector('#mdb-grid .mdb-card:nth-child(2) .mdb-star')); click(doc.querySelector('#mdb-grid .mdb-card:nth-child(5) .mdb-star'));
+        const favs = VZ.mdFavs();
+        if (favs.length !== 2 || !favs.includes(MD_PREVIEWS.names[1]) || !favs.includes(MD_PREVIEWS.names[4])) throw new Error('favourites ' + JSON.stringify(favs));
+        if (picks.length !== 1) throw new Error('the star also started the preset');
+        click(doc.getElementById('mdb-filter-fav'));
+        if (doc.querySelectorAll('#mdb-grid .mdb-card').length !== 2) throw new Error('the favourites view shows ' + doc.querySelectorAll('#mdb-grid .mdb-card').length);
+        const pool = Object.create(VZ.Visualizer.prototype);
+        Object.assign(pool, { _mdNames: MD_PREVIEWS.names, _mdPresets: Object.fromEntries(MD_PREVIEWS.names.map(n => [n, () => ({})])), opts: { mdFav: true } });
+        if (pool._mdPool().length !== 2) throw new Error('favourites only dealt from ' + pool._mdPool().length);
+        VZ.setMdFav(MD_PREVIEWS.names[1], false);
+        if (pool._mdPool().length !== MD_PREVIEWS.names.length) throw new Error('one favourite left: the shuffle should deal from all');
+        doc.getElementById('md-browser').dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+        if (!doc.getElementById('md-browser').classList.contains('hidden')) throw new Error('Escape did not close the browser');
+      } finally { v.mdPick = realPick; v.mode = realMode; VZ.saveVizSettings(keep); localStorage.removeItem('bm_md_favs'); br.filter = 'all'; br.hide(); }
+    });
+
+    await step('lyrics: searched for and chosen, loaded from a file, moved in time, and looked for on YouTube only when asked', async () => {
+      const ly = window.bmLyrics, song = '/fixtures/music/01 - track.mp3', meta = { title: 'T', artist: 'A', duration: 183 };
+      const realOwns = m.engineOwns;
+      try {
+        bridge.lyrics = { source: 'none' };
+        bridge.lyr = { results: { results: [{ id: 5, title: 'T', artist: 'A', album: 'B', duration: 182, synced: true }] }, pick: { source: 'lrclib', synced: '[00:01.00]one\n[00:05.00]two', pinned: true } };
+        ly.youtube = false; ly.showTab('lyrics');
+        await ly.song(song, meta);
+        if (ly.status !== 'none' || bridge.lyr.youtube) throw new Error('nothing found: status ' + ly.status + ', YouTube asked ' + bridge.lyr.youtube);
+        click(doc.querySelector('#np-lyrics [data-lyr="search"]'));
+        const q = doc.getElementById('lyr-q');
+        if (!q || q.value !== 'A T') throw new Error('the search did not start with the artist and title: ' + q?.value);
+        doc.querySelector('#np-lyrics form.lyr-search').dispatchEvent(new window.Event('submit', { bubbles: true, cancelable: true })); await tick(10);
+        if (bridge.lyr.searched?.query?.q !== 'A T') throw new Error('searched with ' + JSON.stringify(bridge.lyr.searched));
+        const res = doc.querySelector('#np-lyrics .lyr-result[data-id="5"]');
+        if (!res || !/same length/.test(res.textContent)) throw new Error('the result is not shown with its length: ' + res?.textContent);
+        click(res); await tick(10);
+        if (bridge.lyr.picked?.id !== '5' || ly.status !== 'ready' || ly.lines.length !== 2) throw new Error('chosen: ' + JSON.stringify(bridge.lyr.picked) + ' ' + ly.status);
+        if (!/chosen by you/.test(doc.querySelector('#np-lyrics .lyr-foot').textContent) || !doc.querySelector('#np-lyrics [data-lyr="unpin"]')) throw new Error('the choice is not shown as the person\'s');
+        // the timing: earlier by a quarter, and the next line is lit sooner
+        m.engineOwns = () => true; Object.defineProperty(eng, 'currentTime', { configurable: true, get: () => 4.9 });
+        ly._tick(true);
+        if (doc.querySelector('#np-lyrics .lyr-line.on')?.textContent !== 'one') throw new Error('at 4.9 s the lit line is ' + doc.querySelector('#np-lyrics .lyr-line.on')?.textContent);
+        click(doc.querySelector('#np-lyrics [data-lyr="earlier"]'));
+        if (doc.querySelector('#np-lyrics .lyr-line.on')?.textContent !== 'two') throw new Error('shown earlier, the lit line is still ' + doc.querySelector('#np-lyrics .lyr-line.on')?.textContent);
+        if (JSON.parse(localStorage.getItem('bm_lyrics_offsets') || '{}')[song] !== -0.25) throw new Error('the timing was not kept for the song');
+        if (doc.getElementById('lyr-timing-val')?.textContent !== '−0.25 s') throw new Error('the timing shows ' + doc.getElementById('lyr-timing-val')?.textContent);
+        click(doc.querySelector('#np-lyrics [data-lyr="timing-reset"]'));
+        delete eng.currentTime;
+        // a file
+        bridge.lyr.load = { source: 'file', synced: '[00:00.50]from a file', pinned: true };
+        click(doc.querySelector('#np-lyrics [data-lyr="load"]')); await tick(10);
+        if (bridge.lyr.loaded?.path !== null || ly.lines[0]?.text !== 'from a file') throw new Error('loaded: ' + JSON.stringify(bridge.lyr.loaded));
+        // dropped on the lyrics: for this song, not opened as media
+        const opened = [], realPlay = app.playMedia; app.playMedia = f => opened.push(f);
+        bridge.pathOf = f => '/dropped/' + f.name;
+        try {
+          const ev = new window.Event('drop', { bubbles: true, cancelable: true });
+          Object.defineProperty(ev, 'dataTransfer', { value: { files: [{ name: 'words.lrc' }], items: [] } });
+          doc.getElementById('np-lyrics').dispatchEvent(ev); await tick(10);
+          if (bridge.lyr.loaded?.path !== '/dropped/words.lrc' || opened.length) throw new Error('a dropped .lrc: loaded ' + JSON.stringify(bridge.lyr.loaded) + ', opened ' + JSON.stringify(opened));
+        } finally { app.playMedia = realPlay; bridge.pathOf = null; }
+        // YouTube: only when turned on, and only when nothing else was found
+        bridge.lyr.yt = { source: 'youtube', synced: '[00:01.00]yt words\n[00:02.00]more', auto: true };
+        ly.youtube = true;
+        await ly.song('/fixtures/music/02 - another.flac', meta);
+        if (bridge.lyr.youtube !== 1 || ly.lines[0]?.text !== 'yt words') throw new Error('YouTube: asked ' + bridge.lyr.youtube + ', lines ' + JSON.stringify(ly.lines));
+        if (!/automatic captions/.test(doc.querySelector('#np-lyrics .lyr-foot').textContent)) throw new Error('automatic captions are not said to be so');
+        bridge.lyrics = { source: 'lrclib', synced: '[00:01.00]found' };
+        await ly.song('/fixtures/music/song & co.ogg', meta);
+        if (bridge.lyr.youtube !== 1) throw new Error('YouTube was asked for a song that had lyrics');
+      } finally { m.engineOwns = realOwns; delete eng.currentTime; ly.youtube = false; localStorage.removeItem('bm_lyrics_offsets'); localStorage.removeItem('bm_lyrics_youtube'); bridge.lyrics = null; bridge.lyr = null; ly.clear(); ly.showTab('queue'); }
+    });
+
+    await step('subtitles: a thin outline by default, the edge a choice sent in an order both old and new mpv take, the settings colour the same colour', async () => {
+      const set = () => ipcCalls.filter(c => c[0] === 'set_property').map(c => [c[1], c[2]]);
+      const val = (list, k) => { const e = list.filter(x => x[0] === k).pop(); return e && e[1]; };
+      localStorage.removeItem('bm_sub_style');
+      ipcCalls.length = 0; window.bmSubStyle.apply(app.api);
+      let l = set();
+      if (val(l, 'sub-border-size') !== 2.2 || val(l, 'sub-shadow-offset') !== 0 || val(l, 'sub-ass-override') !== 'scale') throw new Error('the default look sent ' + JSON.stringify(l));
+      ipcCalls.length = 0; window.bmSubStyle.set({ edge: 'shadow' }); l = set();
+      const back = l.findIndex(x => x[0] === 'sub-back-color'), shadow = l.findIndex(x => x[0] === 'sub-shadow-color');
+      if (back < 0 || shadow < back || val(l, 'sub-shadow-offset') <= 0 || val(l, 'sub-ass-override') !== 'force') throw new Error('the shadow sent ' + JSON.stringify(l));
+      ipcCalls.length = 0; window.bmSubStyle.set({ edge: 'box' }); l = set();
+      if (val(l, 'sub-border-style') !== 'background-box' || !/^#[0-9A-F]{2}000000$/i.test(val(l, 'sub-back-color') || '') || val(l, 'sub-border-size') !== 0) throw new Error('the box sent ' + JSON.stringify(l));
+      ipcCalls.length = 0; window.bmSubStyle.set({ edge: 'outline' }); l = set();
+      if (val(l, 'sub-back-color') !== '#00000000') throw new Error('the box was not cleared going back to the outline');
+      const col = doc.getElementById('set-sub-color');
+      col.value = '#ff0000'; col.dispatchEvent(new window.Event('change', { bubbles: true }));
+      if (window.bmSubStyle.get().color !== '#FF0000') throw new Error('the settings colour is not the subtitle colour: ' + window.bmSubStyle.get().color);
+      window.bmSubStyle.open(); await tick(20);
+      if (doc.getElementById('dlg-substyle').classList.contains('hidden')) throw new Error('the subtitle style window did not open');
+      const rows = doc.querySelectorAll('#ss-fonts .ss-font');
+      if (rows.length < 10) throw new Error('only ' + rows.length + ' fonts listed');
+      click(rows[3]);
+      if (window.bmSubStyle.get().font !== rows[3].dataset.f) throw new Error('a font chosen in the window was not kept');
+      window.bmSubStyle.close(); localStorage.removeItem('bm_sub_style'); window.bmSubStyle.apply(app.api);
+    });
+
+    await step('power: the battery saver brings drawing to 30 a second, by itself on battery, and the home screen rests when no one is there', async () => {
+      const P = await import(url('power.js'));
+      try {
+        P.setSaverMode('off');
+        if (P.frameGap('viz') !== 12 || P.frameGap('decor') !== 12) throw new Error('without the saver: ' + P.frameGap('viz'));
+        P.setSaverMode('on');
+        if (P.frameGap('viz') !== 31 || P.frameGap('decor') !== 31 || !doc.documentElement.classList.contains('battery-saver')) throw new Error('with the saver: ' + P.frameGap('viz'));
+        P.setSaverMode('auto');
+        if (typeof bridge.batteryCb !== 'function') throw new Error('the page does not listen for the battery');
+        bridge.batteryCb(true); if (!P.power.saver) throw new Error('on battery, the saver did not come on');
+        bridge.batteryCb(false); if (P.power.saver) throw new Error('plugged in, the saver stayed on');
+        // resting: the home screen's backgrounds stop, and start again
+        const calls = [], fx = { pause: () => calls.push('pause'), resume: () => calls.push('resume') };
+        const keep = [app.fox, app.themeFX, app.auroraFX]; app.fox = fx; app.themeFX = fx; app.auroraFX = fx;
+        try {
+          app.goHome(); await tick(5); calls.length = 0;
+          P.power.idle = true; app._syncEffects(); await tick(5);
+          if (!calls.length || calls.some(c => c !== 'pause')) throw new Error('idle, the backgrounds: ' + calls.join(','));
+          calls.length = 0; P.power.idle = false; app._syncEffects(); await tick(5);
+          if (!calls.includes('resume')) throw new Error('back again, the backgrounds did not start: ' + calls.join(','));
+        } finally { [app.fox, app.themeFX, app.auroraFX] = keep; P.power.idle = false; }
+      } finally { P.setSaverMode('auto'); localStorage.removeItem('bm_battery_saver'); }
+    });
+
+    await step('files dropped on the player are opened (File.path is gone from Electron)', async () => {
+      const opened = [], realPlay = app.playMedia; app.playMedia = f => opened.push(f);
+      bridge.pathOf = f => '/dropped/' + f.name;
+      try {
+        const ev = new window.Event('drop', { bubbles: true, cancelable: true });
+        Object.defineProperty(ev, 'dataTransfer', { value: { files: [{ name: 'film.mkv' }] } });
+        doc.dispatchEvent(ev);
+        if (opened[0]?.[0] !== '/dropped/film.mkv') throw new Error('dropped, opened ' + JSON.stringify(opened));
+      } finally { app.playMedia = realPlay; bridge.pathOf = null; }
+    });
+  }
+
   /* ── 18d. The music's speed (v3.38.0) ──────────────────────────── */
   {
     const app = window.bmApp, m = window.bmMusic, doc = window.document, eng = m.engine;
@@ -1346,6 +1516,50 @@ async function main() {
       if (!has(rotateCmd(0)) || !has(mirrorCmd(false))) throw new Error('mpv was not told: ' + sent().join(' '));
       ipcCalls.length = 0; fireProp('filename', 'next-film.mkv'); await tick(5);
       if (ipcCalls.length) throw new Error('the same file reported again reset it again');
+    });
+    // v3.43.1: where the graphics card decodes into its own memory, mpv drops
+    // the filter and the picture stays as it was (found on a laptop with a
+    // real MKV). So the mirror switches the decoder to its copying kind, puts
+    // the filter in again after that, and mirror off puts the decoding back.
+    await step('mirror where the graphics card decodes: the copying decoder while mirrored, and the decoding back after', async () => {
+      const { default: VT } = await import(pathToFileURL(path.join(ROOT, 'src/js/modules/video-transform.js')).href);
+      const log = [];
+      let hw = 'd3d11va', opt = 'auto-safe';
+      const known = { 'd3d11va-copy': 'd3d11va-copy', 'auto-safe': 'd3d11va', nvdec: 'd3d11va', no: 'no' };
+      const mpv = { cmd: async (...c) => {
+        log.push(c);
+        if (c[0] === 'get_property' && c[1] === 'hwdec-current') return hw;
+        if (c[0] === 'get_property' && c[1] === 'hwdec') return opt;
+        if (c[0] === 'set_property' && c[1] === 'hwdec') { if (!(c[2] in known)) return { error: 'invalid value' }; opt = c[2]; hw = known[c[2]]; }
+        return null;
+      } };
+      const t = new VT({ mpv: () => mpv, osd: () => {}, paused: () => false });
+      const s = () => log.map(c => JSON.stringify(c));
+      await t.mirror(true);
+      const iSet = s().indexOf(JSON.stringify(['set_property', 'hwdec', 'd3d11va-copy'])), lastAdd = s().lastIndexOf(JSON.stringify(mirrorCmd(true)));
+      if (iSet < 0 || hw !== 'd3d11va-copy') throw new Error('the decoder was not switched to copying: ' + s().join(' '));
+      if (lastAdd < iSet) throw new Error('the filter was not put in again after the switch: ' + s().join(' '));
+      log.length = 0; t.mirror(false);
+      if (!s().includes(JSON.stringify(mirrorCmd(false))) || !s().includes(JSON.stringify(['set_property', 'hwdec', 'auto-safe'])) || hw !== 'd3d11va') throw new Error('mirror off did not put the decoding back: ' + s().join(' '));
+      // the processor decoding: nothing to switch
+      hw = 'no'; opt = 'no'; log.length = 0;
+      await t.mirror(true); t.reset(true);
+      if (log.some(c => c[0] === 'set_property' && c[1] === 'hwdec')) throw new Error('switched the decoder with the processor decoding: ' + s().join(' '));
+      // a decoder this mpv has no copying kind of: the next that copies
+      hw = 'vdpau'; opt = 'auto-safe'; known.vdpau = 'vdpau'; known['auto-copy-safe'] = 'vdpau-copy'; log.length = 0;
+      await t.mirror(true);
+      if (hw !== 'vdpau-copy' || !s().includes(JSON.stringify(['set_property', 'hwdec', 'auto-copy-safe']))) throw new Error('no copying decoder after vdpau-copy was refused: ' + s().join(' '));
+      t.mirror(false);
+      // the mirror taken off before the switch was made: the decoding is left alone
+      hw = 'd3d11va'; opt = 'nvdec'; log.length = 0;
+      const p = t.mirror(true); t.mirror(false); await p;
+      if (log.some(c => c[0] === 'set_property' && c[1] === 'hwdec') || opt !== 'nvdec') throw new Error('the decoding changed for a mirror already off: ' + s().join(' '));
+      // mpv 0.36 and newer give the option as a list: the same choice comes back
+      hw = 'd3d11va'; opt = ['nvdec']; log.length = 0;
+      const realGet = mpv.cmd;
+      mpv.cmd = async (...c) => (c[0] === 'get_property' && c[1] === 'hwdec') ? (log.push(c), opt) : realGet(...c);
+      await t.mirror(true); t.mirror(false);
+      if (!s().includes(JSON.stringify(['set_property', 'hwdec', 'nvdec']))) throw new Error('the list form was not put back as it was: ' + s().join(' '));
     });
   }
 

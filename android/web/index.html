@@ -1,0 +1,401 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="dark light">
+<title>BM Player</title>
+<!-- BM Player for Android: the page the app shows (android/web, copied into
+     the APK by android/build-apk.mjs with the desktop's visualiser, MilkDrop,
+     lyrics, fox and icons beside it). Phone sized: Home, Music, Videos,
+     Photos and Settings as tabs, the song playing in a bar above them, and
+     Now Playing, the video player, the picture viewer and the PDF reader
+     over all. -->
+<link rel="stylesheet" href="css/themes.css">
+<link rel="stylesheet" href="css/fonts.css">
+<link rel="stylesheet" href="css/lyrics.css">
+<link rel="stylesheet" href="css/md-browser.css">
+<link rel="stylesheet" href="css/play.css">
+<link rel="stylesheet" href="css/mobile.css">
+<script src="js/m-check.js"></script>
+<script src="js/lyrics-core.js"></script>
+<script type="module" src="js/m-main.js"></script>
+</head>
+<body>
+<div class="m-old" id="m-old" hidden></div>
+
+<div class="m-app" id="app">
+  <!-- ── Home (v3.42.0): the fox, Browse and Resume, and three ways to play ── -->
+  <section class="m-view m-home" id="v-home" data-tab="home" data-mode="fox">
+    <canvas class="home-bg" id="home-flow" aria-hidden="true"></canvas>
+    <canvas class="home-bg" id="home-fx" aria-hidden="true"></canvas>
+    <div class="home-main" id="home-main">
+      <header class="home-top">
+        <div class="play-modes" id="home-modes" role="group" aria-label="Play"></div>
+        <span class="home-sp"></span>
+        <button class="m-ib" id="home-sound" type="button" aria-label="Sounds on"></button>
+        <button class="m-ib" id="home-theme" type="button" data-icon="palette" aria-label="Theme"></button>
+      </header>
+      <div class="home-scroll">
+        <div class="home-hero">
+          <div class="fox-stage" id="fox-stage"><canvas id="fox-canvas"></canvas><div class="fox-fx" id="fox-fx"></div></div>
+          <button class="home-talk" id="home-talk" type="button" aria-label="Talk to the fox"><span class="ht-ico" data-icon="mic"></span><span class="ht-lbl" id="home-talk-label">Talk</span></button>
+          <h1 class="welcome-title home-title"><span class="wm-bm">BM</span> <span class="wm-player">Player</span></h1>
+          <p class="home-hint" id="home-hint"></p>
+          <div class="home-actions">
+            <button class="m-btn home-browse" id="home-browse" type="button"><span data-icon="folder"></span><span>Browse</span></button>
+            <button class="m-btn m-btn-2 home-resume hidden" id="home-resume" type="button"><span class="hr-main"><span data-icon="resume"></span><span>Resume</span></span><span class="hr-sub" id="home-resume-sub"></span></button>
+          </div>
+        </div>
+        <div class="home-rows" id="home-rows">
+          <div class="home-recent-wrap hidden" id="home-recent-wrap">
+            <h2 class="st-h home-h">Recent</h2>
+            <div class="home-recent" id="home-recent"></div>
+          </div>
+          <!-- v3.43.0: what was starred, and Settings can hide either row -->
+          <div class="home-recent-wrap hidden" id="home-fav-wrap">
+            <h2 class="st-h home-h">Favourites</h2>
+            <div class="home-recent home-favs" id="home-favs"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="flow-surface" id="flow-surface"></div>
+    <div class="flow-bar" id="flow-bar" role="toolbar" aria-label="Flow">
+      <button class="m-ib" id="flow-close" type="button" data-icon="x" aria-label="Back to the fox"></button>
+      <button class="m-ib" id="flow-pause" type="button" aria-label="Pause"></button>
+      <button class="m-ib" id="flow-burst" type="button" data-icon="burst" aria-label="A splash of colour"></button>
+      <button class="m-ib" id="flow-clear" type="button" data-icon="trash" aria-label="Clear"></button>
+      <button class="m-ib" id="flow-settings" type="button" data-icon="settings" aria-label="Flow settings"></button>
+    </div>
+    <div class="sg-stage" id="slice-stage"><canvas class="sg-canvas" id="slice-canvas"></canvas><div class="sg-ui hidden" id="slice-ui"></div></div>
+  </section>
+
+  <!-- ── Music ─────────────────────────────────────────────────────── -->
+  <section class="m-view hidden" id="v-music" data-tab="music">
+    <header class="m-top">
+      <h1 class="m-h1">Music</h1>
+      <button class="m-ib" id="mu-shuffle-all" type="button" data-icon="shuffle" aria-label="Shuffle all"></button>
+      <button class="m-ib" id="mu-search-btn" type="button" data-icon="search" aria-label="Search"></button>
+      <button class="m-ib" id="mu-sort-btn" type="button" data-icon="sort" aria-label="Sort"></button>
+    </header>
+    <form class="m-search hidden" id="mu-search" role="search">
+      <span class="m-search-ico" data-icon="search" aria-hidden="true"></span>
+      <input id="mu-q" type="search" placeholder="Songs, albums, artists" autocomplete="off" spellcheck="false" enterkeyhint="search" aria-label="Search the music">
+      <button class="m-ib" id="mu-search-x" type="button" data-icon="x" aria-label="Close the search"></button>
+    </form>
+    <div class="m-chips" id="mu-chips" role="tablist" aria-label="Show">
+      <button class="chip on" type="button" data-k="songs" role="tab">Songs</button>
+      <button class="chip" type="button" data-k="albums" role="tab">Albums</button>
+      <button class="chip" type="button" data-k="artists" role="tab">Artists</button>
+      <button class="chip" type="button" data-k="folders" role="tab">Folders</button>
+    </div>
+    <div class="m-body">
+      <div class="m-scroll" id="mu-list"></div>
+      <div class="m-empty hidden" id="mu-empty"></div>
+    </div>
+  </section>
+
+  <!-- An album, an artist or a folder, over the music. -->
+  <section class="m-view m-detail hidden" id="v-detail">
+    <header class="m-top">
+      <button class="m-ib" id="dt-back" type="button" data-icon="back" aria-label="Back"></button>
+      <h1 class="m-h2" id="dt-title"></h1>
+    </header>
+    <div class="m-body"><div class="m-scroll" id="dt-list"></div></div>
+  </section>
+
+  <!-- ── Videos ────────────────────────────────────────────────────── -->
+  <section class="m-view hidden" id="v-videos" data-tab="videos">
+    <header class="m-top">
+      <h1 class="m-h1">Videos</h1>
+      <button class="m-ib" id="vd-open" type="button" data-icon="folder" aria-label="Open a video file"></button>
+      <button class="m-ib" id="vd-view-btn" type="button" data-icon="list" aria-label="View"></button>
+      <button class="m-ib" id="vd-sort-btn" type="button" data-icon="sort" aria-label="Sort"></button>
+    </header>
+    <div class="m-chips" id="vd-chips" role="tablist" aria-label="Show"></div>
+    <div class="m-body">
+      <div class="m-scroll" id="vd-list"></div>
+      <div class="m-empty hidden" id="vd-empty"></div>
+    </div>
+  </section>
+
+  <!-- ── Photos (v3.42.0) ──────────────────────────────────────────────── -->
+  <section class="m-view hidden" id="v-photos" data-tab="photos">
+    <header class="m-top">
+      <h1 class="m-h1">Photos</h1>
+      <button class="m-ib" id="ph-open" type="button" data-icon="folder" aria-label="Open a picture or a PDF"></button>
+      <button class="m-ib" id="ph-sort-btn" type="button" data-icon="sort" aria-label="Sort"></button>
+    </header>
+    <div class="m-chips" id="ph-chips" role="tablist" aria-label="Show"></div>
+    <div class="m-body">
+      <div class="m-scroll" id="ph-list"></div>
+      <div class="m-empty hidden" id="ph-empty"></div>
+    </div>
+  </section>
+
+  <!-- A folder of videos or an album of pictures, over its tab (m-sub.js). -->
+  <section class="m-view m-detail hidden" id="v-sub">
+    <header class="m-top">
+      <button class="m-ib" id="sub-back" type="button" data-icon="back" aria-label="Back"></button>
+      <h1 class="m-h2" id="sub-title"></h1>
+      <button class="m-ib" id="sub-act" type="button" aria-label="View"></button>
+    </header>
+    <div class="m-body"><div class="m-scroll" id="sub-list"></div></div>
+  </section>
+
+  <!-- ── Settings ──────────────────────────────────────────────────── -->
+  <section class="m-view hidden" id="v-settings" data-tab="settings">
+    <header class="m-top"><h1 class="m-h1">Settings</h1></header>
+    <div class="m-body"><div class="m-scroll m-settings" id="st-body">
+      <h2 class="st-h">Look</h2>
+      <div class="st-card">
+        <div class="st-row st-col"><span class="st-label">Theme</span><div class="st-themes" id="st-themes"></div></div>
+      </div>
+
+      <h2 class="st-h">Playback</h2>
+      <div class="st-card">
+        <div class="st-row st-col"><span class="st-label">Battery saver</span><span class="st-note">Draws the visualiser at 30 frames a second instead of 60, which uses about half the power.</span>
+          <div class="seg" id="st-saver"><button type="button" data-v="auto">On battery</button><button type="button" data-v="on">Always</button><button type="button" data-v="off">Never</button></div></div>
+        <div class="st-row st-col"><span class="st-label">Visualiser quality</span><span class="st-note" id="st-quality-note"></span>
+          <div class="seg" id="st-quality"><button type="button" data-v="low">Low</button><button type="button" data-v="medium">Medium</button><button type="button" data-v="high">High</button></div></div>
+        <label class="st-row st-switch"><span class="st-text"><span class="st-label">Keep the screen on</span><span class="st-note">While the visualiser or a video is on screen.</span></span><input type="checkbox" id="st-awake"></label>
+        <label class="st-row st-switch"><span class="st-text"><span class="st-label">Every audio file</span><span class="st-note">Also voice notes, recordings and ringtones. Off: only music.</span></span><input type="checkbox" id="st-allaudio"></label>
+        <label class="st-row st-switch"><span class="st-text"><span class="st-label">Keep the music for next time</span><span class="st-note">The song and the queue wait, paused, when the app opens again. Off: it opens with no music bar. The X on the bar stops the music either way.</span></span><input type="checkbox" id="st-keepq"></label>
+      </div>
+
+      <h2 class="st-h">Lyrics</h2>
+      <div class="st-card">
+        <label class="st-row st-switch"><span class="st-text"><span class="st-label">Look online</span><span class="st-note">When a song has none of its own, ask LRCLIB (lrclib.net). Only the artist, title, album and length are sent.</span></span><input type="checkbox" id="st-lyr-online"></label>
+        <div class="st-row"><span class="st-text"><span class="st-label">Saved lyrics</span><span class="st-note" id="st-lyr-count"></span></span><button class="st-btn" type="button" id="st-lyr-clear">Clear</button></div>
+      </div>
+
+      <h2 class="st-h">Videos</h2>
+      <div class="st-card">
+        <div class="st-row st-col"><span class="st-label">Player</span><span class="st-note" id="st-vplayer-note"></span>
+          <div class="seg" id="st-vplayer"><button type="button" data-v="mpv">mpv (built in)</button><button type="button" data-v="web">Web engine</button></div></div>
+        <div class="st-row st-col"><span class="st-label">Subtitle size</span><div class="seg" id="st-sub-size"><button type="button" data-v="s">Small</button><button type="button" data-v="m">Medium</button><button type="button" data-v="l">Large</button></div></div>
+        <label class="st-row st-switch"><span class="st-text"><span class="st-label">Dark box behind subtitles</span><span class="st-note">Off: the words have an outline instead. Styled subtitles keep their own look.</span></span><input type="checkbox" id="st-sub-box"></label>
+        <label class="st-row st-switch"><span class="st-text"><span class="st-label">Play the next one after</span><span class="st-note">At the end of a video, the next in its folder or list starts.</span></span><input type="checkbox" id="st-vnext"></label>
+        <div class="st-row st-col"><span class="st-label">Swipes in the player</span><span class="st-note">Sideways moves through the video; up and down on the left is brightness, on the right volume; pinch zooms; hold for double speed; double tap jumps ten seconds.</span>
+          <div class="seg seg-multi" id="st-gest"><button type="button" data-v="seek">Seek</button><button type="button" data-v="brightness">Brightness</button><button type="button" data-v="volume">Volume</button><button type="button" data-v="zoom">Zoom</button><button type="button" data-v="hold">Hold 2×</button><button type="button" data-v="doubleTap">Double tap</button></div></div>
+      </div>
+
+      <h2 class="st-h">Home</h2>
+      <div class="st-card">
+        <label class="st-row st-switch"><span class="st-text"><span class="st-label">The fox's sounds</span><span class="st-note">Squeaks, giggles and purring when it is played with, and the fruit game's.</span></span><input type="checkbox" id="st-fox-sound"></label>
+        <label class="st-row st-switch"><span class="st-text"><span class="st-label">Recent on Home</span><span class="st-note">The row of what was opened lately.</span></span><input type="checkbox" id="st-home-recent"></label>
+        <div class="st-row"><span class="st-text"><span class="st-label">Recent</span><span class="st-note" id="st-recent-n"></span></span><button class="st-btn" type="button" id="st-recent-clear">Clear</button></div>
+        <label class="st-row st-switch"><span class="st-text"><span class="st-label">Favourites on Home</span><span class="st-note">The star on a song, a video, a picture or a PDF keeps it in this row.</span></span><input type="checkbox" id="st-home-favs"></label>
+        <div class="st-row"><span class="st-text"><span class="st-label">Favourites</span><span class="st-note" id="st-fav-n"></span></span><button class="st-btn" type="button" id="st-fav-clear">Clear</button></div>
+      </div>
+
+      <h2 class="st-h">Library</h2>
+      <div class="st-card">
+        <div class="st-row"><span class="st-text"><span class="st-label">Music</span><span class="st-note" id="st-acc-audio"></span></span><button class="st-btn" type="button" id="st-acc-audio-btn">Allow</button></div>
+        <div class="st-row"><span class="st-text"><span class="st-label">Videos</span><span class="st-note" id="st-acc-video"></span></span><button class="st-btn" type="button" id="st-acc-video-btn">Allow</button></div>
+        <div class="st-row"><span class="st-text"><span class="st-label">Pictures</span><span class="st-note" id="st-acc-image"></span></span><button class="st-btn" type="button" id="st-acc-image-btn">Allow</button></div>
+        <div class="st-row"><span class="st-text"><span class="st-label">Microphone</span><span class="st-note" id="st-acc-mic"></span></span><button class="st-btn" type="button" id="st-acc-mic-btn">Allow</button></div>
+        <div class="st-row"><span class="st-text"><span class="st-label">Look again</span><span class="st-note">For files added since BM Player started.</span></span><button class="st-btn" type="button" id="st-rescan">Refresh</button></div>
+      </div>
+
+      <h2 class="st-h">About</h2>
+      <div class="st-card">
+        <div class="st-row st-col"><span class="st-label">BM Player for Android</span><span class="st-note st-sel" id="st-about"></span></div>
+        <div class="st-row"><span class="st-text"><span class="st-label">The app's log</span><span class="st-note">What happened, for a problem report.</span></span><button class="st-btn" type="button" id="st-log">Show</button></div>
+        <div class="st-row"><span class="st-text"><span class="st-label">Source code and updates</span><span class="st-note">github.com/BritMat/bm-player</span></span><button class="st-btn" type="button" id="st-github">Open</button></div>
+        <div class="st-row"><span class="st-text"><span class="st-label">Licences</span><span class="st-note">BM Player (MIT), mpv and FFmpeg (GPL 3), butterchurn (MIT), WebGL Fluid (MIT), pdf.js (Apache 2.0), Outfit and Unbounded (SIL OFL 1.1).</span></span><button class="st-btn" type="button" id="st-licences">Show</button></div>
+      </div>
+      <div class="st-foot"></div>
+    </div></div>
+  </section>
+
+  <!-- The song playing, above the tabs. -->
+  <div class="m-mini hidden" id="mini">
+    <button class="mini-open" id="mini-open" type="button" aria-label="Open Now Playing">
+      <span class="mini-art art" id="mini-art"></span>
+      <span class="mini-txt"><span class="mini-t1" id="mini-title"></span><span class="mini-t2" id="mini-sub"></span></span>
+    </button>
+    <button class="m-ib mini-play" id="mini-play" type="button" data-icon="play" aria-label="Play"></button>
+    <button class="m-ib" id="mini-next" type="button" data-icon="next" aria-label="Next"></button>
+    <button class="m-ib mini-close" id="mini-close" type="button" data-icon="x" aria-label="Stop and close"></button>
+    <span class="mini-prog" id="mini-prog"></span>
+  </div>
+
+  <nav class="m-nav" id="nav" aria-label="Sections">
+    <button class="on" type="button" data-tab="home"><span class="nav-ico" data-icon="home"></span><span class="nav-lbl">Home</span></button>
+    <button type="button" data-tab="music"><span class="nav-ico" data-icon="music"></span><span class="nav-lbl">Music</span></button>
+    <button type="button" data-tab="videos"><span class="nav-ico" data-icon="video"></span><span class="nav-lbl">Videos</span></button>
+    <button type="button" data-tab="photos"><span class="nav-ico" data-icon="images"></span><span class="nav-lbl">Photos</span></button>
+    <button type="button" data-tab="settings"><span class="nav-ico" data-icon="settings"></span><span class="nav-lbl">Settings</span></button>
+  </nav>
+</div>
+
+<!-- ── Now Playing ───────────────────────────────────────────────────── -->
+<div class="np hidden" id="np" role="dialog" aria-label="Now playing" data-mode="art">
+  <div class="np-bg" id="np-bg"></div>
+  <div class="np-vizlayer" id="np-vizlayer"><canvas class="np-viz" id="np-viz"></canvas></div>
+  <div class="viz-lyrics hidden" id="viz-lyrics" aria-live="off"><div class="vl-now" id="vl-now"></div><div class="vl-next" id="vl-next"></div></div>
+  <div class="np-ui" id="np-ui">
+    <header class="np-head" id="np-head">
+      <button class="m-ib" id="np-close" type="button" data-icon="chevDown" aria-label="Close"></button>
+      <div class="np-from"><span class="np-from-k" id="np-from-k">Now playing</span><span class="np-from-v" id="np-from"></span></div>
+      <button class="m-ib" id="np-more" type="button" data-icon="more" aria-label="More"></button>
+    </header>
+    <div class="np-stage" id="np-stage"><div class="np-art art" id="np-art"></div></div>
+    <div class="np-info">
+      <div class="np-title" id="np-title"></div>
+      <div class="np-sub" id="np-sub"></div>
+    </div>
+    <div class="np-seek">
+      <input type="range" class="m-range" id="np-range" min="0" max="1000" step="1" value="0" aria-label="Position">
+      <div class="np-times"><span id="np-cur">0:00</span><span class="np-speed hidden" id="np-speed"></span><span id="np-dur">0:00</span></div>
+    </div>
+    <div class="np-ctrl">
+      <button class="m-ib np-side" id="np-shuffle" type="button" data-icon="shuffle" aria-label="Shuffle" aria-pressed="false"></button>
+      <button class="m-ib np-big" id="np-prev" type="button" data-icon="prev" aria-label="Previous"></button>
+      <button class="np-play" id="np-play" type="button" data-icon="play" aria-label="Play"></button>
+      <button class="m-ib np-big" id="np-next" type="button" data-icon="next" aria-label="Next"></button>
+      <button class="m-ib np-side" id="np-repeat" type="button" data-icon="repeat" aria-label="Repeat: off"></button>
+    </div>
+    <div class="np-tools">
+      <button class="np-tool" id="np-viz-btn" type="button" aria-pressed="false"><span class="np-tool-ico" data-icon="sparkle"></span><span class="np-tool-lbl">Visualiser</span></button>
+      <button class="np-tool np-vizonly" id="viz-btn-settings" type="button"><span class="np-tool-ico" data-icon="palette"></span><span class="np-tool-lbl">Style</span></button>
+      <button class="np-tool np-vizonly" id="viz-btn-presets" type="button" aria-expanded="false"><span class="np-tool-ico" data-icon="grid"></span><span class="np-tool-lbl">Presets</span></button>
+      <button class="np-tool np-vizonly" id="viz-btn-lyrics" type="button" aria-pressed="false"><span class="np-tool-ico" data-icon="lyrics"></span><span class="np-tool-lbl">Words</span></button>
+      <button class="np-tool np-vizonly" id="np-full" type="button"><span class="np-tool-ico" data-icon="fullscreen"></span><span class="np-tool-lbl">Full screen</span></button>
+    </div>
+  </div>
+  <div class="np-drawer" id="np-drawer">
+    <div class="np-drawer-head">
+      <span class="np-grip" aria-hidden="true"></span>
+      <div class="np-tabs" role="tablist">
+        <button class="np-tab active" id="np-tab-queue" type="button" role="tab">Up next</button>
+        <button class="np-tab" id="np-tab-lyrics" type="button" role="tab">Lyrics</button>
+      </div>
+    </div>
+    <div class="np-drawer-body" id="np-drawer-body">
+      <div class="np-queue m-scroll" id="np-queue"></div>
+      <div class="np-lyrics hidden" id="np-lyrics" aria-live="off"></div>
+    </div>
+  </div>
+  <button class="np-exitfull" id="np-exitfull" type="button" data-icon="x" aria-label="Leave full screen"></button>
+</div>
+
+<!-- ── The video player ──────────────────────────────────────────────── -->
+<div class="vp hidden" id="vp" role="dialog" aria-label="Video">
+  <video class="vp-video" id="vp-video" playsinline preload="metadata"></video>
+  <div class="vp-tap" id="vp-tap"></div>
+  <div class="vp-flash vp-flash-l" id="vp-flash-l"><span data-icon="rew"></span><span>10 s</span></div>
+  <div class="vp-flash vp-flash-r" id="vp-flash-r"><span data-icon="fwd"></span><span>10 s</span></div>
+  <!-- v3.42.0: what a swipe is changing (brightness, volume, the position, the zoom) -->
+  <div class="vp-hud" id="vp-hud" aria-live="off"><span class="vp-hud-ico" id="vp-hud-ico"></span><span class="vp-hud-txt" id="vp-hud-txt"></span><span class="vp-hud-sub" id="vp-hud-sub"></span><span class="vp-hud-bar" id="vp-hud-bar"><span></span></span></div>
+  <div class="vp-ui" id="vp-ui">
+    <header class="vp-top">
+      <button class="m-ib" id="vp-back" type="button" data-icon="back" aria-label="Back"></button>
+      <div class="vp-titles"><div class="vp-title" id="vp-title"></div><div class="vp-meta" id="vp-meta"></div></div>
+      <button class="vp-badge hidden" id="vp-badge" type="button" aria-label="Decoder"></button>
+      <button class="m-ib" id="vp-audio" type="button" data-icon="volHigh" aria-label="Audio track"></button>
+      <button class="m-ib" id="vp-subs" type="button" data-icon="sub" aria-label="Subtitles"></button>
+      <button class="m-ib" id="vp-more" type="button" data-icon="more" aria-label="More"></button>
+    </header>
+    <div class="vp-mid">
+      <button class="m-ib vp-big vp-skip hidden" id="vp-prev" type="button" data-icon="prev" aria-label="Previous video"></button>
+      <button class="m-ib vp-big" id="vp-rew" type="button" data-icon="rew" aria-label="Back 10 seconds"></button>
+      <button class="vp-play" id="vp-play" type="button" data-icon="play" aria-label="Play"></button>
+      <button class="m-ib vp-big" id="vp-fwd" type="button" data-icon="fwd" aria-label="Forward 10 seconds"></button>
+      <button class="m-ib vp-big vp-skip hidden" id="vp-next" type="button" data-icon="next" aria-label="Next video"></button>
+    </div>
+    <footer class="vp-bottom">
+      <div class="vp-seekrow">
+        <span class="vp-time" id="vp-cur">0:00</span>
+        <div class="vp-rangebox"><span class="vp-ab-mark hidden" id="vp-ab-mark"></span><input type="range" class="m-range" id="vp-range" min="0" max="1000" step="1" value="0" aria-label="Position"></div>
+        <span class="vp-time" id="vp-dur">0:00</span>
+      </div>
+      <div class="vp-tools">
+        <button class="m-ib" id="vp-lock" type="button" data-icon="lock" aria-label="Lock the controls"></button>
+        <button class="vp-pill" id="vp-speed" type="button" aria-label="Speed">1×</button>
+        <button class="m-ib" id="vp-ab" type="button" data-icon="abloop" aria-label="Repeat a part"></button>
+        <span class="vp-sp"></span>
+        <button class="m-ib" id="vp-rotate" type="button" data-icon="rotate" aria-label="Turn the screen"></button>
+        <button class="m-ib" id="vp-fit" type="button" data-icon="aspect" aria-label="Picture size"></button>
+      </div>
+    </footer>
+  </div>
+  <button class="vp-unlock hidden" id="vp-unlock" type="button" data-icon="lock" aria-label="Unlock the controls"></button>
+  <div class="vp-chip hidden" id="vp-chip"></div>
+  <div class="vp-spin" id="vp-spin"><div class="m-spin"></div></div>
+  <div class="vp-note hidden" id="vp-note"></div>
+</div>
+
+<!-- ── The picture viewer (v3.42.0) ──────────────────────────────────── -->
+<div class="iv hidden" id="iv" role="dialog" aria-label="Picture">
+  <div class="iv-strip" id="iv-strip"></div>
+  <div class="iv-ui" id="iv-ui">
+    <header class="iv-top">
+      <button class="m-ib" id="iv-back" type="button" data-icon="back" aria-label="Back"></button>
+      <div class="vp-titles"><div class="vp-title" id="iv-title"></div><div class="vp-meta" id="iv-meta"></div></div>
+      <button class="m-ib iv-fav" id="iv-fav" type="button" data-icon="star" aria-label="Add to favourites" aria-pressed="false"></button>
+      <button class="m-ib" id="iv-rotate" type="button" data-icon="rotateL" aria-label="Turn the picture"></button>
+      <button class="m-ib" id="iv-share" type="button" data-icon="share" aria-label="Share"></button>
+      <button class="m-ib" id="iv-more" type="button" data-icon="more" aria-label="More"></button>
+    </header>
+    <footer class="iv-bottom"><button class="m-ib" id="iv-show" type="button" data-icon="slides" aria-label="Slideshow"></button><span class="iv-count" id="iv-count"></span><button class="m-ib" id="iv-info" type="button" data-icon="info" aria-label="Details"></button></footer>
+  </div>
+</div>
+
+<!-- ── The PDF reader (v3.42.0, pdf.js) ──────────────────────────────── -->
+<div class="pv hidden" id="pv" role="dialog" aria-label="Document">
+  <header class="pv-top">
+    <button class="m-ib" id="pv-back" type="button" data-icon="back" aria-label="Back"></button>
+    <div class="vp-titles"><div class="vp-title" id="pv-title"></div><div class="vp-meta" id="pv-meta"></div></div>
+    <button class="m-ib pv-fav" id="pv-fav" type="button" data-icon="star" aria-label="Add to favourites" aria-pressed="false"></button>
+    <button class="m-ib" id="pv-find" type="button" data-icon="search" aria-label="Find"></button>
+    <button class="m-ib" id="pv-more" type="button" data-icon="more" aria-label="More"></button>
+  </header>
+  <form class="m-search pv-search hidden" id="pv-search" role="search">
+    <input id="pv-q" type="search" placeholder="Find in the document" autocomplete="off" spellcheck="false" enterkeyhint="search" aria-label="Find in the document">
+    <span class="pv-hits" id="pv-hits"></span>
+    <button class="m-ib" id="pv-prev-hit" type="button" data-icon="chevDown" aria-label="Previous" style="transform:rotate(180deg)"></button>
+    <button class="m-ib" id="pv-next-hit" type="button" data-icon="chevDown" aria-label="Next"></button>
+    <button class="m-ib" id="pv-search-x" type="button" data-icon="x" aria-label="Close the search"></button>
+  </form>
+  <div class="pv-body" id="pv-body"><div class="pv-pages" id="pv-pages"></div></div>
+  <button class="pv-page" id="pv-page" type="button" aria-label="Go to a page"></button>
+  <div class="pv-msg hidden" id="pv-msg"></div>
+</div>
+
+<!-- Shared by the visual mode and its settings (desktop modules, phone styled). -->
+<div class="viz-settings hidden" id="viz-settings" role="dialog" aria-label="Visualiser settings">
+  <div class="vs-title">Visualiser</div>
+  <div class="vs-row"><span class="vs-label">Style</span><div class="vs-seg" id="vs-style"><button data-v="bars">Bars</button><button data-v="radial">Radial</button><button data-v="wave">Wave</button><button data-v="particles">Particles</button><button data-v="fluid">Smoke</button><button data-v="flow">HD Flow</button><button data-v="neon">Neon</button><button data-v="bubbles">Bubbles</button><button data-v="milkdrop">MilkDrop</button></div></div>
+  <div class="vs-row vs-md"><span class="vs-label">Presets</span><div class="vs-seg" id="vs-md-auto"><button data-v="0">Off</button><button data-v="15" aria-label="Every 15 seconds">15 s</button><button data-v="30" aria-label="Every 30 seconds">30 s</button><button data-v="60" aria-label="Every 60 seconds">60 s</button></div></div>
+  <div class="vs-row vs-md vs-sub"><span class="vs-label"></span><button class="vs-next" id="vs-md-next" type="button">Next</button><button class="vs-next" id="vs-md-browse" type="button">Browse all</button></div>
+  <div class="vs-row"><span class="vs-label">Spin</span><div class="vs-seg" id="vs-spin"><button data-v="on">On</button><button data-v="off">Off</button></div></div>
+  <div class="vs-row"><span class="vs-label">Colours</span><div class="vs-seg" id="vs-colors"><button data-v="auto">Original</button><button data-v="theme">Theme</button><button data-v="fire">Fire</button><button data-v="ice">Ice</button><button data-v="rainbow">Rainbow</button><button data-v="mono">Mono</button></div></div>
+  <div class="vs-row"><span class="vs-label">Sensitivity</span><input type="range" id="vs-sens" min="40" max="250"><span class="vs-val" id="vs-sens-val"></span></div>
+  <div class="vs-row"><span class="vs-label">Bars</span><input type="range" id="vs-bars" min="24" max="160"><span class="vs-val" id="vs-bars-val"></span></div>
+  <div class="vs-row"><span class="vs-label">Smoothing</span><input type="range" id="vs-smooth" min="0" max="95"><span class="vs-val" id="vs-smooth-val"></span></div>
+  <button class="vs-reset" id="vs-reset">Reset</button>
+</div>
+<div class="md-browser hidden" id="md-browser" role="dialog" aria-label="MilkDrop presets">
+  <div class="mdb-head">
+    <div class="mdb-heading"><span class="mdb-h">MilkDrop presets</span><span class="mdb-count" id="mdb-count"></span></div>
+    <button class="mdb-close" id="mdb-close" type="button" title="Close" aria-label="Close"></button>
+  </div>
+  <label class="mdb-search"><span class="mdb-search-ico" id="mdb-search-ico" aria-hidden="true"></span><input type="search" id="mdb-search" placeholder="Search presets" aria-label="Search presets" autocomplete="off" spellcheck="false"></label>
+  <div class="mdb-filter" id="mdb-filter" role="group" aria-label="Show"><button type="button" data-f="all" class="active">All</button><button type="button" data-f="fav" id="mdb-filter-fav">Favourites</button></div>
+  <div class="mdb-grid" id="mdb-grid" role="listbox" aria-label="Presets"></div>
+  <div class="mdb-foot">
+    <div class="mdb-row"><span class="mdb-label">Change every</span><div class="vs-seg" id="mdb-auto"><button data-v="0" type="button">Off</button><button data-v="15" type="button" aria-label="Every 15 seconds">15 s</button><button data-v="30" type="button" aria-label="Every 30 seconds">30 s</button><button data-v="60" type="button" aria-label="Every 60 seconds">60 s</button></div></div>
+    <div class="mdb-row"><label class="mdb-check"><input type="checkbox" id="mdb-fav-only"> Favourites only</label><button class="vs-next" id="mdb-shuffle" type="button">Shuffle now</button></div>
+  </div>
+</div>
+
+<!-- A list of choices from the bottom of the screen (m-ui.js sheet). -->
+<div class="m-sheet-back hidden" id="sheet-back"></div>
+<div class="m-sheet hidden" id="sheet" role="dialog" aria-modal="true"></div>
+<div class="m-toast" id="toast" role="status" aria-live="polite"></div>
+<input type="file" id="m-file" class="hidden" tabindex="-1" aria-hidden="true">
+</body>
+</html>

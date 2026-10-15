@@ -7,7 +7,9 @@
 A desktop media player built on [Electron](https://www.electronjs.org), with
 [mpv](https://mpv.io) doing the playback. It plays video and music, and has an
 image gallery, PDF tools, IPTV, 14 themes, a music visualiser in nine styles
-and a plugin system.
+and a plugin system. There is an Android app too (a preview): the phone's
+music with the same visualiser, lyrics and themes, and its videos, played
+by mpv as on the desktop.
 
 [![CI](https://github.com/BritMat/bm-player/actions/workflows/ci.yml/badge.svg)](https://github.com/BritMat/bm-player/actions/workflows/ci.yml)
 ![license](https://img.shields.io/badge/license-MIT-green)
@@ -61,6 +63,13 @@ manager, then make `BM-Player-<version>-x86_64.AppImage` executable and run it.
 open System Settings, Privacy & Security, and choose **Open Anyway**. Video
 playback has not been tested on a Mac yet.
 
+**Android (preview):** `BM-Player-<version>-android.apk` (about 30 MB), one
+file for any phone or tablet with Android 7.0 or newer, 32-bit or 64-bit
+(ARM, which is nearly every phone). Open it on the phone and allow your
+browser or file manager to install apps when Android asks. Android may also
+say the app is not from the Play Store: choose **Install anyway**. A newer
+APK installs over the old one and keeps your settings.
+
 The `latest.yml`, `latest-linux.yml` and `.blockmap` files on a release are
 read by BM Player's built-in updater. You don't need to download them.
 
@@ -68,6 +77,9 @@ read by BM Player's built-in updater. You don't need to download them.
 
 - Plays video with mpv: subtitles, audio tracks, chapters, A-B loop,
   screenshots, playback speed, an equalizer, and resume where you left off.
+- Subtitles in any font on your computer, in the colour you choose, with a
+  thin outline, a soft shadow, a see-through box or nothing round the
+  letters.
 - Turns the picture a quarter at a time (Ctrl+R, and Ctrl+Shift+R the other
   way) and mirrors it (Ctrl+M), for a phone video filmed on its side or a
   selfie camera. Each new file starts straight.
@@ -76,10 +88,18 @@ read by BM Player's built-in updater. You don't need to download them.
 - A music library with tag reading, playlists (including M3U), its own
   playback speed (0.25x to 3x, the pitch kept) and a visualizer.
 - Lyrics that follow the song, with the line being sung lit, in Now Playing
-  and over the visualizer. They come from a .lrc file beside the song, then
-  the song's own tags, then [LRCLIB](https://lrclib.net) online. Only the
-  artist, title, album and length are sent, each answer is kept so a song
-  is looked up once, and looking online can be switched off.
+  and over the visualizer. They come from a .lrc, .srt or .vtt file beside
+  the song, then the song's own tags, then [LRCLIB](https://lrclib.net)
+  online. Only the artist, title, album and length are sent, each answer is
+  kept so a song is looked up once, and looking online can be switched off.
+  Where none are found you can search and choose, load a file (or drop one
+  on the lyrics), and move the timing earlier or later.
+- Optionally, lyrics from the captions of a YouTube video of the same song
+  and length, through [yt-dlp](https://github.com/yt-dlp/yt-dlp), which is
+  downloaded from its own releases the first time you turn this on (about
+  18 MB) and checked against its published checksum. Off by default:
+  YouTube's terms do not allow tools like it, and captions made by speech
+  recognition are often wrong.
 - An image gallery, PDF tools and IPTV.
 - Picture-in-picture, in a small window that stays on top.
 - 14 themes: four standard ones (Dark, Light, Dracula and Snow), Flow (a flowing
@@ -92,7 +112,8 @@ read by BM Player's built-in updater. You don't need to download them.
 - An audio visualiser that shows the music as it plays, its real frequencies
   and its beat, in nine styles, among them HD Flow (a fluid stirred by the
   music, and by your pointer, drawn as neon lines in the screen's own pixels),
-  MilkDrop (a chosen set of the classic presets, through butterchurn), Neon,
+  MilkDrop (61 of the classic presets through butterchurn, with a browser
+  that shows a picture of each, favourites and a shuffle), Neon,
   Bubbles and Smoke, with the album art in Radial's middle, and settings for
   its style, colours, sensitivity and bars. The heavier styles step their
   quality down by themselves on a machine that cannot keep up. And subtitles
@@ -100,6 +121,92 @@ read by BM Player's built-in updater. You don't need to download them.
 - Plugins: themes and scripts you add yourself (see below).
 - Lite mode for weak hardware: lighter visuals, switched on automatically on
   low-spec machines and available as a setting in any build.
+- A battery saver: on battery power the visualiser and the animated
+  backgrounds draw at 30 frames a second instead of 72. The home screen's
+  background rests when nothing plays and no one is there.
+- Play on the home screen, the same as on the phone. The fox reacts where
+  you touch it: boop its nose and it may sneeze, tap an ear and it flicks,
+  stroke its head and it purrs, tickle its chin and it giggles, leave it
+  alone and it yawns and dozes off. Press **Talk to the fox** and it repeats
+  what you say in a high little voice (the sound stays on your computer).
+  **Flow** turns the background into a fluid simulator to draw in, with its
+  own colours, swirl, glow, neon lines and more, and **Fruit** is a fruit
+  slicing game whose juice pours into the fluid. Nothing of it runs until
+  you use it.
+- The app's windows run in Chromium's sandbox, as web pages in a browser do,
+  and stay on the app: a link or a stray dropped file can no longer replace
+  the player. Measured on Linux, the sandbox costs no frames.
+- Music tags are read with an up-to-date reader: the known ways a broken
+  music file could freeze or close the app while its tags were read are
+  fixed.
+- Favourites on the home screen: the star on a recent file, on a song in the
+  music library, or in the right-click menu for what is playing keeps it in
+  a row of its own. Preferences, Home screen, shows or hides the Recent and
+  Favourites rows, and so does the Hide button on each.
+- In the music's full screen visualiser, the title bar and the menus fade
+  with the controls after a few seconds, as they do over a film, and come
+  back when the mouse moves.
+
+## On Android
+
+The Android app is a preview: it has been checked in a browser laid out as a
+phone, and its own testing happens on real phones. What it does:
+
+- Your music, from Android's own list of it: songs, albums, artists and
+  folders, with search and sort. Voice notes, recordings and ringtones are
+  left out unless you ask for every audio file. A long library stays quick:
+  only the rows on screen are drawn.
+- Plays on behind other apps and with the screen off, with the controls in
+  the notification, on the lock screen, and on wired and Bluetooth
+  headphones. It pauses when headphones are pulled out.
+- Now Playing with the album art, or the visualiser behind the controls: all
+  nine styles, MilkDrop with its preset browser, full screen if you like,
+  and the line being sung over the picture.
+- A home screen like the desktop's: the fox, **Browse** (a file, your music,
+  videos or photos) and **Resume** (the video or the music you left), the
+  things you opened last, your favourites (the star on a song, a video, a
+  picture or a PDF), and the theme's background behind it all. Settings can
+  take the Recent or the Favourites row off Home. Play
+  with the fox (tap, stroke, tickle, hold, and **Talk**, and it repeats what
+  you say), draw in **Flow**, a full screen fluid simulator with its own
+  settings (tilt the phone to pour it), or play **Fruit**, slicing fruit
+  with a swipe.
+- Lyrics as on the desktop: a .lrc file beside the song (where Android lets
+  the app read it), the words in the song's own tags (MP3, FLAC, Ogg, Opus
+  and M4A), then LRCLIB, with search, loading a file, and the timing to
+  move.
+- Up Next, shuffle and repeat, Play next and Add to queue, a ten-band
+  equaliser, the speed with the pitch kept, and the queue kept for next time
+  (Settings can turn that off). The X on the music bar, or Close in the
+  notification, stops the music and puts the bar away.
+- Videos, played by mpv built into the app: MKV, MP4, AVI and the rest, 4K
+  and H.265, every audio track, and subtitles in the film or in a file
+  beside it (.srt, .ass or .vtt), styled ones included. It uses the phone's
+  hardware decoder where it can (HW, HW+ or SW, as you choose). The screen
+  turns to suit the film. A file that still will not play can be opened in
+  another app from the same screen, and Settings can switch to the phone's
+  own web engine instead.
+- Every video as a list or a grid, by folder, and the ones you left part
+  way, with how far you got under each picture and NEW on the ones not
+  opened yet. Each video carries on where you left it.
+- The player's controls work as in MX Player: swipe up or down on the left
+  for brightness and on the right for volume (past full, a boost to 150%),
+  sideways to move through the video, pinch to zoom, hold for double speed,
+  double tap to jump ten seconds. A lock, the picture's size (fit, fill,
+  stretch, 100%, 16:9, 4:3), the previous and next video of the folder and
+  playing on to the next, speed, repeating a part (A-B), a sleep timer, and
+  the timing of the subtitles and the sound. The clock and the battery show
+  with the controls.
+- Photos: every picture on the phone, or by album, in a viewer with pinch
+  and double tap zoom, swipes to the next one, turning, sharing and a
+  slideshow.
+- A PDF reader (pdf.js): pages that scroll, zoom, find, contents, a dark page
+  for night, and each document opens where you left it, password ones
+  included.
+- The 14 themes, a battery saver, and a log to share if something goes wrong
+  (Settings, About).
+- "Open with BM Player" for a song, a video, a picture or a PDF in a file
+  manager or a chat.
 
 ## If something goes wrong
 
@@ -131,6 +238,27 @@ npm run build:win64        # or build:linux, build:mac, build:lite-win64
 The installers land in `dist/`. GitHub Actions builds and publishes every
 release from its version tag (`.github/workflows/ci.yml`).
 
+The Android app builds with the plain Android SDK tools, without Gradle. On
+Ubuntu or Debian:
+
+```bash
+sudo apt install android-sdk-build-tools dalvik-exchange openjdk-17-jdk-headless
+npm run build:android      # dist/BM-Player-<version>-android.apk
+npm run test:android       # its page in Chromium, laid out as a phone
+```
+
+mpv's libraries for the APK are mpv-android's own release builds: the build
+downloads them from mpv-android's GitHub releases once, checks them against
+the SHA-256 sums in `android/build-apk.mjs`, and adds them unchanged.
+
+The first build makes a signing key in `android/keystore`. Keep it: Android
+only installs an update signed with the same key as the app already there.
+The release job signs with the key from the repository's secrets
+(`BM_ANDROID_KEYSTORE`, the key file in base64, and
+`BM_ANDROID_KEYSTORE_PASSWORD`). Without them, the APK built and checked
+with the release is attached to it from the machine the checks ran on, with
+the same sign-in Git uses to push.
+
 ## Plugins
 
 Press **Folder** in the Plugins panel to open your plugins folder. BM Player
@@ -141,9 +269,19 @@ approve it, and switches off again if its files change.
 ## License
 
 MIT, see [LICENSE](LICENSE). The Unbounded and Outfit fonts in `src/fonts` are
-bundled under the SIL Open Font License 1.1. mpv is a separate project with its own license,
+bundled under the SIL Open Font License 1.1. PDFs are read with Mozilla's
+[pdf.js](https://github.com/mozilla/pdf.js), under the Apache License 2.0
+([src/vendor/pdfjs-LICENSE.txt](src/vendor/pdfjs-LICENSE.txt)). mpv is a separate project with its own license,
 downloaded from its Windows builds on GitHub or installed from your system's
 package manager.
+
+The Android APK also carries mpv and FFmpeg, as built by
+[mpv-android](https://github.com/mpv-android/mpv-android) (release
+2026-09-17). Together they are under the GNU GPL version 3, so the APK as a
+whole is passed on under the GPL too, while BM Player's own code stays MIT.
+[android/licenses/NOTICE.txt](android/licenses/NOTICE.txt) lists every
+library in them with its licence and where the source code is, and the app
+shows the same in Settings, About, Licences.
 
 ## Credits
 
@@ -152,7 +290,9 @@ The MilkDrop style uses [butterchurn](https://github.com/jberg/butterchurn) and
 licensed (src/vendor/milkdrop/LICENSE.txt).
 
 Online lyrics come from [LRCLIB](https://lrclib.net), a free and open
-collection of lyrics.
+collection of lyrics. YouTube captions, when turned on, are fetched with
+[yt-dlp](https://github.com/yt-dlp/yt-dlp) (Unlicense), downloaded at that
+point and not part of BM Player.
 
 The fluid (behind the home screen, and in the Smoke and HD Flow styles) follows
 the method of [WebGL Fluid Simulation](https://github.com/PavelDoGreat/WebGL-Fluid-Simulation)

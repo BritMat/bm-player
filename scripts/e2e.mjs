@@ -79,7 +79,10 @@ wav(TONE, 30, 330);
 // A test video: ffmpeg if present, otherwise mpv's own encoder. Windows
 // machines rarely have ffmpeg, but anyone running BM Player has mpv.
 // 20 seconds: at 4 it could end before part C's PiP step on a slow run, and
-// PiP rightly refuses to start with nothing playing.
+// PiP rightly refuses to start with nothing playing. 60 since v3.43.1: on a
+// slow run of part B on a laptop (81 s where it took 51 the time before),
+// the PiP click step most likely met the end of the 20, where play cannot
+// play on, and failed.
 // A 1500 Hz tone for mpv (v3.29.0): the exact visualiser must find it where
 // 1500 Hz belongs. null without ffmpeg, and the steps that need it are skipped.
 let TONE1500 = path.join(FIX, 'tone 1500.wav');
@@ -101,12 +104,12 @@ let VIDEO = null;
 try {
   VIDEO = path.join(FIX, 'clip #1.mp4');
   execFileSync('ffmpeg', ['-loglevel', 'error', '-y', '-f', 'lavfi', '-i', 'testsrc=size=640x360:rate=25',
-    '-f', 'lavfi', '-i', 'sine=frequency=440', '-t', '20', '-c:v', 'libx264', '-pix_fmt', 'yuv420p',
+    '-f', 'lavfi', '-i', 'sine=frequency=440', '-t', '60', '-c:v', 'libx264', '-pix_fmt', 'yuv420p',
     '-c:a', 'aac', '-shortest', VIDEO], { timeout: 30000, stdio: 'ignore', windowsHide: true });
 } catch {
   try {
     VIDEO = path.join(FIX, 'clip #1.mkv');
-    execFileSync(process.platform === 'win32' ? 'mpv.exe' : 'mpv', ['--no-config', 'av://lavfi:testsrc=duration=20:size=640x360:rate=25', `--o=${VIDEO}`,
+    execFileSync(process.platform === 'win32' ? 'mpv.exe' : 'mpv', ['--no-config', 'av://lavfi:testsrc=duration=60:size=640x360:rate=25', `--o=${VIDEO}`,
       '--ovc=mpeg4', '--ovcopts=qscale=4'], { timeout: 60000, stdio: 'ignore', windowsHide: true });
     if (!fs.existsSync(VIDEO) || fs.statSync(VIDEO).size < 10000) VIDEO = null;
   } catch { VIDEO = null; }
@@ -170,6 +173,27 @@ await page.waitForFunction(() => window.bmApp && window.bmMusic, null, { timeout
 await page.waitForTimeout(2500);
 const shot = name => page.screenshot({ path: path.join(SHOTS, `${PART}-${name}.png`) });
 
+// v3.43.0: in the visual mode the title bar and the menus fade when the mouse
+// rests, as they do over a film, and come back when it moves, and the
+// visualiser starts at the top of the window. They stayed on a real machine.
+// The test tone starts again first: in part B it can have ended by now, and
+// with nothing playing the bars rightly stay.
+async function vizBarsFade() {
+  await page.evaluate(async t => { bmApp.switchDest('music'); bmMusic.play(t, 0); await new Promise(z => setTimeout(z, 1000)); bmApp.switchDest('video'); }, TONE);
+  await page.mouse.move(640, 300); await page.mouse.move(652, 312);
+  const look = () => page.evaluate(() => {
+    const o = id => +getComputedStyle(document.getElementById(id)).opacity;
+    return { viz: document.body.classList.contains('audio-viz'), tb: o('titlebar'), mt: o('menu-toolbar'), top: Math.round(document.getElementById('player-view').getBoundingClientRect().top) };
+  });
+  let a; for (let i = 0; i < 30; i++) { await page.waitForTimeout(200); a = await look(); if (a.tb <= 0.05 && a.mt <= 0.05) break; }
+  await page.mouse.move(700, 330);
+  let b; for (let i = 0; i < 15; i++) { await page.waitForTimeout(100); b = await look(); if (b.tb >= 0.95 && b.mt >= 0.95) break; }
+  if (!a.viz) throw new Error('the visual mode did not show');
+  if (a.top !== 0) throw new Error(`the visualiser starts ${a.top}px down, not at the top of the window`);
+  if (a.tb > 0.05 || a.mt > 0.05) throw new Error(`the bars did not fade: title ${a.tb}, menus ${a.mt}`);
+  if (b.tb < 0.95 || b.mt < 0.95) throw new Error(`the bars did not come back: title ${b.tb}, menus ${b.mt}`);
+}
+
 // Messages that are the environment rather than the app.
 const NOISE = /three\.min\.js" are deprecated|PulseAudio|ALSA|dbus/i;
 
@@ -202,6 +226,49 @@ if (PART === 'a') {
     if (g.titleTop < g.wcTop) throw new Error('the title is cut off at the top');
   });
   await shot('welcome');
+
+  // v3.43.0: the recent row and the favourites (favourites.js). A star on a
+  // recent card puts the file in Favourites, Preferences and the rows' own
+  // Hide take either row away, and a name with markup in it stays a name
+  // (the recent row put names into the page as they were).
+  await step('the welcome screen: a starred file shows in Favourites, either row can be hidden', async () => {
+    const r = await page.evaluate(async () => {
+      const a = bmApp, keep = a.recent, wait = ms => new Promise(z => setTimeout(z, ms));
+      const hidden = id => document.getElementById(id).classList.contains('hidden');
+      const flip = (id, on) => { const b = document.getElementById(id); b.checked = on; b.dispatchEvent(new Event('change')); };
+      a.recent = ['/tmp/bm-e2e/one film.mkv', '/tmp/bm-e2e/<b>two<i> & song.mp3']; a.renderRecent();
+      const cards = [...document.querySelectorAll('#recent-grid .recent-card')];
+      const out = { cards: cards.length, name: cards[1]?.querySelector('.recent-name')?.textContent, marked: !!cards[1]?.querySelector('.recent-name b'),
+        icons: cards.every(c => !!c.querySelector('.recent-thumb svg')), favBefore: hidden('welcome-fav-section') };
+      cards[1].querySelector('.rc-star').click(); await wait(80);
+      out.favs = [...document.querySelectorAll('#fav-grid .recent-name')].map(e => e.textContent);
+      out.favShown = !hidden('welcome-fav-section');
+      flip('set-home-recent', false); out.recentHidden = hidden('welcome-recent-section');
+      flip('set-home-recent', true); out.recentBack = !hidden('welcome-recent-section');
+      document.getElementById('btn-hide-favs').click(); await wait(50);
+      out.favHidden = hidden('welcome-fav-section'); out.boxOff = document.getElementById('set-home-favs').checked === false;
+      flip('set-home-favs', true); out.favBack = !hidden('welcome-fav-section');
+      document.querySelector('#fav-grid .rc-star').click(); await wait(50);
+      out.gone = hidden('welcome-fav-section') && !localStorage.getItem('bm_favs')?.includes('two');
+      a.recent = keep; a.renderRecent();
+      return out;
+    });
+    if (r.cards !== 2 || !r.icons) throw new Error('the recent row: ' + JSON.stringify(r));
+    if (r.name !== '<b>two<i> & song.mp3' || r.marked) throw new Error('a name with markup in it became markup: ' + JSON.stringify(r.name));
+    if (!r.favBefore || !r.favShown || r.favs.join('|') !== '<b>two<i> & song.mp3') throw new Error('the star did not put it in Favourites: ' + JSON.stringify(r));
+    if (!r.recentHidden || !r.recentBack) throw new Error('Preferences did not hide and show the recent row');
+    if (!r.favHidden || !r.boxOff || !r.favBack) throw new Error('Hide on the Favourites row, or Preferences after it: ' + JSON.stringify(r));
+    if (!r.gone) throw new Error('the star again did not take it out');
+  });
+
+  // v3.42.0: the page runs in Chromium's sandbox, and the preload's bridge
+  // (contextBridge, ipcRenderer, webUtils) still reaches it whole.
+  await step('the page runs sandboxed, and the app\'s bridge is all there', async () => {
+    const sb = await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().map(w => w.webContents.getLastWebPreferences().sandbox));
+    if (!sb.length || sb.some(v => v !== true)) throw new Error('sandbox: ' + JSON.stringify(sb));
+    const r = await page.evaluate(async () => ({ path: typeof window.api?.files?.pathOf, open: typeof window.api?.mpv?.open, info: !!(await window.api?.app?.perfInfo?.()) }));
+    if (r.path !== 'function' || r.open !== 'function' || !r.info) throw new Error('bridge: ' + JSON.stringify(r));
+  });
 
   for (const [dest, view] of [['music', 'music-view'], ['images', 'gallery-view'], ['pdf', 'pdf-view'], ['tv', 'tv-view'], ['video', 'welcome-screen']]) {
     await step(`${dest} tab shows its view`, async () => {
@@ -635,6 +702,8 @@ if (PART === 'b') {
     await shot('video-visualiser');
   });
 
+  await step('the visual mode: the title bar and menus fade when the mouse rests, and come back', vizBarsFade);
+
   await step('stop in video mode: silence, visualiser off, home screen', async () => {
     const s = await page.evaluate(async () => {
       bmApp.stop(); await new Promise(r => setTimeout(r, 400));
@@ -665,7 +734,25 @@ if (PART === 'b') {
       await page.waitForTimeout(300); const off = await g();
       await page.evaluate(() => { bmApp._closeCtxPanel(); bmApp.stop(); });
       if (on.font !== 'Georgia' || !on.color.toUpperCase().includes('FFE135') || on.ass !== 'force') throw new Error('not applied: ' + JSON.stringify(on));
-      if (off.font !== 'sans-serif' || off.ass !== 'scale') throw new Error('Default did not restore: ' + JSON.stringify(off));
+      // The default font is Windows' own there (sub-style.js), sans-serif
+      // elsewhere. Until v3.43.0 this expected sans-serif everywhere, so it
+      // failed on Windows.
+      const deflt = process.platform === 'win32' ? 'Segoe UI' : 'sans-serif';
+      if (off.font !== deflt || off.ass !== 'scale' || off.color.toUpperCase() !== '#FFFFFFFF') throw new Error('Default did not restore: ' + JSON.stringify(off));
+    });
+    // v3.43.0: the right-click menu stars what is playing, for the welcome screen.
+    await step('the right-click menu stars the file playing, and takes the star away', async () => {
+      await page.evaluate(v => bmApp.playMedia([v]), VIDEO); await page.waitForTimeout(2000);
+      const lbl = () => page.evaluate(() => document.querySelector('#ctx-fav .ctx-fav-lbl')?.textContent);
+      const kept = () => page.evaluate(v => JSON.parse(localStorage.getItem('bm_favs') || '[]').some(x => x.path === v), VIDEO);
+      await page.evaluate(() => bmApp._openCtxPanel(300, 160)); const l1 = await lbl();
+      await page.click('#ctx-fav'); const k1 = await kept();
+      const shown = await page.evaluate(v => [...document.querySelectorAll('#fav-grid .recent-card')].some(c => c.dataset.f === v), VIDEO);
+      await page.evaluate(() => bmApp._openCtxPanel(300, 160)); const l2 = await lbl();
+      await page.click('#ctx-fav'); const k2 = await kept();
+      await page.evaluate(() => { bmApp._closeCtxPanel?.(); bmApp.stop(); });
+      if (l1 !== 'Add to favourites' || !k1 || !shown) throw new Error(`starring: label "${l1}", kept ${k1}, on the welcome screen ${shown}`);
+      if (l2 !== 'Remove from favourites' || k2) throw new Error(`taking it back: label "${l2}", still kept ${k2}`);
     });
     await step('stop a video, open the same file again: it starts from the beginning', async () => {
       const r = await page.evaluate(async vid => {
@@ -816,26 +903,36 @@ if (PART === 'b') {
     // did nothing. The PiP overlay covered the whole little window and caught
     // every click. The step above only measured window sizes. These click.
     await step('in PiP the controls respond to real clicks', async () => {
+      // From near the start (v3.43.1): the clip must not run out in this step.
+      await page.evaluate(() => window.api.mpv.cmd('seek', 1, 'absolute'));
       await page.evaluate(() => { if (!bmApp.isPlaying) bmApp.togglePlay(); });
       await page.evaluate(() => bmApp.togglePiP(true)); await page.waitForTimeout(900);
       const playing = () => page.evaluate(() => bmApp.isPlaying);
-      let was, afterMain, afterBar;
+      // The state, waited for up to two seconds, not read once after 600 ms.
+      const becomes = async want => { for (let i = 0; i < 20; i++) { if (await playing() === want) return want; await page.waitForTimeout(100); } return !want; };
+      // Where the film was, for the message if this fails.
+      const where = () => page.evaluate(async () => { const g = n => window.api.mpv.cmd('get_property', n); const t = await g('time-pos'), d = await g('duration'); return `at ${typeof t === 'number' ? t.toFixed(1) : '?'} s of ${typeof d === 'number' ? d.toFixed(1) : '?'}${(await g('eof-reached')) === true ? ', at the end' : ''}`; });
+      const icon = () => page.evaluate(() => document.getElementById('pip-play')?.dataset.icon || '');
+      let was, afterMain, afterBar, iconOpen = '', at = '';
       try {
         was = await playing();
+        // v3.43.1: the PiP bar's button showed play while the film played on,
+        // until the first pause: it was set only when that changed.
+        iconOpen = await icon();
         await page.click('#btn-play', { timeout: 3000 });           // refuses if anything covers it
-        await page.waitForTimeout(600);
-        afterMain = await playing();
+        afterMain = await becomes(false);
         await page.hover('#pip-overlay .pip-bar', { timeout: 3000 }).catch(() => {});
         await page.click('#pip-play', { timeout: 3000 });
-        await page.waitForTimeout(600);
-        afterBar = await playing();
+        afterBar = await becomes(true);
+        at = await where();
       } finally {
         // leave PiP whatever happened, so the next step starts clean
         await page.evaluate(() => bmApp.togglePiP(false)); await page.waitForTimeout(900);
       }
       if (!was) throw new Error('nothing was playing when PiP opened');
-      if (afterMain) throw new Error("clicking the controls' play button in PiP did not pause");
-      if (!afterBar) throw new Error("clicking the PiP bar's play button did not resume");
+      if (afterMain) throw new Error("clicking the controls' play button in PiP did not pause, " + at);
+      if (!afterBar) throw new Error("clicking the PiP bar's play button did not resume, " + at);
+      if (iconOpen !== 'pause') throw new Error(`PiP opened on a playing film with "${iconOpen}" on the PiP bar's button, not pause`);
     });
 
     // Also reported: PiP would not open while playback was paused.
@@ -891,6 +988,18 @@ if (PART === 'b') {
       if (await page.evaluate(() => bmApp._shadowOn || !!bmApp.shadow?.active)) throw new Error('the copy kept going after stop');
     });
   }
+
+  // v3.43.0: a song opened as a file (Open, a drop, a recent or favourite
+  // card) showed an empty player with the music bar under it.
+  await step('a song opened as a file gets the visual mode, not an empty player', async () => {
+    const r = await page.evaluate(async t => {
+      bmApp.playMedia([t]); await new Promise(z => setTimeout(z, 2500));
+      const o = { viz: document.body.classList.contains('audio-viz'), mini: !document.getElementById('music-mini-player').classList.contains('hidden') };
+      bmApp.stop(); await new Promise(z => setTimeout(z, 300));
+      return o;
+    }, TONE);
+    if (!r.viz || r.mini) throw new Error('a song opened as a file: ' + JSON.stringify(r));
+  });
 
   await step('no page errors during playback', () => {
     const bad = consoleMsgs.filter(m => m.type === 'pageerror' || (m.type === 'error' && !NOISE.test(m.text)));
@@ -951,6 +1060,52 @@ if (PART === 'c') {
     if (!same(resized)) throw new Error(`after a resize the picture window did not follow: controls ${JSON.stringify(resized.c)}, picture ${JSON.stringify(resized.p)}`);
     const d = await page.evaluate(() => window.api?.app?.diagnostics?.());
     if (!d?.windows?.controls || !d.windows.picture) throw new Error('the diagnostics report does not say where the windows are');
+  });
+
+  // v3.42.0: the pages run in Chromium's sandbox, and the welcome screen can
+  // be played with: the fox reacts where it is touched, Flow is a fluid to
+  // draw in, and Fruit is a game. Esc goes back to the fox.
+  await step('the windows\' pages run sandboxed', async () => {
+    const sb = await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().map(w => w.webContents.getLastWebPreferences().sandbox));
+    if (!sb.length || sb.some(v => v !== true)) throw new Error('sandbox: ' + JSON.stringify(sb));
+    const ok = await page.evaluate(() => typeof window.api?.files?.pathOf === 'function' && typeof window.api?.mpv?.open === 'function');
+    if (!ok) throw new Error('the preload\'s bridge is missing in the sandbox');
+  });
+  await step('the welcome screen: the fox reacts, Flow draws, Fruit plays', async () => {
+    const r = await page.evaluate(async () => {
+      const a = window.bmApp, out = { modes: document.querySelectorAll('#welcome-modes button').length, gpu: !!a._fluidIsGPU };
+      if (!a.fox?.hit) return { ...out, why: 'no fox' };
+      const c = document.getElementById('fox-stage').getBoundingClientRect();   // the flat fox (no WebGL) replaces the canvas
+      out.kind = a.fox.kind;
+      let nose = null;
+      for (let y = c.top; y < c.bottom && !nose; y += 4) for (let x = c.left; x < c.right; x += 4) { const h = a.fox.hit(x, y); if (h?.part === 'nose') { nose = [x, y]; break; } }
+      out.nose = !!nose;
+      if (nose) {
+        const st = document.getElementById('fox-stage');
+        const ev = (t, x, y) => st.dispatchEvent(new PointerEvent(t, { bubbles: true, clientX: x, clientY: y, pointerId: 7, pointerType: 'mouse', button: 0, buttons: t === 'pointerup' ? 0 : 1 }));
+        ev('pointerdown', nose[0], nose[1]); ev('pointerup', nose[0], nose[1]);
+        out.react = a.fox.kind === 'svg' ? (/gf-(bob|blink)/.test(a.fox.svg?.getAttribute('class') || '') ? 'boop' : null) : (a.fox._state?.react?.name || null);
+      }
+      if (out.gpu) {
+        a.setPlayMode('flow');
+        out.toy = !!a.flowToy?.on;
+        const s0 = a.auroraFX.splats || 0, sf = document.getElementById('flow-surface'), r = sf.getBoundingClientRect();
+        const pe = (t, i) => sf.dispatchEvent(new PointerEvent(t, { bubbles: true, clientX: r.left + 100 + i * 15, clientY: r.top + 120 + i * 9, pointerId: 9, pointerType: 'mouse', button: 0, buttons: t === 'pointerup' ? 0 : 1 }));
+        pe('pointerdown', 0); for (let i = 1; i < 14; i++) pe('pointermove', i); pe('pointerup', 14);
+        out.splats = (a.auroraFX.splats || 0) - s0;
+        document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+        out.back = a._playMode;
+        a.setPlayMode('fruit');
+        await new Promise(r => setTimeout(r, 300));
+        out.menu = !!document.querySelector('#slice-ui:not(.hidden) .sg-btn[data-a="classic"]');
+        document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+        out.back2 = a._playMode;
+      }
+      return out;
+    });
+    if (!r.nose || !['boop', 'sneeze'].includes(r.react)) throw new Error('the fox did not react to its nose: ' + JSON.stringify(r));
+    if (r.gpu && (r.modes !== 3 || !r.toy || r.splats < 5 || r.back !== 'fox' || !r.menu || r.back2 !== 'fox')) throw new Error('play modes: ' + JSON.stringify(r));
+    console.log('     ' + JSON.stringify(r));
   });
 
   // The pin (v3.27.0): on every window at once. It went to the picture window
@@ -1164,6 +1319,10 @@ if (PART === 'c') {
     if (r.pane > 0.05) throw new Error('maximised, the side pane is still shown');
     if (r.still !== 0) throw new Error(`Radial turned ${r.still} times with Spin off`);
     if (!(r.turning > 0)) throw new Error('Radial did not turn with Spin on');
+  });
+
+  await step('the visual mode: the title bar and menus fade when the mouse rests, and come back', async () => {
+    try { await vizBarsFade(); } finally { await page.evaluate(() => bmMusic.engine?.stop?.()); }
   });
 
   // The artistic styles (v3.31.0): Neon (wandering lanterns trailing glowing

@@ -21,6 +21,8 @@ files:
   - "switches.js"
   - "plugin-safety.js"
   - "lyrics.js"
+  - "lyrics-core.js"
+  - "ytdlp.js"
   - "plugin-templates/**/*"
   - "src/**/*"
   - "plugins/**/*"

@@ -1,0 +1,4 @@
+{
+  "//": "The page's modules are ES modules. Saying so stops Node (the tests) reading app.js twice, once as CommonJS, and warning about it (v3.43.0).",
+  "type": "module"
+}

@@ -204,6 +204,35 @@ export class GeoFox {
       if (this._cx || this._cy) poseFlat(this.svg, this._cx * 0.30, this._cy * 0.16);
     });
   }
+  // v3.42.0: the play the 3D fox has, drawn flat: a blink, an ear flick, a
+  // squint, and the whole fox wiggling or bobbing (components.css, mobile.css).
+  react(name, { side = 1 } = {}) {
+    if (this._reduced) return;
+    if (name === 'ear') this._flash(side < 0 ? 'gf-twitch-l' : 'gf-twitch-r', 460);
+    else if (['boop', 'eye', 'bonk', 'sneeze', 'surprise'].includes(name)) this._flash('gf-blink', 260);
+    if (['tickle', 'laugh', 'cheek', 'happy', 'hug'].includes(name)) this._flash('gf-happy', 1200);
+    if (name === 'surprise' || name === 'listen') this._flash('gf-perk', 700);
+    const move = { tickle: 'gf-wiggle', laugh: 'gf-wiggle', dizzy: 'gf-wiggle', bonk: 'gf-bob', boop: 'gf-bob', sneeze: 'gf-bob', nod: 'gf-bob', happy: 'gf-bob' }[name];
+    if (move) this._flash(move, 900);
+    if (name !== 'yawn' && name !== 'listen') this.setSleep(false);
+  }
+  setMouth() {}
+  pet(strength = 1) { if (strength > 0.3) this._flash('gf-happy', 600); }
+  setSleep(on) { this._sleep = !!on; this.svg.classList.toggle('gf-sleep', this._sleep); }
+  get asleep() { return !!this._sleep; }
+  lookAt(x, y) { this._onMove?.({ clientX: x, clientY: y }); }
+  /** Which part is under a point, by where it falls in the drawing (see Fox3D.hit). */
+  hit(x, y) {
+    const r = this.stage.getBoundingClientRect();
+    if (!r.width) return null;
+    const u = (x - r.left) / r.width, v = (y - r.top) / r.height;
+    if (u < 0.08 || u > 0.92 || v < 0.02 || v > 0.98) return null;
+    const side = u < 0.5 ? -1 : 1;
+    if (v < 0.32) return { part: Math.abs(u - 0.5) > 0.16 ? 'ear' : 'head', side };
+    if (v < 0.52) return { part: Math.abs(u - 0.5) > 0.08 && Math.abs(u - 0.5) < 0.24 ? 'eye' : Math.abs(u - 0.5) >= 0.24 ? 'cheek' : 'head', side };
+    if (v < 0.72) return { part: Math.abs(u - 0.5) < 0.12 ? 'nose' : 'cheek', side };
+    return { part: v < 0.82 && Math.abs(u - 0.5) < 0.12 ? 'chin' : 'chest', side };
+  }
   pause() { this._paused = true; this.svg.classList.add('gf-paused'); }
   resume() { this._paused = false; this.svg.classList.remove('gf-paused'); }
   destroy() {

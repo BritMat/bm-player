@@ -727,6 +727,19 @@ body.audio-viz:has(#controls-bar.faded) .viz-overlay { bottom: 0; }
    machine). The pointer at the left edge brings it back (app.js, sidebar-peek). */
 body.audio-viz .sidebar { transform: translateX(-100%); opacity: 0; pointer-events: none; }
 body.audio-viz.sidebar-peek .sidebar { transform: none; opacity: 1; pointer-events: auto; }
+/* v3.43.0: the title bar and the menus fade with the controls, as they do over
+   a film, and the visualiser takes the whole window. They stayed: the fading
+   was written for body.playing, which music does not set (v3.18.0). Moving
+   the mouse brings them back (app.js, wireControlsHide). The Lite layout with
+   mpv playing keeps them, as it does for a film. */
+body.audio-viz #player-view { top: 0 !important; }
+body.audio-viz .titlebar,
+body.audio-viz .menu-toolbar { transition: transform .3s, opacity .3s; }
+body.audio-viz .titlebar.faded-top { transform: translateY(-100%); opacity: 0; pointer-events: none; }
+body.audio-viz .menu-toolbar.faded-top { transform: translateY(-62px); opacity: 0; pointer-events: none; }
+/* and the pointer goes with them, until the mouse moves */
+body.audio-viz:has(#controls-bar.faded) #player-view.active,
+body.audio-viz:has(#controls-bar.faded) #player-view.active * { cursor: none !important; }
 
 /* MilkDrop's canvas, over the visualiser's (visualizer.js, v3.32.0). */
 .viz-milk-canvas { position: absolute; pointer-events: none; image-rendering: auto; }
@@ -824,35 +837,129 @@ html.is-fs.lite-window body.playing:not(.pip-mode):has(#controls-bar.faded) #pla
 .np-speed { color: var(--text-muted); background: var(--hover, rgba(255,255,255,.08)); margin-left: 2px; }
 .np-speed:hover, .np-speed:focus-visible { color: var(--text); outline: none; }
 
-/* ── Lyrics (v3.38.0) ──────────────────────────────────────────────────
-   Now Playing: Up Next and Lyrics as two tabs. The line being sung is lit
-   and kept in the middle (modules/lyrics.js). The visual mode: the line
-   over the visualiser, the next one smaller under it. */
-.np-tabs { display: flex; gap: 4px; margin: 14px 0 6px; }
-.np-tab { background: none; border: 0; padding: 4px 8px; border-radius: 6px; font: inherit; font-size: 10.5px; font-weight: 700;
-  letter-spacing: .12em; text-transform: uppercase; color: var(--text-muted); cursor: pointer; }
-.np-tab:hover, .np-tab:focus-visible { color: var(--text); background: var(--hover, rgba(255,255,255,.06)); outline: none; }
-.np-tab.active { color: var(--text); background: var(--hover, rgba(255,255,255,.08)); }
-/* No scrollbar-width here: Chromium drops the app's own scrollbar look
-   (enhance.css) for any box that sets it, and draws the plain white one. */
-.np-lyrics { flex: 1 1 auto; min-height: 120px; overflow-y: auto; overflow-x: hidden; overscroll-behavior: contain; position: relative; padding: 4px 8px 10px; }
-.np-lyrics.hidden, .np-queue.hidden, .viz-lyrics.hidden { display: none !important; }
-.lyr-line { font-size: 13.5px; line-height: 1.45; padding: 5px 4px; color: var(--text-muted); cursor: pointer; border-radius: 6px;
-  transition: color .25s, transform .25s; transform-origin: left center; }
-.lyr-line:hover { background: var(--hover, rgba(255,255,255,.05)); }
-.lyr-line.on { color: var(--text); font-weight: 700; transform: scale(1.04); text-shadow: 0 0 12px color-mix(in srgb, var(--accent) 45%, transparent); }
-.lyr-gap { opacity: .5; }
-.lyr-plain { white-space: pre-wrap; font-size: 13px; line-height: 1.6; color: var(--text); }
-.lyr-note { font-size: 12px; color: var(--text-muted); padding: 8px 4px; }
-.lyr-foot { margin-top: 14px; padding-top: 10px; border-top: 1px solid var(--border, rgba(255,255,255,.08)); font-size: 11px; color: var(--text-muted); display: grid; gap: 6px; }
-.lyr-online { display: flex; align-items: center; gap: 6px; cursor: pointer; }
-.viz-lyrics { position: absolute; left: 6%; right: 6%; bottom: 150px; text-align: center; pointer-events: none; z-index: 2; }
-.viz-lyrics .vl-now { font-family: var(--font-display); font-size: clamp(20px, 3.2vw, 40px); font-weight: 700; color: #fff; line-height: 1.25;
-  text-shadow: 0 0 18px color-mix(in srgb, var(--accent) 60%, transparent), 0 2px 10px rgba(0,0,0,.6); }
-.viz-lyrics .vl-next { margin-top: 8px; font-size: clamp(13px, 1.5vw, 19px); color: rgba(255,255,255,.62); text-shadow: 0 2px 8px rgba(0,0,0,.6); }
-.viz-lyrics.vl-empty { visibility: hidden; }
-#viz-btn-lyrics.active-opt { color: var(--accent); }
-
 /* Neon's own canvas, drawn by the graphics card (v3.38.0). The visualiser
    keeps it over its 2D canvas, the same size and place. */
 .viz-neon-canvas { position: absolute; pointer-events: none; }
+
+/* ── Subtitle edge, and the Subtitle style window (v3.39.0, sub-style.js) ── */
+#ctx-panel .ctx-sub-edges { display: flex; gap: 4px; flex: 1; }
+#ctx-panel .ctx-sub-edges button {
+  flex: 1; padding: 3px 4px; font-size: 11.5px; border-radius: 5px; border: 1px solid var(--border);
+  background: transparent; color: var(--text); cursor: pointer;
+}
+#ctx-panel .ctx-sub-edges button:hover { background: color-mix(in srgb, var(--accent) 14%, transparent); }
+#ctx-panel .ctx-sub-edges button.active { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+#ctx-panel .ctx-sub-fonts .ctx-sub-more { color: var(--accent); }
+.ss-box { width: min(620px, calc(100vw - 32px)); max-height: calc(100vh - 48px); gap: 12px; }
+.ss-preview {
+  height: 96px; border-radius: 10px; display: flex; align-items: flex-end; justify-content: center; padding-bottom: 12px;
+  background: linear-gradient(160deg, #6d7f96 0%, #2b3445 45%, #0f1218 100%); overflow: hidden;
+}
+.ss-preview-text { font-size: 19px; line-height: 1.25; text-align: center; color: #fff; padding: 1px 6px; border-radius: 3px; box-decoration-break: clone; -webkit-box-decoration-break: clone; }
+.ss-preview-text[data-edge="outline"] { text-shadow: 0 0 1px #000, 1px 1px 0 #000, -1px -1px 0 #000, 1px -1px 0 #000, -1px 1px 0 #000, 0 1px 0 #000, 0 -1px 0 #000, 1px 0 0 #000, -1px 0 0 #000; }
+.ss-preview-text[data-edge="shadow"] { text-shadow: 0 0 1px #000, 1px 1px 0 rgba(0,0,0,.8), -1px -1px 0 rgba(0,0,0,.6), 2px 3px 3px rgba(0,0,0,.65); }
+.ss-preview-text[data-edge="box"] { background: rgba(0,0,0,.65); padding: 3px 9px; }
+.ss-preview-text[data-edge="none"] { text-shadow: none; }
+.ss-cols { display: grid; grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr); gap: 16px; min-height: 0; }
+@media (max-width: 560px) { .ss-cols { grid-template-columns: minmax(0, 1fr); } }
+.ss-col { display: flex; flex-direction: column; gap: 8px; min-height: 0; }
+.ss-label { font-size: 12px; font-weight: 700; color: var(--text-muted); text-transform: uppercase; letter-spacing: .06em; }
+.ss-font-now { text-transform: none; letter-spacing: 0; font-weight: 600; color: var(--text); margin-left: 4px; }
+.ss-search { width: 100%; box-sizing: border-box; }
+.ss-fonts { height: 230px; overflow-y: auto; overscroll-behavior: contain; border: 1px solid var(--border); border-radius: 9px; padding: 4px; }
+.ss-font { display: flex; align-items: baseline; gap: 10px; padding: 6px 9px; border-radius: 6px; cursor: pointer; color: var(--text); outline: none; content-visibility: auto; contain-intrinsic-size: auto 31px; }
+.ss-font-name { flex: 1 1 auto; min-width: 0; font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ss-font-sample { flex: 0 1 auto; max-width: 52%; font-size: 15px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--text-muted); }
+.ss-font:hover, .ss-font:focus-visible { background: var(--hover, rgba(255,255,255,.06)); }
+.ss-font:focus-visible { box-shadow: inset 0 0 0 2px var(--accent); }
+.ss-font.active { background: color-mix(in srgb, var(--accent) 24%, transparent); }
+.ss-empty { padding: 14px 8px; color: var(--text-muted); font-size: 12.5px; }
+.ss-note { font-size: 11.5px; color: var(--text-muted); line-height: 1.4; }
+.ss-edges { flex: 0 0 auto; }
+.ss-colors { display: flex; gap: 7px; flex-wrap: wrap; }
+.ss-colors button { width: 22px; height: 22px; border-radius: 50%; border: 2px solid rgba(255,255,255,.25); cursor: pointer; padding: 0; }
+.ss-colors .ctx-sw-default { background: linear-gradient(135deg, #fff 0 48%, #555 52% 100%); }
+.ss-colors button.active { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+.ss-check { display: flex; align-items: center; gap: 7px; font-size: 13px; cursor: pointer; margin-top: 2px; }
+.ss-check input { accent-color: var(--accent); }
+.ss-actions { display: flex; justify-content: flex-end; gap: 8px; }
+
+/* The visualiser settings: MilkDrop's preset rows only while it is the style (v3.39.0). */
+:root:not([data-viz-style="milkdrop"]) .viz-settings .vs-md { display: none; }
+.viz-settings .vs-sub { margin-top: -2px; }
+.viz-settings .vs-sub .vs-next:first-of-type { margin-left: 0; }
+
+/* Battery saver and resting (v3.39.0, power.js): the endless decorative
+   animations stand still. The large moving glows behind Lite's home screen
+   repaint the whole window on every step of their animation. */
+:is(html.battery-saver, html.bm-resting) :is(.welcome-title, .about-title, .np-bars span, .viz-art, .seek-fill),
+:is(html.battery-saver, html.bm-resting) .fox-stage::before,
+:is(html.battery-saver, html.bm-resting) .fox-stage::after,
+:is(html.battery-saver, html.bm-resting) #welcome-screen::before,
+:is(html.battery-saver, html.bm-resting) #welcome-screen::after { animation-play-state: paused !important; }
+
+/* ── Play on the welcome screen (v3.42.0) ──────────────────────────────
+   The fox to play with and talk to, Flow as a fluid simulator, and Fruit
+   Slice (src/js/play, shared with the phone; play.css has their pieces).
+   Flow and Fruit take the whole welcome area, over the fluid behind it. */
+.welcome-modes { position: absolute; z-index: 8; top: 14px; right: 18px; }
+.welcome-modes.hidden { display: none; }
+#fox-stage { touch-action: none; cursor: pointer; }
+.welcome-talk { margin: -10px 0 18px; display: inline-flex; align-items: center; gap: 8px; min-height: 34px; padding: 0 14px 0 10px; border-radius: 17px;
+  border: 1px solid var(--border); background: color-mix(in srgb, var(--surface2) 70%, transparent); color: var(--text-muted); font-size: 13px; font-weight: 600; cursor: pointer; }
+.welcome-talk:hover, .welcome-talk:focus-visible { color: var(--text); border-color: var(--accent); outline: none; }
+.welcome-talk.on { color: var(--accent); border-color: var(--accent); }
+.welcome-talk .wt-ico { display: inline-flex; }
+.welcome-talk .ico { width: 16px; height: 16px; }
+.lite-mode .welcome-talk, .lite-mode .welcome-modes { display: none; }
+#welcome-screen .flow-surface, #welcome-screen .flow-bar, #welcome-screen .flow-panel, #welcome-screen .sg-stage { display: none; }
+#welcome-screen[data-play="flow"] .welcome-center, #welcome-screen[data-play="fruit"] .welcome-center { opacity: 0; pointer-events: none; }
+#welcome-screen[data-play="flow"] #theme-fx-canvas, #welcome-screen[data-play="fruit"] #theme-fx-canvas { display: none; }
+#welcome-screen[data-play="flow"] .flow-surface { display: block; position: absolute; inset: 0; z-index: 6; cursor: crosshair; touch-action: none; }
+#welcome-screen[data-play="flow"] .flow-bar { display: flex; position: absolute; z-index: 8; left: 50%; bottom: 22px; transform: translateX(-50%); gap: 6px; padding: 6px;
+  border-radius: 26px; background: rgba(8, 10, 20, .55); border: 1px solid rgba(255, 255, 255, .14); backdrop-filter: blur(14px); }
+.flow-btn { width: 40px; height: 40px; border-radius: 50%; border: 0; background: transparent; color: #fff; display: inline-flex; align-items: center; justify-content: center; cursor: pointer; }
+.flow-btn:hover, .flow-btn:focus-visible { background: rgba(255, 255, 255, .12); outline: none; }
+.flow-btn .ico { width: 20px; height: 20px; }
+#welcome-screen[data-play="flow"] .flow-panel:not(.hidden) { display: flex; position: absolute; z-index: 9; right: 18px; bottom: 80px; width: 390px; max-height: calc(100% - 140px); overflow-y: auto;
+  padding: 14px 16px; border-radius: 16px; background: color-mix(in srgb, var(--surface) 92%, transparent); border: 1px solid var(--border); box-shadow: 0 18px 50px rgba(0, 0, 0, .45); backdrop-filter: blur(12px); }
+#welcome-screen[data-play="fruit"] .sg-stage { display: block; z-index: 6; }
+#welcome-screen[data-play="flow"] .aurora-canvas, #welcome-screen[data-play="fruit"] .aurora-canvas { opacity: 1 !important; }
+
+/* ── The welcome screen's rows (v3.43.0, favourites.js) ───────────────
+   Recent files and Favourites, each one line that scrolls sideways, so both
+   fit under the fox. A star on each card, shown on hover and kept lit on a
+   favourite. The icons are drawn, the emoji is gone. */
+.welcome-recent-section + .welcome-recent-section { margin-top: 14px; }
+.recent-btns { display: inline-flex; gap: 6px; }
+.welcome-recent-section .recent-grid {
+  display: flex; gap: 10px; max-height: none; overflow-x: auto; overflow-y: hidden;
+  padding: 4px 2px 10px; scroll-snap-type: x proximity;
+  scrollbar-width: thin; scrollbar-color: color-mix(in srgb, var(--accent) 40%, transparent) transparent;
+}
+.welcome-recent-section .recent-card { position: relative; flex: 0 0 150px; scroll-snap-align: start; }
+.welcome-recent-section .recent-empty { flex: 1; padding: 18px; }
+.recent-thumb .ico { width: 30px; height: 30px; color: var(--accent); opacity: .85; }
+.re-ico { display: inline-flex; margin-bottom: 6px; opacity: .35; }
+.re-ico .ico { width: 34px; height: 34px; }
+.rc-star {
+  position: absolute; top: 6px; right: 6px; width: 28px; height: 28px; border-radius: 50%;
+  display: inline-flex; align-items: center; justify-content: center; padding: 0; cursor: pointer;
+  border: 1px solid rgba(255, 255, 255, .18); background: rgba(8, 10, 20, .55); color: #fff;
+  opacity: 0; transition: opacity .15s, transform .15s;
+}
+.rc-star .ico { width: 15px; height: 15px; }
+.recent-card:hover .rc-star, .recent-card:focus-within .rc-star, .rc-star:focus-visible, .rc-star.on { opacity: 1; }
+.rc-star:hover { transform: scale(1.1); }
+.rc-star.on { color: #ffcf40; }
+/* the music library: a star on each song */
+.tr-fav {
+  width: 28px; height: 28px; flex-shrink: 0; border-radius: 50%; border: 0; padding: 0; cursor: pointer;
+  display: inline-flex; align-items: center; justify-content: center; background: transparent;
+  color: var(--text-muted); opacity: 0; transition: opacity .12s, color .12s;
+}
+.tr-fav .ico { width: 15px; height: 15px; }
+.track-row:hover .tr-fav, .track-row:focus-visible .tr-fav, .tr-fav:focus-visible, .tr-fav.on { opacity: 1; }
+.tr-fav:hover { color: var(--accent); }
+.tr-fav.on { color: #ffcf40; }
+#ctx-fav.on .ctx-ico { color: #ffcf40; }

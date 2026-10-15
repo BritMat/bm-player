@@ -1,0 +1,74 @@
+/* ═══ Play on the home screen (v3.42.0) ════════════════════════════════
+   Shared by the desktop's welcome screen and the phone's home tab: the
+   little hearts, stars and z's around the fox (play/fox-play.js), the Flow
+   simulator's settings (play/flow-toy.js) and the fruit game's menus
+   (play/slice-game.js). Where each sits is the platform's own CSS. */
+
+/* the fox's little effects */
+.fox-fx { position: absolute; inset: 0; pointer-events: none; overflow: visible; z-index: 3; }
+.fp-spark { position: absolute; width: 26px; height: 26px; margin: -13px 0 0 -13px; display: flex; align-items: center; justify-content: center;
+  animation: fp-rise 1.7s cubic-bezier(.2, .7, .3, 1) forwards; opacity: 0; will-change: transform, opacity; }
+.fp-spark svg { width: 100%; height: 100%; display: block; filter: drop-shadow(0 2px 4px rgba(0, 0, 0, .35)); }
+.fp-heart { color: #ff5f8f; }
+.fp-star { color: #ffd54f; width: 22px; height: 22px; }
+.fp-note { color: var(--accent, #7c8cff); }
+.fp-z { color: var(--text, #e8ecf6); font: 800 22px/1 var(--font-display, system-ui), system-ui, sans-serif; animation-duration: 2.6s; }
+@keyframes fp-rise {
+  0% { opacity: 0; transform: translate(0, 0) scale(.4) rotate(0); }
+  15% { opacity: 1; transform: translate(calc(var(--dx, 0px) * .2), -14px) scale(1.1) rotate(calc(var(--rot, 0deg) * .3)); }
+  100% { opacity: 0; transform: translate(var(--dx, 0px), -90px) scale(.8) rotate(var(--rot, 0deg)); }
+}
+@media (prefers-reduced-motion: reduce) { .fp-spark { animation-duration: .01s; } }
+
+/* the flat fox's play (geofox.js react) */
+.geofox.gf-wiggle { animation: gf-wiggle .9s ease-in-out; }
+.geofox.gf-bob { animation: gf-bob .6s ease-in-out; }
+.geofox.gf-sleep .gf-eye { transform: scaleY(.1); }
+@keyframes gf-wiggle { 0%, 100% { transform: rotate(0); } 20% { transform: rotate(-6deg); } 40% { transform: rotate(5deg); } 60% { transform: rotate(-4deg); } 80% { transform: rotate(3deg); } }
+@keyframes gf-bob { 0%, 100% { transform: translateY(0); } 40% { transform: translateY(6px); } }
+
+/* the play modes: Fox, Flow, Fruit */
+.play-modes { display: inline-flex; gap: 4px; padding: 4px; border-radius: 99px; background: color-mix(in srgb, var(--surface2, #1b2030) 78%, transparent); border: 1px solid var(--border, rgba(255,255,255,.1)); backdrop-filter: blur(10px); }
+.play-modes button { min-height: 34px; padding: 0 14px; border-radius: 99px; border: 0; background: transparent; color: var(--text-muted, #9aa3b8); font: 600 13.5px/1 var(--font-ui, system-ui), system-ui, sans-serif; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; }
+.play-modes button.on { color: var(--on-accent, #fff); background: var(--accent, #5b6ff8); }
+.play-modes svg { width: 16px; height: 16px; }
+
+/* the Flow simulator's settings */
+.fp-panel { display: flex; flex-direction: column; gap: 2px; }
+.fp-row { display: flex; align-items: center; gap: 12px; min-height: 44px; }
+.fp-row[hidden] { display: none; }
+.fp-row.fp-wide { flex-direction: column; align-items: stretch; gap: 6px; padding: 6px 0; }
+.fp-label { flex: none; width: 128px; font-size: 13.5px; font-weight: 600; color: var(--text-muted, #9aa3b8); }
+.fp-row.fp-wide .fp-label { width: auto; }
+.fp-seg { display: flex; flex-wrap: wrap; gap: 6px; }
+.fp-seg button { min-height: 34px; padding: 0 12px; border-radius: 10px; border: 1px solid var(--border, rgba(255,255,255,.1)); background: var(--surface2, #1b2030); color: var(--text, #e8ecf6); font: 600 13px/1 var(--font-ui, system-ui), system-ui, sans-serif; cursor: pointer; }
+.fp-seg button.on { background: color-mix(in srgb, var(--accent, #5b6ff8) 30%, var(--surface2, #1b2030)); border-color: var(--accent, #5b6ff8); }
+.fp-range { flex: 1; min-width: 0; display: flex; align-items: center; gap: 10px; }
+.fp-range input { flex: 1; min-width: 0; accent-color: var(--accent, #5b6ff8); height: 28px; }
+.fp-val { width: 52px; text-align: right; font-size: 12.5px; color: var(--text-muted, #9aa3b8); font-variant-numeric: tabular-nums; }
+.fp-switch input { -webkit-appearance: none; appearance: none; width: 46px; height: 28px; border-radius: 14px; background: var(--bar-bg, rgba(255,255,255,.15)); border: 1px solid var(--border, rgba(255,255,255,.1)); position: relative; cursor: pointer; transition: background .2s; }
+.fp-switch input::after { content: ''; position: absolute; left: 3px; top: 3px; width: 20px; height: 20px; border-radius: 50%; background: var(--text-muted, #9aa3b8); transition: transform .2s, background .2s; }
+.fp-switch input:checked { background: color-mix(in srgb, var(--accent, #5b6ff8) 55%, transparent); }
+.fp-switch input:checked::after { transform: translateX(18px); background: #fff; }
+.fp-color { width: 54px; height: 34px; border: 1px solid var(--border, rgba(255,255,255,.1)); border-radius: 10px; background: transparent; padding: 2px; cursor: pointer; }
+.fp-reset { align-self: flex-start; margin-top: 10px; min-height: 36px; padding: 0 18px; border-radius: 18px; border: 1px solid var(--border, rgba(255,255,255,.1)); background: var(--surface2, #1b2030); color: var(--text, #e8ecf6); font-weight: 600; cursor: pointer; }
+
+/* the fruit game */
+.sg-stage { position: absolute; inset: 0; touch-action: none; }
+.sg-canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; cursor: crosshair; }
+.sg-ui { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; padding: 24px; background: rgba(4, 6, 14, .35); }
+.sg-ui.hidden { display: none; }
+.sg-panel { width: min(360px, 100%); padding: 24px 22px 20px; border-radius: 22px; text-align: center; color: #fff;
+  background: color-mix(in srgb, var(--surface, #12151f) 88%, transparent); border: 1px solid var(--border, rgba(255,255,255,.12)); box-shadow: 0 24px 60px rgba(0, 0, 0, .5); backdrop-filter: blur(14px); }
+.sg-title { font: 800 30px/1.1 var(--font-display, system-ui), system-ui, sans-serif; letter-spacing: -.01em;
+  background: linear-gradient(120deg, #ffd166, #ff6b6b 55%, #ffd166); -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; }
+.sg-sub { margin: 10px 0 0; font-size: 14px; line-height: 1.45; color: rgba(255, 255, 255, .75); }
+.sg-score { margin-top: 10px; font: 800 54px/1 var(--font-display, system-ui), system-ui, sans-serif; color: #ffe9a8; }
+.sg-btns { display: flex; flex-direction: column; gap: 10px; margin-top: 20px; }
+.sg-btn { min-height: 48px; padding: 6px 18px; border-radius: 24px; border: 1px solid rgba(255, 255, 255, .16); background: rgba(255, 255, 255, .08); color: #fff; font: 700 15.5px/1.2 var(--font-ui, system-ui), system-ui, sans-serif; cursor: pointer; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; }
+.sg-btn span { font-size: 12px; font-weight: 500; opacity: .7; }
+.sg-btn.sg-main { background: linear-gradient(135deg, #ff9f43, #ff5e62); border-color: transparent; }
+.sg-btn.sg-ghost { background: transparent; }
+.sg-btn:active { transform: scale(.98); }
+.sg-pause { position: absolute; z-index: 2; top: 12px; left: 50%; transform: translateX(-50%); width: 44px; height: 44px; border-radius: 50%; border: 1px solid rgba(255, 255, 255, .2); background: rgba(0, 0, 0, .35); color: #fff; display: inline-flex; align-items: center; justify-content: center; cursor: pointer; }
+.sg-pause.hidden { display: none; }

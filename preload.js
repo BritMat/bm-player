@@ -1,5 +1,5 @@
 'use strict';
-const { contextBridge, ipcRenderer } = require('electron');
+const { contextBridge, ipcRenderer, webUtils } = require('electron');
 const inv=(ch,...a)=>ipcRenderer.invoke(ch,...a);
 const on=(ch,cb)=>ipcRenderer.on(ch,(_,d)=>cb(d));
 contextBridge.exposeInMainWorld('api',{
@@ -84,6 +84,24 @@ contextBridge.exposeInMainWorld('api',{
     art: f=>inv('media:art',f),   // the album art for one file (v3.32.0)
     tags: paths=>inv('music:tags',paths),
     lyrics: (file,meta,opts)=>inv('lyrics:get',file,meta,opts),   // v3.38.0
+    // v3.39.0: searched by the person, chosen, loaded from a file, taken back,
+    // YouTube's captions, and whether yt-dlp is here yet.
+    lyricsSearch: (query,meta)=>inv('lyrics:search',query,meta),
+    lyricsPick: (file,meta,id)=>inv('lyrics:pick',file,meta,id),
+    lyricsLoad: (file,meta,path)=>inv('lyrics:load',file,meta,path||null),
+    lyricsUnpin: (file,meta)=>inv('lyrics:unpin',file,meta),
+    lyricsYoutube: (file,meta)=>inv('lyrics:youtube',file,meta),
+    ytdlp: ()=>inv('lyrics:ytdlp'),
+  },
+  // A dropped file's place on disk (v3.39.0). File.path is gone from Electron
+  // (since 32), and dropping files on the player did nothing without this.
+  files:{
+    pathOf: f=>{ try { return webUtils.getPathForFile(f) || ''; } catch (_) { return ''; } },
+  },
+  // On battery power or not, and when that changes (v3.39.0, power.js).
+  power:{
+    battery: ()=>inv('power:battery'),
+    onBattery: cb=>on('power:battery',cb),
   },
   showContextMenu:()=>inv('show-context-menu'),
 });

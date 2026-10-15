@@ -22,6 +22,7 @@
 
 import { perf } from './perf.js';
 import { createScene } from './theme-scenes.js';
+import { frameGap } from './power.js';   // v3.39.0
 
 /* ─── Color palettes — one per theme ─────────────────────────────── */
 const THEME_PALETTES = {
@@ -283,7 +284,7 @@ export class ThemeFX {
     // At most about 72 frames a second, as the visualiser (v3.30.1): a 144 Hz
     // screen drew the scene 144 times a second. Its motion goes by the clock.
     const _now = performance.now();
-    if (_now - (this._lastDraw || 0) < 12) return;
+    if (_now - (this._lastDraw || 0) < frameGap('decor')) return;   // 30 a second on battery, or behind another window (v3.39.0)
     this._lastDraw = _now;
     this.tick++;
 

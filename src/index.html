@@ -478,6 +478,9 @@
   <link rel="stylesheet" href="css/themes.css">
   <link rel="stylesheet" href="css/enhance.css">
   <link rel="stylesheet" href="css/components.css">
+  <link rel="stylesheet" href="css/lyrics.css">
+  <link rel="stylesheet" href="css/md-browser.css">
+  <link rel="stylesheet" href="css/play.css">
 </head>
 <body>
 
@@ -676,11 +679,24 @@
 </nav>
 
 <!-- ══ WELCOME SCREEN ════════════════════════════════════════════ -->
-<div id="welcome-screen" class="active">
+<div id="welcome-screen" class="active" data-play="fox">
   <canvas id="theme-fx-canvas" class="theme-fx-canvas"></canvas>
   <canvas id="aurora-canvas"   class="aurora-canvas"></canvas>
+  <!-- v3.42.0: three ways to play on the welcome screen (play/*.js) -->
+  <div class="play-modes welcome-modes" id="welcome-modes" role="group" aria-label="Play"></div>
+  <div class="flow-surface" id="flow-surface"></div>
+  <div class="flow-bar" id="flow-bar" role="toolbar" aria-label="Flow">
+    <button class="flow-btn" id="flow-close" type="button" data-icon="close" title="Back to the fox (Esc)" aria-label="Back to the fox"></button>
+    <button class="flow-btn" id="flow-pause" type="button" data-icon="pause" title="Pause" aria-label="Pause"></button>
+    <button class="flow-btn" id="flow-burst" type="button" data-icon="burst" title="A splash of colour" aria-label="A splash of colour"></button>
+    <button class="flow-btn" id="flow-clear" type="button" data-icon="trash" title="Clear" aria-label="Clear"></button>
+    <button class="flow-btn" id="flow-settings" type="button" data-icon="settings" title="Flow settings" aria-label="Flow settings"></button>
+  </div>
+  <div class="flow-panel fp-panel hidden" id="flow-panel" role="dialog" aria-label="Flow settings"></div>
+  <div class="sg-stage" id="slice-stage"><canvas class="sg-canvas" id="slice-canvas"></canvas><div class="sg-ui hidden" id="slice-ui"></div></div>
   <div class="welcome-center">
-    <div class="fox-stage"><canvas id="fox-canvas"></canvas></div>
+    <div class="fox-stage" id="fox-stage"><canvas id="fox-canvas"></canvas><div class="fox-fx" id="fox-fx"></div></div>
+    <button class="welcome-talk" id="welcome-talk" type="button" title="The fox repeats what you say" aria-label="Talk to the fox"><span class="wt-ico" data-icon="mic"></span><span id="welcome-talk-label">Talk to the fox</span></button>
     <h1 class="welcome-title"><span class="wm-bm">BM</span> <span class="wm-player">Player</span></h1>
     <p class="welcome-sub">Professional media player · Powered by mpv</p>
     <div class="welcome-actions">
@@ -688,12 +704,20 @@
       <button id="btn-open-url-welcome" class="btn-open-ghost">Open URL</button>
     </div>
     <p class="drop-hint">or drag &amp; drop files anywhere</p>
-    <div class="welcome-recent-section">
+    <div class="welcome-recent-section" id="welcome-recent-section">
       <div class="recent-header">
         <span class="recent-label">Recent Files</span>
-        <button class="recent-clear-btn" id="btn-clear-recent">Clear all</button>
+        <span class="recent-btns"><button class="recent-clear-btn" id="btn-clear-recent">Clear all</button><button class="recent-clear-btn" id="btn-hide-recent" title="Hide this row (Preferences shows it again)">Hide</button></span>
       </div>
       <div id="recent-grid" class="recent-grid"></div>
+    </div>
+    <!-- v3.43.0: the starred files (favourites.js) -->
+    <div class="welcome-recent-section hidden" id="welcome-fav-section">
+      <div class="recent-header">
+        <span class="recent-label">Favourites</span>
+        <span class="recent-btns"><button class="recent-clear-btn" id="btn-clear-favs">Clear all</button><button class="recent-clear-btn" id="btn-hide-favs" title="Hide this row (Preferences shows it again)">Hide</button></span>
+      </div>
+      <div id="fav-grid" class="recent-grid"></div>
     </div>
   </div>
 </div>
@@ -718,6 +742,7 @@
       <button class="viz-btn" id="viz-btn-next" title="Next" aria-label="Next" data-icon="next"></button>
       <button class="viz-btn" id="viz-btn-music" title="Back to Music" aria-label="Back to Music" data-icon="music"></button>
       <button class="viz-btn" id="viz-btn-lyrics" title="Lyrics" aria-label="Lyrics" aria-pressed="false" data-icon="lyrics"></button>
+      <button class="viz-btn" id="viz-btn-presets" title="MilkDrop presets" aria-label="MilkDrop presets" aria-expanded="false" aria-controls="md-browser"></button>
       <button class="viz-btn" id="viz-btn-settings" title="Visualiser settings" aria-label="Visualiser settings" data-icon="settings"></button>
     </div>
   </div>
@@ -1129,12 +1154,25 @@
         <option value="lite">Lite (reduced effects)</option>
       </select>
     </div>
+    <div class="ctx-row" style="margin-top:8px" title="Visualisers and backgrounds at 30 frames a second instead of 72, which about halves what they cost. Films are not touched.">
+      <span class="ctx-row-label">Battery saver</span>
+      <select class="dash-select" id="set-battery-saver" style="flex:1">
+        <option value="auto">When on battery</option>
+        <option value="on">Always</option>
+        <option value="off">Never</option>
+      </select>
+    </div>
     <div id="perf-info" style="margin-top:12px;padding:10px;background:var(--surface);border-radius:8px;font-size:11px;">
       <div style="display:flex;justify-content:space-between;margin-bottom:4px"><span>Current:</span><span id="perf-info-mode">—</span></div>
       <div style="display:flex;justify-content:space-between;margin-bottom:4px"><span>Reason:</span><span id="perf-info-reason">—</span></div>
       <div style="display:flex;justify-content:space-between;margin-bottom:4px"><span>CPU Cores:</span><span id="perf-info-cores">—</span></div>
       <div style="display:flex;justify-content:space-between"><span>RAM:</span><span id="perf-info-ram">—</span></div>
       <div style="display:flex;justify-content:space-between"><span>GPU:</span><span id="perf-info-gpu">—</span></div>
+    </div>
+    <div class="ctx-section-label" style="margin-top:16px">Home screen</div>
+    <div class="ctx-checkbox-row" style="margin-top:8px">
+      <label class="ctx-checkbox"><input type="checkbox" id="set-home-recent" checked> Recent files</label>
+      <label class="ctx-checkbox"><input type="checkbox" id="set-home-favs" checked> Favourites <span class="set-val">(the star on a file or a song)</span></label>
     </div>
     <div class="ctx-section-label" style="margin-top:16px">Behaviour</div>
     <div class="ctx-row" style="margin-top:8px">
@@ -1417,8 +1455,35 @@
     <div class="dlg-title">Jump to Time</div>
     <div style="display:flex;gap:8px;align-items:center">
       <input type="text" class="dlg-input" id="jump-input" placeholder="0:00:00" style="flex:1">
-      <button class="btn-ghost" id="jump-cancel">Cancel</button>\n      <button class="btn-accent" id="jump-go">Jump</button>
+      <button class="btn-ghost" id="jump-cancel">Cancel</button>
+      <button class="btn-accent" id="jump-go">Jump</button>
     </div>
+  </div>
+</div>
+
+<!-- v3.39.0: how subtitles look (sub-style.js): every installed font, the
+     edge round the letters, bold and colour, with a sample. -->
+<div class="dialog-overlay hidden" id="dlg-substyle">
+  <div class="dlg-box ss-box" role="dialog" aria-label="Subtitle style">
+    <div class="dlg-title">Subtitle style</div>
+    <div class="ss-preview" aria-hidden="true"><span id="ss-preview-text" class="ss-preview-text">The quick brown fox jumps<br>over the lazy dog</span></div>
+    <div class="ss-cols">
+      <div class="ss-col">
+        <div class="ss-label">Font <span class="ss-font-now" id="ss-font-now"></span></div>
+        <input type="search" class="dlg-input ss-search" id="ss-search" placeholder="Search fonts" aria-label="Search fonts" autocomplete="off" spellcheck="false">
+        <div class="ss-fonts" id="ss-fonts" role="listbox" aria-label="Fonts"></div>
+        <div class="ss-note" id="ss-fonts-note"></div>
+      </div>
+      <div class="ss-col">
+        <div class="ss-label">Edge</div>
+        <div class="vs-seg ss-edges" id="ss-edges"><button type="button" data-e="outline">Outline</button><button type="button" data-e="shadow">Shadow</button><button type="button" data-e="box">Box</button><button type="button" data-e="none">None</button></div>
+        <div class="ss-label">Colour</div>
+        <div class="ctx-swatches ss-colors" id="ss-colors"><button type="button" data-c="" title="Default" aria-label="Default" class="ctx-sw-default"></button><button type="button" data-c="#FFFFFF" title="White" aria-label="White"></button><button type="button" data-c="#FFE135" title="Yellow" aria-label="Yellow"></button><button type="button" data-c="#7FDBFF" title="Light blue" aria-label="Light blue"></button><button type="button" data-c="#9BFF7A" title="Light green" aria-label="Light green"></button><button type="button" data-c="#FFB347" title="Orange" aria-label="Orange"></button><button type="button" data-c="#FF9ECD" title="Pink" aria-label="Pink"></button></div>
+        <label class="ss-check"><input type="checkbox" id="ss-bold"> Bold</label>
+        <div class="ss-note">Styled subtitles (ASS) keep their own look until something here is changed.</div>
+      </div>
+    </div>
+    <div class="ss-actions"><button class="btn-ghost" id="ss-reset" type="button">Default look</button><button class="btn-accent" id="ss-done" type="button">Done</button></div>
   </div>
 </div>
 
@@ -1505,13 +1570,29 @@
          visualiser (viz-settings.js), kept between sessions. -->
     <div class="vs-title">Visualiser</div>
     <div class="vs-row"><span class="vs-label">Style</span><div class="vs-seg" id="vs-style"><button data-v="bars">Bars</button><button data-v="radial">Radial</button><button data-v="wave">Wave</button><button data-v="particles">Particles</button><button data-v="fluid">Smoke</button><button data-v="flow">HD Flow</button><button data-v="neon">Neon</button><button data-v="bubbles">Bubbles</button><button data-v="milkdrop">MilkDrop</button></div></div>
-    <div class="vs-row"><span class="vs-label">Presets</span><div class="vs-seg" id="vs-md-auto"><button data-v="0">Off</button><button data-v="15" aria-label="Every 15 seconds">15 s</button><button data-v="30" aria-label="Every 30 seconds">30 s</button><button data-v="60" aria-label="Every 60 seconds">60 s</button></div><button class="vs-next" id="vs-md-next" type="button">Next</button></div>
+    <div class="vs-row vs-md"><span class="vs-label">Presets</span><div class="vs-seg" id="vs-md-auto"><button data-v="0">Off</button><button data-v="15" aria-label="Every 15 seconds">15 s</button><button data-v="30" aria-label="Every 30 seconds">30 s</button><button data-v="60" aria-label="Every 60 seconds">60 s</button></div></div>
+    <div class="vs-row vs-md vs-sub"><span class="vs-label"></span><button class="vs-next" id="vs-md-next" type="button">Next</button><button class="vs-next" id="vs-md-browse" type="button">Browse all</button></div>
     <div class="vs-row"><span class="vs-label">Spin</span><div class="vs-seg" id="vs-spin"><button data-v="on">On</button><button data-v="off">Off</button></div></div>
     <div class="vs-row"><span class="vs-label">Colours</span><div class="vs-seg" id="vs-colors"><button data-v="auto">Original</button><button data-v="theme">Theme</button><button data-v="fire">Fire</button><button data-v="ice">Ice</button><button data-v="rainbow">Rainbow</button><button data-v="mono">Mono</button></div></div>
     <div class="vs-row"><span class="vs-label">Sensitivity</span><input type="range" id="vs-sens" min="40" max="250"><span class="vs-val" id="vs-sens-val"></span></div>
     <div class="vs-row"><span class="vs-label">Bars</span><input type="range" id="vs-bars" min="24" max="160"><span class="vs-val" id="vs-bars-val"></span></div>
     <div class="vs-row"><span class="vs-label">Smoothing</span><input type="range" id="vs-smooth" min="0" max="95"><span class="vs-val" id="vs-smooth-val"></span></div>
     <button class="vs-reset" id="vs-reset">Reset</button>
+  </div>
+  <!-- v3.39.0: the MilkDrop preset browser (md-browser.js), a drawer at the
+       right with a picture of every preset. -->
+  <div class="md-browser hidden" id="md-browser" role="dialog" aria-label="MilkDrop presets">
+    <div class="mdb-head">
+      <div class="mdb-heading"><span class="mdb-h">MilkDrop presets</span><span class="mdb-count" id="mdb-count"></span></div>
+      <button class="mdb-close" id="mdb-close" type="button" title="Close" aria-label="Close"></button>
+    </div>
+    <label class="mdb-search"><span class="mdb-search-ico" id="mdb-search-ico" aria-hidden="true"></span><input type="search" id="mdb-search" placeholder="Search presets" aria-label="Search presets" autocomplete="off" spellcheck="false"></label>
+    <div class="mdb-filter" id="mdb-filter" role="group" aria-label="Show"><button type="button" data-f="all" class="active">All</button><button type="button" data-f="fav" id="mdb-filter-fav">Favourites</button></div>
+    <div class="mdb-grid" id="mdb-grid" role="listbox" aria-label="Presets"></div>
+    <div class="mdb-foot">
+      <div class="mdb-row"><span class="mdb-label">Change every</span><div class="vs-seg" id="mdb-auto"><button data-v="0" type="button">Off</button><button data-v="15" type="button" aria-label="Every 15 seconds">15 s</button><button data-v="30" type="button" aria-label="Every 30 seconds">30 s</button><button data-v="60" type="button" aria-label="Every 60 seconds">60 s</button></div></div>
+      <div class="mdb-row"><label class="mdb-check"><input type="checkbox" id="mdb-fav-only"> Favourites only</label><button class="vs-next" id="mdb-shuffle" type="button">Shuffle now</button></div>
+    </div>
   </div>
   <div class="ctx-panel hidden" id="ctx-panel" role="menu">
     <!-- v3.27.0: a standard menu. The everyday actions, then submenus that open
@@ -1565,8 +1646,9 @@
       <span class="ctx-slider-val" id="ctx-sub-pos-val">100</span>
     </div>
           <div class="ctx-slider-row"><span class="ctx-slider-label">Colour</span><div class="ctx-swatches" id="ctx-sub-colors"><button data-c="" title="Default" aria-label="Default" class="ctx-sw-default"></button><button data-c="#FFFFFF" title="White" aria-label="White"></button><button data-c="#FFE135" title="Yellow" aria-label="Yellow"></button><button data-c="#7FDBFF" title="Light blue" aria-label="Light blue"></button><button data-c="#9BFF7A" title="Light green" aria-label="Light green"></button><button data-c="#FFB347" title="Orange" aria-label="Orange"></button><button data-c="#FF9ECD" title="Pink" aria-label="Pink"></button></div></div>
+          <div class="ctx-slider-row"><span class="ctx-slider-label">Edge</span><div class="ctx-sub-edges" id="ctx-sub-edges"><button data-e="outline" title="A thin outline">Outline</button><button data-e="shadow" title="A thinner outline and a soft shadow">Shadow</button><button data-e="box" title="On a see-through box">Box</button><button data-e="none" title="The letters alone">None</button></div></div>
           <div class="ctx-slider-label ctx-sub-fonts-label">Font</div>
-          <div class="ctx-sub-fonts" id="ctx-sub-fonts"><button data-f="">Default</button><button data-f="Segoe UI">Segoe UI</button><button data-f="Arial">Arial</button><button data-f="Verdana">Verdana</button><button data-f="Tahoma">Tahoma</button><button data-f="Georgia">Georgia</button><button data-f="Times New Roman">Times New Roman</button><button data-f="Consolas">Consolas</button><button data-f="Comic Sans MS">Comic Sans MS</button></div>
+          <div class="ctx-sub-fonts" id="ctx-sub-fonts"><button data-f="">Default</button><button data-f="Segoe UI">Segoe UI</button><button data-f="Arial">Arial</button><button data-f="Verdana">Verdana</button><button data-f="Tahoma">Tahoma</button><button data-f="Georgia">Georgia</button><button data-f="Times New Roman">Times New Roman</button><button data-f="Consolas">Consolas</button><button id="ctx-sub-more" class="ctx-sub-more" title="Every font on this computer, and more choices">More&hellip;</button></div>
         </div>
       </div>
     </div>
@@ -1610,6 +1692,7 @@
       <div class="ctx-sep"></div>
       <div class="ctx-item" id="ctx-screenshot"><span class="ctx-ico" data-icon="images"></span>Screenshot</div>
       <div class="ctx-item" data-a="open-info"><span class="ctx-ico" data-icon="info"></span>Media info&hellip;</div>
+      <div class="ctx-item" id="ctx-fav"><span class="ctx-ico" data-icon="star"></span><span class="ctx-fav-lbl">Add to favourites</span></div>
     </div>
     <div class="ctx-group" id="ctx-sec-file">
       <div class="ctx-sep"></div>

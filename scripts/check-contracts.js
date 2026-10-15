@@ -37,6 +37,10 @@ const warn = (cat, msg) => warns.push({ cat, msg });
 
 /* ── collect sources ───────────────────────────────────────────── */
 const html = read('src/index.html');
+// The style sheets the page links, in its order (v3.40.0): the list was
+// written out by hand, and a sheet split off (lyrics.css, md-browser.css)
+// went unread.
+const SHEETS = [...html.matchAll(/<link rel="stylesheet" href="(css\/[^"]+\.css)">/g)].map(m => 'src/' + m[1]).filter(f => !/fonts\.css$/.test(f));
 
 function walk(dir, acc = []) {
   for (const e of fs.readdirSync(path.join(ROOT, dir), { withFileTypes: true })) {
@@ -214,7 +218,7 @@ for (const { file, text } of rendererSrc) {
 
 /* ── 7. CSS classes set from JS that no stylesheet defines ─────── */
 {
-  const css = ['src/css/style.css', 'src/css/themes.css', 'src/css/enhance.css', 'src/css/components.css']
+  const css = SHEETS
     .filter(f => fs.existsSync(path.join(ROOT, f))).map(read).join('\n') + '\n' + html;
   const defined = new Set([...css.matchAll(/\.([a-zA-Z][\w-]*)/g)].map(m => m[1]));
   const IGNORE = new Set(['hidden', 'active', 'open', 'then', 'catch', 'push', 'map', 'filter']);
@@ -481,7 +485,7 @@ for (const m of html.matchAll(/(?:src|href)="((?!https?:|data:)[^"]+)"/g)) {
     }
   }
   // A white label hard-coded onto an accent fill bypasses all of the above.
-  for (const f of ['src/css/style.css', 'src/css/themes.css', 'src/css/enhance.css', 'src/css/components.css']) {
+  for (const f of SHEETS) {
     if (!fs.existsSync(path.join(ROOT, f))) continue;
     for (const m of read(f).matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
       const decl = m[2];
@@ -512,7 +516,7 @@ for (const m of html.matchAll(/(?:src|href)="((?!https?:|data:)[^"]+)"/g)) {
   }
   // Classes written in markup that no stylesheet mentions. Warn only: some
   // are deliberate hooks for JavaScript rather than styling.
-  const cssText = ['src/css/style.css', 'src/css/themes.css', 'src/css/enhance.css', 'src/css/components.css']
+  const cssText = SHEETS
     .filter(f => fs.existsSync(path.join(ROOT, f))).map(read).join('\n')
     + (html.match(/<style>([\s\S]*?)<\/style>/) || ['', ''])[1];
   const styled = new Set([...cssText.matchAll(/\.([a-zA-Z][\w-]*)/g)].map(x => x[1]));
@@ -580,7 +584,7 @@ for (const m of html.matchAll(/(?:src|href)="((?!https?:|data:)[^"]+)"/g)) {
  * app. Any fixed overlay that is (a) stacked below the titlebar, (b) starts
  * at the top edge and (c) contains buttons has the same problem. */
 {
-  const order = ['src/css/style.css', null, 'src/css/themes.css', 'src/css/enhance.css', 'src/css/components.css'];
+  const order = ['src/css/style.css', null, ...SHEETS.filter(f => f !== 'src/css/style.css')];   // the page's own <style> comes after style.css
   const inline = (html.match(/<style>([\s\S]*?)<\/style>/) || ['', ''])[1];
   const rules = [];
   for (const f of order) {

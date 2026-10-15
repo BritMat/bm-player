@@ -21,6 +21,7 @@
  */
 
 import { perf } from './perf.js';
+import { frameGap } from './power.js';   // v3.39.0
 
 const TAU = Math.PI * 2;
 
@@ -273,7 +274,7 @@ export function drawNeon(viz) {
     else if (st.skip === undefined || st.skip > 0) st.skip = (st.skip === undefined ? 30 : st.skip) - 1;
     else {
       st.ema = st.ema ? st.ema + (gap - st.ema) * 0.08 : gap;
-      if (st.ema <= Math.max(27, (perf.refreshMs || 0) * 1.45 + 2)) st.slow = 0;
+      if (st.ema <= Math.max(27, Math.max(perf.refreshMs || 0, frameGap('viz')) * 1.45 + 2)) st.slow = 0;   // the battery saver's 30 a second is not slow (v3.39.0)
       else if ((st.slow = (st.slow || 0) + 1) >= 60) { NEON.level++; st.slow = 0; st.ema = 0; st.skip = 30; }
     }
   }

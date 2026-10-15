@@ -15,3 +15,5 @@ buildResources/icon.icns
 buildResources/icon.iconset/
 vendor/mpv/*
 !vendor/mpv/README.md
+# The Android app's signing key: private, kept in the zip only.
+android/keystore/

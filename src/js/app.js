@@ -1,12 +1,14 @@
 import { createFox  } from './fox3d.js';
 import { buildFoxSVG } from './geofox.js';
-import { Visualizer, vizSettings, saveVizSettings, allVisualisers, setSharedAnalyser, setSharedArt } from './visualizer.js';
+import { Visualizer, vizSettings, saveVizSettings, allVisualisers, setSharedAnalyser, setSharedArt, sharedAnalyser } from './visualizer.js';
 import { AudioShadow } from './audio-shadow.js';   // the exact visualiser for audio mpv plays
 import './viz-settings.js';   // the visualiser settings panel
+import './md-browser.js';     // the MilkDrop preset browser (v3.39.0)
 import { ThemeFX    } from './theme-fx.js';
 import { FluidFX    } from './fluid.js';
 import { applyIcons, setTogglePair, setIcon, setPlaying } from './icons.js';
 import { perf, QUALITY_TIERS } from './perf.js';
+import { power, onPower, startPower, setSaverMode } from './power.js';   // battery saver, resting backgrounds (v3.39.0)
 import settings from './modules/settings.js';
 import history from './modules/history.js';
 import ABRepeat from './modules/abrepeat.js';
@@ -21,6 +23,11 @@ import './lite-video.js';   // Lite: where the video window goes
 import './range-fill.js';   // volume sliders filled with the theme's colours
 import './ctx-menu.js';     // the right-click menu's submenus
 import { SCENE_THEMES } from './theme-scenes.js';   // the artistic themes' own scenes
+import { FoxPlay } from './play/fox-play.js';         // v3.42.0: play on the welcome screen
+import { FoxVoice } from './play/fox-voice.js';
+import { FlowToy, buildToyPanel } from './play/flow-toy.js';
+import { SliceGame } from './play/slice-game.js';
+import { wireRows, renderRows, isFav, toggleFav } from './favourites.js';   // v3.43.0: the welcome screen's rows
 import { flowSettings } from './flow-settings.js';   // the Flow theme's controls
 import { applySubStyle } from './sub-style.js';   // subtitle font and colour
 import { TVModule } from './modules/tv.js';
@@ -148,9 +155,13 @@ class BMPlayer {
     this.wireWelcome();this.wireTransport();this.wireSeek();this.wireVolume();
     this.wirePanels();this.wireEQ();this.wirePlaylistPanel();this.wireCtxPanel();
     this.wireDialogs();this.wireOverlayKeys();this.wireKeyboard();this.wireDragDrop();this.wireControlsHide();
-    this.wirePiP();this.wireMiniPlayer();this.wireVizOverlay();this.wireCtxMenu();this.wireFluidPointer();this.wireDiagnostics();
+    this.wirePiP();this.wireMiniPlayer();this.wireVizOverlay();this.wireCtxMenu();this.wireFluidPointer();this.wirePlayModes();this.wireDiagnostics();
     this.wireUpdate();this.wireDefaultPrompt();this.listenMpv();this.renderRecent();this.renderTrackMenus([]);
     this.wireABRepeat();this.wireBookmarks();this.wireHistory();this.wireSettings();this.wireSubSearch();this.wireResumePrompt();this.wirePlaylistIO();this.wireBookmarkControls();
+    // Power (v3.39.0): the battery, and the home screen's background resting
+    // while nothing plays and no one is there.
+    startPower({ api: this.api, playing: () => this._anyPlaying() || !!(window.bmMusic?.engine?.el && !window.bmMusic.engine.el.paused) });
+    onPower((_, what) => { if (what === 'idle') this._syncEffects(); });
     this.wirePerfPanel();
     this.pluginManager=new PluginManager(this);
     this._wireFluidPanel();
@@ -215,6 +226,9 @@ class BMPlayer {
     });
   }
   wirePerfPanel(){
+    // The battery saver (v3.39.0, power.js): on battery, always, or never.
+    const bs = el('set-battery-saver');
+    if (bs) { bs.value = power.mode; bs.addEventListener('change', () => { setSaverMode(bs.value); this.showOSD(power.saver ? 'Battery saver on: visuals at 30 frames a second' : 'Battery saver off'); }); }
     const sel = el('set-perf-mode');
     if (sel) {
       // Initialize from current override
@@ -340,6 +354,7 @@ class BMPlayer {
         requestAnimationFrame(()=>{ this.viz?._resize?.(); this.viz?.setMode(vizSettings().style); this.viz?.start(); });
         this._hideMiniPlayer();
         this._updateVizMeta();
+        this._wakeControls?.();
         this.fox?.setExpression?.('happy');
         // Everything below assumes we're falling through to welcome/player —
         // this branch is already resolved.
@@ -465,14 +480,13 @@ class BMPlayer {
     el('btn-open-welcome')?.addEventListener('click',()=>this.openDialog());
     el('btn-open-url-welcome')?.addEventListener('click',()=>{el('dlg-url')?.classList.remove('hidden');el('url-input')?.focus();});
     el('btn-clear-recent')?.addEventListener('click',()=>{this.recent=[];localStorage.removeItem('bm_recent');this.renderRecent();});
+    wireRows(this);   // v3.43.0: the recent and favourite rows (favourites.js)
   }
-  renderRecent(){
-    const g=el('recent-grid');if(!g)return;
-    if(!this.recent.length){g.innerHTML='<div class="recent-empty"><div style="font-size:40px;margin-bottom:8px;opacity:.3">&#127909;</div><p>No recent files</p></div>';return;}
-    g.innerHTML=this.recent.slice(0,16).map(f=>{const name=f.split(/[\\/]/).pop();const ext=name.split('.').pop().toUpperCase();return'<div class="recent-card" data-f="'+f.replace(/"/g,'&quot;')+'"><div class="recent-thumb">&#127909;</div><div class="recent-info"><div class="recent-name">'+name+'</div><div class="recent-ext">'+ext+'</div></div></div>';}).join('');
-    g.querySelectorAll('.recent-card').forEach(c=>c.addEventListener('click',()=>this.playMedia([c.dataset.f])));
-  }
-  addRecent(f){this.recent=[f,...this.recent.filter(r=>r!==f)].slice(0,20);localStorage.setItem('bm_recent',JSON.stringify(this.recent));this.api?.app.addRecent(f);}
+  // The rows are drawn by favourites.js (v3.43.0). The recent one put each
+  // file's name into the page as it was, and was drawn only at start, so a
+  // file just played was not in it until the next start.
+  renderRecent(){ renderRows(); }
+  addRecent(f){this.recent=[f,...this.recent.filter(r=>r!==f)].slice(0,20);localStorage.setItem('bm_recent',JSON.stringify(this.recent));this.api?.app.addRecent(f);this.renderRecent();}
   wireTransport(){
     el('btn-play')?.addEventListener('click',()=>this.togglePlay());
     el('btn-stop')?.addEventListener('click',()=>this.stop());
@@ -702,7 +716,7 @@ class BMPlayer {
     if(this._pipActive)return{modal:false,close:()=>this.togglePiP(false)};
     const shown=id=>{const x=el(id);return !!x&&!x.classList.contains('hidden');};
     if(shown('about-dialog'))return{modal:true,close:()=>this.closeAbout()};
-    const dlg=['dlg-url','dlg-jump','dlg-speed'].find(shown);
+    const dlg=['dlg-url','dlg-jump','dlg-speed','dlg-substyle'].find(shown);
     if(dlg)return{modal:true,close:()=>el(dlg)?.classList.add('hidden')};
     if(shown('ctx-panel'))return{modal:true,close:()=>this._closeCtxPanel()};
     if(shown('theme-customizer'))return{modal:true,close:()=>el('theme-customizer')?.classList.add('hidden')};
@@ -710,6 +724,7 @@ class BMPlayer {
     const panel=document.querySelector('.side-panel.open');
     if(panel)return{modal:false,close:()=>panel.classList.remove('open')};
     if(shown('resume-prompt'))return{modal:false,close:()=>el('resume-dismiss')?.click()};
+    if(shown('md-browser'))return{modal:false,close:()=>window.bmMdBrowser?.hide()};   // v3.39.0
     return null;
   }
 
@@ -873,6 +888,7 @@ class BMPlayer {
     document.querySelectorAll('.ctx-chip[data-cmd]').forEach(chip=>chip.addEventListener('click',()=>{chip.closest('.ctx-chip-row')?.querySelectorAll('.ctx-chip').forEach(c=>c.classList.remove('active'));chip.classList.add('active');const{cmd,v}=chip.dataset;if(cmd==='aspect')this.api?.mpv.cmd('set_property','video-aspect-override',v==='-1'?'-1':v);if(cmd==='hwdec')this.api?.mpv.cmd('set_property','hwdec',v);}));
     el('ctx-deinterlace')?.addEventListener('change',()=>this.api?.mpv.cmd('cycle','deinterlace'));
     el('ctx-screenshot')?.addEventListener('click',()=>{this.api?.mpv.cmd('screenshot','subtitles');this.showOSD('Screenshot saved');this._closeCtxPanel();});
+    el('ctx-fav')?.addEventListener('click',()=>{const fp=this._currentFilePath;if(fp)this.showOSD(toggleFav(fp)?'Added to favourites: it is on the home screen':'Taken out of favourites');this._closeCtxPanel();});
     // mpv runs with --keep-open=yes, so the end of a file does NOT send
     // end-file. It sets eof-reached and pauses on the last frame. Verified
     // against real mpv 0.37 (scripts/integration-mpv.cjs). Advance on that.
@@ -918,6 +934,9 @@ class BMPlayer {
     show('ctx-sec-video',vid);
     show('ctx-sec-extra',playing);
     el('ctx-ontop')?.classList.toggle('on',!!this.alwaysOnTop);
+    // The star for what is playing (v3.43.0): a file, not a stream.
+    const fav=el('ctx-fav'),fp=this._currentFilePath;
+    if(fav){ fav.classList.toggle('hidden',!fp); const on=!!fp&&isFav(fp); fav.classList.toggle('on',on); const l=fav.querySelector('.ctx-fav-lbl'); if(l) l.textContent=on?'Remove from favourites':'Add to favourites'; setIcon(fav.querySelector('.ctx-ico'),on?'starFill':'star'); }
 
     p.classList.remove('hidden');
     p.style.left='-9999px';p.style.top='-9999px';
@@ -1029,8 +1048,15 @@ class BMPlayer {
     clearTimeout(this._fxT);
     this._fxT=setTimeout(()=>{
       const home=!!el('welcome-screen')?.classList.contains('active')&&!document.body.classList.contains('playing');
-      const on=home&&!document.hidden&&!this._winHidden;
-      for(const fx of [this.fox,this.themeFX,this.auroraFX]){ try{ if(on)fx?.resume?.();else fx?.pause?.(); }catch(_){} }
+      const shown=home&&!document.hidden&&!this._winHidden;
+      const mode=this._playMode||'fox';
+      const on=shown&&(mode!=='fox'||!power.idle);   // resting after two idle minutes (v3.39.0), with the fox only
+      // v3.42.0: Flow and Fruit use the fluid alone; the fox and the scene wait.
+      for(const fx of [this.fox,this.themeFX]){ try{ if(on&&mode==='fox')fx?.resume?.();else fx?.pause?.(); }catch(_){} }
+      try{ if(on)this.auroraFX?.resume?.();else this.auroraFX?.pause?.(); }catch(_){}
+      try{ if(on&&mode==='fox')this.foxPlay?.resume();else this.foxPlay?.pause(); }catch(_){}
+      if(!shown){ try{ this.foxVoice?.stop(); if(this.sliceGame?.busy) this.sliceGame.pause(); }catch(_){} }
+      this._foxMusic(on&&mode==='fox');
       // The visualisers too (v3.33.0), when the window is minimised or hidden;
       // only the ones that were running start again.
       const away=document.hidden||!!this._winHidden;
@@ -1201,10 +1227,16 @@ class BMPlayer {
       else if(e.key>='1'&&e.key<='9'&&!e.ctrlKey&&!e.altKey){const p=+e.key/10;this.seekTo(p*this.duration);}
     });
   }
-  wireDragDrop(){const ov=el('drop-overlay');document.addEventListener('dragover',e=>{e.preventDefault();ov?.classList.add('active');});document.addEventListener('dragleave',e=>{if(!e.relatedTarget)ov?.classList.remove('active');});document.addEventListener('drop',e=>{e.preventDefault();ov?.classList.remove('active');const files=[...(e.dataTransfer?.files||[])].map(f=>f.path).filter(Boolean);if(files.length)this.playMedia(files);});}
+  wireDragDrop(){const ov=el('drop-overlay');document.addEventListener('dragover',e=>{e.preventDefault();ov?.classList.add('active');});document.addEventListener('dragleave',e=>{if(!e.relatedTarget)ov?.classList.remove('active');});document.addEventListener('drop',e=>{e.preventDefault();ov?.classList.remove('active');if(e.__bmHandled)return;const files=[...(e.dataTransfer?.files||[])].map(f=>this.api?.files?.pathOf?.(f)||f.path).filter(Boolean);if(files.length)this.playMedia(files);});}   // pathOf (v3.39.0): File.path is gone from Electron
   wireControlsHide(){
     const bar=el('controls-bar'),tb=el('titlebar'),mt=el('menu-toolbar');
-    const show=()=>{bar?.classList.remove('faded');tb?.classList.remove('faded-top');mt?.classList.remove('faded-top');clearTimeout(this.hideTimer);if(this._anyPlaying())this.hideTimer=setTimeout(()=>{if(this._anyPlaying()&&!bar?.matches(':hover')){bar?.classList.add('faded');tb?.classList.add('faded-top');mt?.classList.add('faded-top');}},3000);};
+    // v3.43.0: not while the pointer is on the title bar or the menus either
+    // (a menu held open there, with the mouse still, faded away with them),
+    // and _wakeControls() starts the count when the visual mode opens, so the
+    // bars go even before the mouse moves.
+    const over=()=>bar?.matches(':hover')||tb?.matches(':hover')||mt?.matches(':hover');
+    const show=()=>{bar?.classList.remove('faded');tb?.classList.remove('faded-top');mt?.classList.remove('faded-top');clearTimeout(this.hideTimer);if(this._anyPlaying())this.hideTimer=setTimeout(()=>{if(this._anyPlaying()&&!over()){bar?.classList.add('faded');tb?.classList.add('faded-top');mt?.classList.add('faded-top');}},3000);};
+    this._wakeControls=show;
     document.addEventListener('mousemove',show);
     bar?.addEventListener('mouseenter',()=>{clearTimeout(this.hideTimer);bar.classList.remove('faded');});
     bar?.addEventListener('mouseleave',()=>{if(this._anyPlaying())this.hideTimer=setTimeout(()=>bar?.classList.add('faded'),2500);});
@@ -1227,7 +1259,7 @@ class BMPlayer {
       if(s.state==='retrying-minimal'){if(st)st.textContent='mpv retrying with reduced options...';}
       if(s.state==='crash-loop'){this.showOSD('mpv failed to start - check that mpv is installed correctly',6000);if(st)st.textContent='mpv failed to start';}
       // ── v1.7.0: apply persisted subtitle settings once mpv is ready ──
-      if(s.state==='ready'){ settings.applyToMpv(this.api?.mpv); this._mpvReadyHook?.(); }
+      if(s.state==='ready'){ settings.applyToMpv(this.api?.mpv); applySubStyle(this.api); this._mpvReadyHook?.(); }   // the subtitle look from the start too (v3.39.0)
     });
     this.api?.mpv.onProp?.(p=>{
       // Idle mpv (nothing loaded) reports pause=false as soon as it connects.
@@ -1241,6 +1273,9 @@ class BMPlayer {
         if(window.bmMusic?.engineOwns?.()) return;
         if(this._mpvIdle){ this.isPlaying=false; this.updatePlayIcon?.(); this._updateMiniPlayer?.(); }
         else { this.isPlaying=!this._lastPause; this.updatePlayIcon?.(); }
+        // The other play buttons too (v3.43.1): a film whose pause came before
+        // mpv left idle showed play on them while it played.
+        for(const id of ['mmp-play','pip-play','viz-btn-play']){ const b=el(id); if(b) setPlaying(b,this.isPlaying); }
         return;
       }
       if(p.name==='pause'){
@@ -1331,6 +1366,10 @@ class BMPlayer {
         if(mc&&!this.musicViz){this.musicViz=window.bmMusic?._viz||new Visualizer(mc);}
         this.musicViz?.setMode(vizSettings().style);
       }
+      // A song opened as a file (Open, a drop, a recent or favourite card)
+      // showed an empty player with the music bar under it (v3.43.0). It gets
+      // the visual mode, as music does when the Video tab opens.
+      if(this.currentDash==='video'&&this.isPlaying&&!this._audioVizMode&&el('player-view')?.classList.contains('active')){ this.switchDest('video'); return; }
       // Show mini player bar if user is on video tab
       this._updateMiniPlayer();
     }
@@ -1380,6 +1419,10 @@ class BMPlayer {
         this._pipReturnDash=this.currentDash;
         const t=el('pip-title');
         if(t)t.textContent=el('title-text')?.textContent||'BM Player';
+        // The bar's play button as things are (v3.43.1). It was set only when
+        // playing changed, so it showed play over a film playing.
+        const playingNow=window.bmMusic?.engineOwns?.()?!window.bmMusic.engine?.el?.paused:!!this.isPlaying;
+        setPlaying(el('pip-play'),playingNow);
         // Any dashboard left open would render straight over the video in a
         // 340x200 window. Force the player surface to be the only thing there.
         document.querySelectorAll('.dashboard-view').forEach(v=>v.classList.remove('active'));
@@ -1446,12 +1489,14 @@ class BMPlayer {
       return [ (e.clientX-r.left)/Math.max(1,r.width), 1-(e.clientY-r.top)/Math.max(1,r.height) ];
     };
     host.addEventListener('pointermove',e=>{
+      if((this._playMode||'fox')!=='fox'){have=false;return;}   // Flow and Fruit take the pointer themselves (v3.42.0)
       const [x,y]=norm(e);
       if(have) this.auroraFX?.addPointer?.(x,y,x-px,y-py);
       px=x;py=y;have=true;
     });
     host.addEventListener('pointerleave',()=>{have=false;});
     host.addEventListener('pointerdown',e=>{
+      if((this._playMode||'fox')!=='fox'||e.target.closest?.('#fox-stage, button'))return;
       const [x,y]=norm(e);
       // A click should read as a burst, not a nudge.
       for(let i=0;i<4;i++){
@@ -2071,29 +2116,117 @@ class BMPlayer {
   }
 
   // ── v1.8.0: Music energy -> Fox ────────────────────────────────
-  _startMusicEnergyLoop(){
-    const loop=()=>{
-      if(this.isPlaying&&!this._hasVideo&&this.viz?.audioCtx){
+  // v3.42.0: it ran five times a second for as long as the app was open,
+  // and waited for an audio context the visualiser never made, so the fox
+  // never moved with the music. Now it runs only while the fox can be seen,
+  // and listens to whatever analyser there is: the music view's engine, or
+  // the shadow of a song mpv plays (audio-shadow.js).
+  _startMusicEnergyLoop(){ this._musicEnergy=0; this._targetMusicEnergy=0; }
+  _foxMusic(on){
+    clearInterval(this._musicT); this._musicT=0;
+    if(!on||!this.fox){ this.foxPlay?.setMusic?.(0); return; }
+    let bins=null;
+    this._musicT=setInterval(()=>{
+      const a=window.bmMusic?.engine?.getAnalyser?.()||sharedAnalyser()||this.viz?.analyser;
+      const playing=this._anyPlaying?.()||!!(window.bmMusic?.engine?.el&&!window.bmMusic.engine.el.paused);
+      let target=0;
+      if(a&&playing){
         try{
-          if(!this.viz.analyser){setTimeout(loop,200);return;}
-          const data=new Uint8Array(this.viz.analyser.frequencyBinCount);
-          this.viz.analyser.getByteFrequencyData(data);
-          let bass=0;for(let i=0;i<8&&i<data.length;i++)bass+=data[i];
-          bass/=8*255;
-          let mid=0;const me=Math.min(40,data.length);
-          for(let i=8;i<me;i++)mid+=data[i];
-          mid/=(me-8)*255;
-          this._targetMusicEnergy=bass*0.7+mid*0.3;
-        }catch(_){this._targetMusicEnergy=0;}
-      }else{this._targetMusicEnergy=0;}
-      this._musicEnergy+=(this._targetMusicEnergy-this._musicEnergy)*0.12;
-      this.fox?.setMusicEnergy?.(this._musicEnergy);
+          if(!bins||bins.length!==a.frequencyBinCount) bins=new Uint8Array(a.frequencyBinCount);
+          a.getByteFrequencyData(bins);
+          let bass=0,mid=0;
+          for(let i=1;i<9;i++)bass+=bins[i];
+          for(let i=9;i<48;i++)mid+=bins[i];
+          target=Math.min(1,(bass/8/255)*0.75+(mid/39/255)*0.4);
+        }catch(_){ target=0; }
+      }
+      this._musicEnergy+=(target-this._musicEnergy)*0.35;
+      if(this.foxPlay) this.foxPlay.setMusic(this._musicEnergy);
+      else this.fox?.setMusicEnergy?.(this._musicEnergy);
       if(this._musicEnergy>0.6)this.fox?.setExpression?.('excited');
       else if(this._musicEnergy>0.25)this.fox?.setExpression?.('happy');
-      else if(!this.isPlaying)this.fox?.setExpression?.('neutral');
-      setTimeout(loop,200);
-    };
-    loop();
+      else this.fox?.setExpression?.('neutral');
+    },150);
+  }
+
+  // ── v3.42.0: play on the welcome screen ─────────────────────────
+  // The fox to play with (tap, stroke, tickle, talk to it), Flow as a fluid
+  // simulator, and a fruit slicing game: the same code as the phone's Home
+  // tab (src/js/play). Nothing of it runs until it is used, and it stops
+  // with the welcome screen (_syncEffects).
+  wirePlayModes(){
+    const ws=el('welcome-screen'), modes=el('welcome-modes');
+    if(!ws||!modes)return;
+    this._playMode='fox';
+    if(this.fox){
+      this.foxPlay=new FoxPlay({ stage: el('fox-stage'), fox: this.fox, fx: el('fox-fx') });
+      this.foxVoice=new FoxVoice({ fox: this.fox, onState: (st, detail) => {
+        const b=el('welcome-talk'), lbl=el('welcome-talk-label'); if(!b||!lbl)return;
+        b.classList.toggle('on',['starting','listening','hearing','talking'].includes(st));
+        lbl.textContent={starting:'Asking for the microphone…',listening:'Listening: say something',hearing:'Listening…',talking:'The fox is talking'}[st]||'Talk to the fox';
+        if(st==='denied') this.showOSD('The microphone is not allowed. On Windows: Settings, Privacy, Microphone, let desktop apps use it.',4200);
+        else if(st==='error') this.showOSD('The microphone could not be used: '+detail,3600);
+        if(st==='listening'||st==='hearing'||st==='talking') this.foxPlay?.poke();
+      } });
+    }
+    el('welcome-talk')?.addEventListener('click',()=>{
+      if(!this.foxVoice){ this.showOSD('The fox needs WebGL to talk.'); return; }
+      if(this.foxVoice.on){ this.foxVoice.stop(); return; }
+      this.foxVoice.start();
+    });
+    // Flow and Fruit need the GPU fluid, which Lite mode leaves out.
+    const can=!!this._fluidIsGPU&&!this.isLite;
+    const icon={fox:'<svg viewBox="0 0 24 24"><path d="M4 3l4.2 4.6h7.6L20 3l-.9 9.2L12 21l-7.1-8.8z" fill="currentColor"/></svg>',
+      flow:'<svg viewBox="0 0 24 24"><path d="M3 9c3-3 6 3 9 0s6 3 9 0M3 15c3-3 6 3 9 0s6 3 9 0" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>',
+      fruit:'<svg viewBox="0 0 24 24"><circle cx="12" cy="13.5" r="7.5" fill="currentColor"/><path d="M12 6c0-2 1-3 3-3.5" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round"/></svg>'};
+    modes.innerHTML=[['fox','Fox'],['flow','Flow'],['fruit','Fruit']].filter(([k])=>k==='fox'||can).map(([k,l])=>`<button type="button" data-m="${k}" class="${k==='fox'?'on':''}" aria-pressed="${k==='fox'}">${icon[k]}<span>${l}</span></button>`).join('');
+    modes.classList.toggle('hidden',!can);
+    modes.addEventListener('click',e=>{const b=e.target.closest('button[data-m]');if(b)this.setPlayMode(b.dataset.m);});
+    el('flow-close')?.addEventListener('click',()=>this.setPlayMode('fox'));
+    el('flow-pause')?.addEventListener('click',()=>{ this.flowToy?.pause(); setIcon(el('flow-pause'),this.flowToy?.paused?'play':'pause'); });
+    el('flow-clear')?.addEventListener('click',()=>this.flowToy?.clear());
+    el('flow-burst')?.addEventListener('click',()=>this.flowToy?.burst());
+    el('flow-settings')?.addEventListener('click',()=>{
+      const p=el('flow-panel'); if(!p||!this.flowToy)return;
+      if(p.classList.contains('hidden')) buildToyPanel(this.flowToy,p,{tilt:false});
+      p.classList.toggle('hidden');
+    });
+    // Esc: a game pauses, a play mode goes back to the fox.
+    document.addEventListener('keydown',e=>{
+      if(e.key!=='Escape'||(this._playMode||'fox')==='fox'||e.__bmHandled||!el('welcome-screen')?.classList.contains('active'))return;
+      e.__bmHandled=true;
+      if(!el('flow-panel')?.classList.contains('hidden')){ el('flow-panel').classList.add('hidden'); return; }
+      if(this._playMode==='fruit'&&this.sliceGame?.busy){ this.sliceGame.pause(); return; }
+      this.setPlayMode('fox');
+    },true);
+  }
+
+  setPlayMode(m){
+    const was=this._playMode||'fox';
+    if(m===was||!el('welcome-screen'))return;
+    this._playMode=m;
+    const ws=el('welcome-screen');
+    ws.dataset.play=m;
+    for(const b of el('welcome-modes')?.querySelectorAll('button')||[]){ const on=b.dataset.m===m; b.classList.toggle('on',on); b.setAttribute('aria-pressed',String(on)); }
+    el('flow-panel')?.classList.add('hidden');
+    if(was==='flow') this.flowToy?.leave();
+    if(was==='fruit'){ this.sliceGame?.stop(); if(this._fruitSaved){ this.auroraFX?.restore?.(this._fruitSaved); this._fruitSaved=null; } }
+    if(was==='fox') this.foxVoice?.stop();
+    const fx=this.auroraFX;
+    if(m==='flow'&&fx){
+      if(!this.flowToy) this.flowToy=new FlowToy({ fx, surface: el('flow-surface'), analyser: () => window.bmMusic?.engine?.getAnalyser?.()||sharedAnalyser() });
+      this.flowToy.enter();
+      setIcon(el('flow-pause'),'pause');
+    }
+    if(m==='fruit'&&fx){
+      this._fruitSaved=fx.snapshot();
+      fx.configure(f=>{ f.setFlow({ intensity: 0.5, trail: 0.8 }); f.setBloom(0.35,{threshold:0.1,knee:0.7}); f.setNeon(false); });
+      fx.audioDriven=true; fx.setMode('fluid');
+      if(!this.sliceGame) this.sliceGame=new SliceGame({ canvas: el('slice-canvas'), ui: el('slice-ui'), onExit: () => this.setPlayMode('fox'),
+        onJuice: (x,y,dx,dy,rgb,k=1) => { const c=fx.canvas; fx.splat(x,y,dx,dy,rgb.map(v=>v*0.28*k),0.0035*k*Math.max(1,c.width/Math.max(1,c.height))); } });
+    }
+    if(m==='fox'){ const t=document.documentElement.getAttribute('data-theme')||'dark'; this.applyTheme?.(t); }
+    this._syncEffects();
   }
 
   // ════════════════════════════════════════════════════════════════

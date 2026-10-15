@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Dark from the first frame: no white flash before the page draws. -->
+    <style name="AppTheme" parent="android:Theme.Material.NoActionBar">
+        <item name="android:windowBackground">@color/bm_bg</item>
+        <item name="android:colorBackground">@color/bm_bg</item>
+        <item name="android:statusBarColor">@color/bm_bg</item>
+        <item name="android:navigationBarColor">@color/bm_bg</item>
+        <item name="android:colorAccent">#5B6FF8</item>
+        <item name="android:colorPrimary">#111624</item>
+        <item name="android:colorPrimaryDark">@color/bm_bg</item>
+    </style>
+</resources>
