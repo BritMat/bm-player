@@ -136,7 +136,6 @@
 .lite-mode #welcome-screen{ background:var(--bg) !important; }
 .lite-mode .g-card:hover{ transform:none; }
 .lite-mode .g-card:hover img{ transform:none; }
-.lite-mode .track-row:hover{ transform:none; }
 .lite-mode .recent-item:hover{ transform:none; }
 /* Glass costs a full-window blur every frame — not affordable here. */
 .lite-mode[data-theme="glass"]{ --bg:#0a0c1a; --surface:#141830; --surface2:#1a1f3c; }

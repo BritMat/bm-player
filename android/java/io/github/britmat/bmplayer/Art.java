@@ -41,6 +41,16 @@ final class Art {
     private static final LruCache<String, byte[]> mem = new LruCache<String, byte[]>(16 * 1024 * 1024) {
         @Override protected int sizeOf(String k, byte[] v) { return v.length; }
     };
+    /**
+     * Out of sight or short of memory (v3.44.0, MainActivity.onTrimMemory):
+     * the pictures kept in memory go down to a few, or all go when Android is
+     * short. They are on disk still, and the page keeps its own.
+     */
+    static void trim(int level) {
+        if (level >= 60) mem.evictAll();
+        else if (level >= 20) mem.trimToSize(4 * 1024 * 1024);
+    }
+
     private static final Set<String> none = Collections.synchronizedSet(new HashSet<String>());
     private static final Semaphore busy = new Semaphore(3);           // a few at once, not one per row on screen
     private static volatile boolean trimmed;

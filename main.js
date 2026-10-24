@@ -258,7 +258,7 @@ app.whenReady().then(()=>{
     // frameless transparent windows in sync (resize, move, maximize) was
     // a per-frame compositor cost on the bgWin sync path that low-end GPUs
     // can't really afford. One window = one paint target.
-    win=new BrowserWindow({width:1280,height:780,minWidth:900,minHeight:560,frame:false,transparent:false,backgroundColor:'#0b0c10',show:false,title:'BM Player Lite',webPreferences:{nodeIntegration:false,contextIsolation:true,preload:path.join(__dirname,'preload.js'),webSecurity:FLAGS.fileScheme==='bmfile',sandbox:FLAGS.rendererSandbox}});
+    win=new BrowserWindow({width:1280,height:780,minWidth:900,minHeight:560,frame:false,transparent:false,backgroundColor:'#0b0c10',show:false,title:'BM Player Lite',webPreferences:{nodeIntegration:false,contextIsolation:true,preload:path.join(__dirname,'preload.js'),webSecurity:FLAGS.fileScheme==='bmfile',sandbox:FLAGS.rendererSandbox,spellcheck:false}});
     win.on('maximize',()=>{send('win:state',winState());});
     // Minimised or hidden: the page pauses its decorative loops (v3.30.0).
     for(const [ev,h] of [['minimize',true],['hide',true],['restore',false],['show',false]]) win.on(ev,()=>send('win:hidden',h));
@@ -323,7 +323,7 @@ app.whenReady().then(()=>{
     // bgWin is a pure opaque visual backdrop (no interactive content) — never
     // let it intercept clicks meant for the transparent UI window above it.
     try{bgWin.setIgnoreMouseEvents(true);}catch(_){}
-    win=new BrowserWindow({parent:bgWin,width:1280,height:780,minWidth:900,minHeight:560,frame:false,transparent:true,backgroundColor:'#00000000',show:false,title:'BM Player',webPreferences:{nodeIntegration:false,contextIsolation:true,preload:path.join(__dirname,'preload.js'),webSecurity:FLAGS.fileScheme==='bmfile',sandbox:FLAGS.rendererSandbox}});
+    win=new BrowserWindow({parent:bgWin,width:1280,height:780,minWidth:900,minHeight:560,frame:false,transparent:true,backgroundColor:'#00000000',show:false,title:'BM Player',webPreferences:{nodeIntegration:false,contextIsolation:true,preload:path.join(__dirname,'preload.js'),webSecurity:FLAGS.fileScheme==='bmfile',sandbox:FLAGS.rendererSandbox,spellcheck:false}});
     const sync=alignBg;
     win.on('resize',sync);win.on('move',sync);
     // Also the end of a drag, restoring and fullscreen, and a light check that

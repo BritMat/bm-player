@@ -24,8 +24,10 @@ import { remember, forget } from './m-recent.js';
 import { songArt } from './m-library.js';
 import { startPower } from './power.js';
 import { perf } from './perf.js';
-import { MD } from './visualizer.js';
+import { MD, allVisualisers } from './visualizer.js';
+import { FluidFX } from './fluid.js';
 import { favs } from './m-favs.js';
+import { initUpdate, refreshUpdate } from './m-update.js';
 
 let tab = 'home';
 
@@ -39,7 +41,7 @@ function showTab (t) {
   homeVisible(t === 'home');
   if (t === 'videos') loadVideos();
   if (t === 'photos') loadPhotos();
-  if (t === 'settings') refreshSettings();
+  if (t === 'settings') { refreshSettings(); refreshUpdate(); }
 }
 
 async function startMusic () {
@@ -99,6 +101,19 @@ async function browse (where) {
   openThing({ url: URL.createObjectURL(f), name: f.name, mime: f.type, size: f.size, kind: kindOf(f.type, f.name) });
 }
 
+/**
+ * Graphics memory given back now (v3.44.0), not after the half minute or so
+ * a hidden effect waits on its own (fluid.js, visualizer.js): five seconds
+ * after the app went behind others, and at once when Android says memory is
+ * short. A smaller app is the last Android closes, and the music lives in it.
+ * What is drawn again builds itself again.
+ */
+let bgRest = 0;
+function restNow () {
+  for (const f of FluidFX.all || []) { try { if (!f._raf) f.sleep(); } catch (_) {} }
+  for (const v of allVisualisers()) { try { if (!v.active || v._hid) v._rest(); } catch (_) {} }
+}
+
 function boot () {
   if (window.__bmTooOld) return;
   applyTheme(document.documentElement.dataset.theme || 'dark');
@@ -131,6 +146,7 @@ function boot () {
   });
   initHome({ open: openEntry, resume: openEntry, openFav, browse });
   homeVisible(true);
+  initUpdate();
 
   $('nav').addEventListener('click', e => { const b = e.target.closest('button[data-tab]'); if (b) showTab(b.dataset.tab); });
 
@@ -143,7 +159,10 @@ function boot () {
     if (tab === 'videos') loadVideos(true);
     if (tab === 'photos') loadPhotos(true);
   });
+  on('memory', () => restNow());
   on('lifecycle', d => {
+    if (d.state === 'background') { clearTimeout(bgRest); bgRest = setTimeout(restNow, 5000); return; }
+    clearTimeout(bgRest);
     if (d.state !== 'foreground') return;
     // Access may have been changed in Android's settings meanwhile.
     refreshSettings();

@@ -1593,7 +1593,7 @@ async function main() {
       globalThis.requestAnimationFrame = cb => { q.push(cb); return q.length; };
       globalThis.cancelAnimationFrame = () => {};
       const f = Object.create(FluidFX.prototype);
-      Object.assign(f, { paused: false, mode: 'fluid', _raf: null, _alpha: 1, _targetAlpha: 1, _frameInterval: interval, audioDriven: true, dts: [],
+      Object.assign(f, { paused: false, mode: 'fluid', _raf: null, _alpha: 1, _targetAlpha: 1, _frameInterval: interval, audioDriven: true, dts: [], dye: {},
         _resize() {}, _render() {}, _govern() {}, _step(dt) { this.dts.push(dt); } });
       try {
         f._start();
@@ -1610,6 +1610,65 @@ async function main() {
         if (Math.abs(r.time - 1) > 0.06) throw new Error(`${hz} Hz, a frame every ${interval.toFixed(1)} ms: one second on the clock moved the fluid ${r.time.toFixed(2)} s (it was 0.33 on a 144 Hz screen)`);
         if (Math.abs(r.steps - steps) > 2) throw new Error(`${hz} Hz, a frame every ${interval.toFixed(1)} ms: ${r.steps} frames drawn in a second, expected about ${steps}`);
       }
+    });
+
+    // v3.44.0: what is not drawn gives its graphics memory back. In the desktop
+    // app's GPU process 370 MB stayed after the visualiser was put away, 270
+    // before it was opened.
+    await step('a fluid that is not drawn gives its buffers back after a while, and builds them again when drawn', async () => {
+      const wasRest = FluidFX.REST_MS; FluidFX.REST_MS = 40;
+      const realRaf = globalThis.requestAnimationFrame, realCaf = globalThis.cancelAnimationFrame;
+      globalThis.requestAnimationFrame = () => 7; globalThis.cancelAnimationFrame = () => {};
+      try {
+        let deleted = 0, built = 0;
+        const f = Object.create(FluidFX.prototype);
+        Object.assign(f, { paused: false, mode: 'fluid', _raf: null, _ladder: null, cfg: { name: 'medium' }, _tier: 'medium',
+          gl: { deleteTexture () { deleted++; }, deleteFramebuffer () {} },
+          canvas: { width: 800, height: 400, clientWidth: 800, clientHeight: 400 },
+          _initFramebuffers () { built++; this.dye = { read: {}, write: {} }; this.velocity = {}; } });
+        f.dye = { read: { texture: 1, fbo: 1 }, write: { texture: 2, fbo: 2 } };
+        f.pause();
+        if (f._asleep || !f.dye) throw new Error('a pause let the buffers go at once: coming back soon would lose the picture');
+        await new Promise(r => setTimeout(r, 90));
+        if (!f._asleep || f.dye || deleted < 2) throw new Error('a fluid paused for longer than REST_MS kept its buffers');
+        if (f.canvas.width !== 1 || f.canvas.height !== 1) throw new Error(`its canvas kept its size, ${f.canvas.width}x${f.canvas.height}`);
+        f._applyLevel = FluidFX.prototype._applyLevel; f._ready = true; f._ladder = [{ name: 'low', fps: 30 }];
+        f._applyLevel(0);
+        if (built) throw new Error('a quality change rebuilt the buffers of a fluid that rests');
+        f.paused = false; f._start();
+        if (f._asleep) throw new Error('drawing again did not wake it');
+        f._resize();
+        if (!f.dye || built !== 1 || f.canvas.width !== 800) throw new Error('drawn again, its buffers were not built again at its size');
+        f._raf = null;
+        // A canvas too small to see when it wakes: built at that size, not left without buffers.
+        f.dye = null; f.canvas.width = 1; f.canvas.height = 1; f.canvas.clientWidth = 0; f.canvas.clientHeight = 0; f._asleep = false;
+        f._resize();
+        if (!f.dye) throw new Error('woken while its canvas had no size, it was left without buffers');
+      } finally { FluidFX.REST_MS = wasRest; globalThis.requestAnimationFrame = realRaf; globalThis.cancelAnimationFrame = realCaf; }
+    });
+
+    await step('the visualiser lets MilkDrop, Neon and its canvas go when they are not drawn', async () => {
+      const wasRest = Visualizer.REST_MS; Visualizer.REST_MS = 40;
+      try {
+        let lost = 0, gone = 0, neon = 0;
+        const mdCanvas = { getContext: () => ({ getExtension: () => ({ loseContext () { lost++; } }) }), remove () { gone++; } };
+        const v = Object.create(Visualizer.prototype);
+        Object.assign(v, { active: true, _hid: false, mode: 'milkdrop', _md: {}, _mdCanvas: mdCanvas, _mdName: 'Geiss - Spiral', _mdW: 900, _mdH: 500,
+          _neonR: { destroy () { neon++; } }, _neonCanvas: { remove () {} }, canvas: { width: 1600, height: 977, offsetWidth: 800 } });
+        v._rest();
+        if (!v._md || lost) throw new Error('MilkDrop on screen was let go');
+        if (neon !== 1 || v._neonR) throw new Error('Neon, not drawn while MilkDrop is, kept its context');
+        if (v.canvas.width !== 1600) throw new Error('the canvas on screen was made smaller');
+        v.active = false; v._hid = true;
+        v._restSoon();
+        await new Promise(r => setTimeout(r, 90));
+        if (v._md || v._mdCanvas || lost !== 1 || gone !== 1) throw new Error('MilkDrop not drawn kept its context');
+        if (v._mdWant !== 'Geiss - Spiral') throw new Error('MilkDrop would not come back on the preset it was showing');
+        if (v.canvas.width !== 1 || !v._shrunk) throw new Error('the visualiser\'s own canvas kept its size');
+        let sized = 0; v._resize = () => { sized++; }; v._loop = () => {}; v.canvas.classList = { add () {}, remove () {} };
+        v.mode = 'bars'; v.start();
+        if (!sized || v._shrunk) throw new Error('starting again did not give the canvas its size back');
+      } finally { Visualizer.REST_MS = wasRest; }
     });
 
     await step('the fluid steps its quality down when frames stay slow, and only then', () => {

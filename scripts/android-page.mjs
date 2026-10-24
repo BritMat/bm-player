@@ -615,6 +615,102 @@ try {
   await page.tap('#st-themes button[data-v="dark"]');
   await shot('08-settings');
 
+  // v3.44.0: updates from GitHub. Android's side is the stand-in (m-android.js):
+  // GitHub has 9.9.0 once mock_update is set.
+  step = 'updates';
+  console.log('\n' + step);
+  // A start with no look for a day: the stand-in starts afresh, as the page does.
+  await ev(() => localStorage.removeItem('bm_m_upd_last'));
+  await page.reload();
+  await until(() => window.__bmStarted === true, null, 15000);
+  await page.tap('#nav button[data-tab="settings"]');
+  ok(await until(() => (window.__bmUpdChecks || 0) === 1 && /newest version/.test(document.getElementById('st-upd-note').textContent), null, 12000),
+    'it looked by itself once, a few seconds after the start, and says this is the newest');
+  ok(await ev(() => document.getElementById('home-upd').classList.contains('hidden') && !document.querySelector('#nav button[data-tab="settings"]').classList.contains('dot')), 'no card on Home and no dot on Settings while there is nothing newer');
+  await ev(() => localStorage.setItem('mock_update', '1'));
+  await page.tap('#st-upd-btn');
+  ok(await until(() => !document.getElementById('sheet').classList.contains('hidden') && /BM Player 9\.9\.0/.test(document.getElementById('sheet').textContent) && /29\.0 MB/.test(document.getElementById('sheet').textContent)),
+    'Check finds 9.9.0 and the sheet shows it with its size');
+  ok(await ev(() => document.querySelector('#sheet [data-go]').textContent === 'Download and install'), 'its button downloads and installs');
+  await shot('15-update-sheet');
+  await page.tap('#sheet [data-go]');
+  ok(await until(() => /Downloading 9\.9\.0: \d+%/.test(document.querySelector('#sheet .upd-note')?.textContent || '') && !document.querySelector('#sheet .upd-prog').classList.contains('hidden')), 'the download shows its progress');
+  ok(await until(() => window.__bmInstalled === '9.9.0', null, 4000), 'and once it is downloaded, the install starts by itself');
+  ok(await until(() => /Android is installing 9\.9\.0/.test(document.getElementById('st-upd-note').textContent)), 'Settings says Android is installing it');
+  await ev(() => window.BMNative.back());
+  await page.tap('#nav button[data-tab="home"]');
+  ok(await until(() => !document.getElementById('home-upd').classList.contains('hidden') && document.getElementById('home-upd-title').textContent === 'BM Player 9.9.0'
+    && document.querySelector('#nav button[data-tab="settings"]').classList.contains('dot')), 'Home has the card and the Settings tab a dot');
+  const updCard = await ev(() => { const r = document.getElementById('home-upd').getBoundingClientRect(); return { l: r.left, r: r.right, w: innerWidth, sw: document.querySelector('.home-scroll').scrollWidth, cw: document.querySelector('.home-scroll').clientWidth }; });
+  ok(updCard.l >= 0 && updCard.r <= updCard.w && updCard.sw <= updCard.cw, `the card fits the screen (${Math.round(updCard.l)} to ${Math.round(updCard.r)} of ${updCard.w})`);
+  await shot('16-update-home');
+  await page.tap('#home-upd-x');
+  ok(await ev(() => document.getElementById('home-upd').classList.contains('hidden') && localStorage.getItem('bm_m_upd_later') === '9.9.0'), 'Later hides the card for this version');
+  // Android has not allowed BM Player to install apps yet: Allow first, then Install.
+  await ev(() => { localStorage.setItem('mock_update_perm', '0'); localStorage.removeItem('bm_m_upd_later'); window.__bmInstalled = null; });
+  await page.reload();
+  await until(() => window.__bmStarted === true, null, 15000);
+  await page.tap('#nav button[data-tab="settings"]');
+  await page.tap('#st-upd-btn');
+  ok(await until(() => !document.getElementById('sheet').classList.contains('hidden') && /9\.9\.0/.test(document.getElementById('sheet').textContent)), 'after a restart, Check finds it again');
+  await page.tap('#sheet [data-go]');
+  ok(await until(() => document.querySelector('#sheet [data-go]')?.textContent === 'Allow' && /needs your OK/.test(document.querySelector('#sheet .upd-note').textContent), null, 4000), 'downloaded, it asks for Android\'s OK instead of installing');
+  ok(await ev(() => window.__bmInstalled == null), 'and nothing was installed');
+  await page.tap('#sheet [data-go]');
+  ok(await until(() => window.__bmAllowAsked === true && document.querySelector('#sheet [data-go]')?.textContent === 'Install'), 'Allow opens Android\'s setting, and with it on the button installs');
+  await page.tap('#sheet [data-go]');
+  ok(await until(() => window.__bmInstalled === '9.9.0'), 'Install hands it to Android');
+  await ev(() => window.BMNative.back());
+  // Stopping a download, and a check that fails
+  await ev(() => { localStorage.removeItem('mock_update_perm'); });
+  await page.reload();
+  await until(() => window.__bmStarted === true, null, 15000);
+  await page.tap('#nav button[data-tab="settings"]');
+  await page.tap('#st-upd-btn');
+  await until(() => !document.getElementById('sheet').classList.contains('hidden'));
+  await ev(() => localStorage.setItem('mock_update_slow', '1'));
+  await page.tap('#sheet [data-go]');
+  await until(() => document.querySelector('#sheet [data-go]')?.textContent === 'Stop');
+  await page.tap('#sheet [data-go]');
+  ok(await until(() => window.__bmUpdCancelled === true && /9\.9\.0 is out/.test(document.querySelector('#sheet .upd-note').textContent)), 'Stop stops the download and offers it again');
+  await ev(() => window.BMNative.back());
+  await ev(() => { localStorage.removeItem('mock_update'); localStorage.removeItem('mock_update_slow'); localStorage.setItem('mock_update_fail', '1'); });
+  await page.reload();
+  await until(() => window.__bmStarted === true, null, 15000);
+  await page.tap('#nav button[data-tab="settings"]');
+  await page.tap('#st-upd-btn');
+  ok(await until(() => /could not be reached/.test(document.getElementById('st-upd-note').textContent) && document.getElementById('st-upd-btn').textContent === 'Try again'), 'a check that fails says why and offers to try again');
+  ok(await ev(() => document.getElementById('sheet').classList.contains('hidden')), 'and opens no sheet');
+  // By itself: once a day, and not at all when switched off
+  await ev(() => { localStorage.removeItem('mock_update_fail'); localStorage.setItem('bm_m_upd_last', String(Date.now() - 2 * 864e5)); });
+  await page.tap('#st-upd-auto');
+  ok(await ev(() => localStorage.getItem('bm_m_upd_auto') === '0'), 'the switch turns the daily look off');
+  await page.reload();
+  await until(() => window.__bmStarted === true, null, 15000);
+  await sleep(9000);
+  ok(await ev(() => !window.__bmUpdChecks), 'and with it off, nothing is asked after a start');
+  await ev(() => localStorage.setItem('bm_m_upd_auto', '1'));
+  // Updated: said once, on the new version's first start
+  await ev(() => { localStorage.setItem('mock_version', '3.44.0'); localStorage.setItem('bm_m_ver', '3.43.2'); localStorage.setItem('bm_m_upd_last', String(Date.now())); });
+  await page.reload();
+  await until(() => window.__bmStarted === true, null, 15000);
+  ok(await until(() => /updated to 3\.44\.0/.test(document.getElementById('toast').textContent) && document.getElementById('toast').classList.contains('on'), null, 5000), 'the first start of a new version says it was updated');
+  ok(await ev(() => localStorage.getItem('bm_m_ver') === '3.44.0'), 'once');
+  await ev(() => { localStorage.removeItem('mock_version'); localStorage.removeItem('bm_m_ver'); });
+
+  // v3.44.0: Android short of memory, or the app out of sight: what is not on
+  // screen gives its graphics memory back at once, and builds it again when shown.
+  step = 'memory';
+  console.log('\n' + step);
+  await page.tap('#nav button[data-tab="home"]');
+  ok(await until(() => (document.getElementById('home-flow')?.width || 0) > 1, null, 5000), 'Home\'s fluid is drawn');
+  await page.tap('#nav button[data-tab="music"]');
+  await sleep(300);
+  await ev(() => window.BMNative.event('memory', { level: 15 }));
+  ok(await until(() => document.getElementById('home-flow')?.width === 1), 'Android short of memory: the fluid behind Home, not on screen, gives its memory back');
+  await page.tap('#nav button[data-tab="home"]');
+  ok(await until(() => (document.getElementById('home-flow')?.width || 0) > 1, null, 5000), 'and Home shown again draws it again');
+
   step = 'opened from another app';
   console.log('\n' + step);
   await ev(() => window.BMNative.event('open', { url: '/media/audio/101', kind: 'audio', name: 'From a file manager.mp3', mime: 'audio/mpeg' }));

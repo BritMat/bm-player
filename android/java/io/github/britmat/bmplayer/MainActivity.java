@@ -733,11 +733,33 @@ public class MainActivity extends Activity {
         try { JSONObject o = new JSONObject(); o.put("onBattery", onBattery()); o.put("level", batteryLevel()); emit("battery", o); } catch (Exception ignored) { }
     }
 
+    // ── updates (v3.44.0, Updater) ───────────────────────────────────
+    /** Android's page where BM Player may be allowed to install apps (its updates). */
+    void allowInstalls() {
+        Updater.get(this).waitForPermission();
+        try {
+            Intent i = Build.VERSION.SDK_INT >= 26
+                    ? new Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:" + getPackageName()))
+                    : new Intent(Settings.ACTION_SECURITY_SETTINGS);
+            startActivity(i);
+        } catch (Exception e) {
+            BMLog.w("install permission settings: " + e);
+            openAppSettings();
+        }
+    }
+
     // ── lifecycle ────────────────────────────────────────────────────
     // The page is not paused when the app goes behind others: the music
     // plays on, and the playback service keeps the app alive while it does.
     @Override
     protected void onStart() { super.onStart(); current = this; lifecycle("foreground"); }
+
+    /** Back from Android's settings, maybe with BM Player allowed to install its update. */
+    @Override
+    protected void onResume() {
+        super.onResume();
+        if (pageReady) Updater.get(this).resumed();
+    }
 
     @Override
     protected void onStop() { super.onStop(); lifecycle("background"); }
@@ -747,10 +769,22 @@ public class MainActivity extends Activity {
         try { JSONObject o = new JSONObject(); o.put("state", state); emit("lifecycle", o); } catch (Exception ignored) { }
     }
 
+    /**
+     * Android is short of memory, or the app went out of sight (v3.44.0): the
+     * page gives back what it is not showing (its effects' graphics memory) at
+     * once. A smaller app is the last Android closes, and the music plays in it.
+     */
     @Override
+    @SuppressWarnings("deprecation")
     public void onTrimMemory(int level) {
         super.onTrimMemory(level);
-        if (level >= TRIM_MEMORY_RUNNING_LOW) BMLog.w("Android is short of memory (level " + level + ")");
+        // 20 is only "out of sight", not short of memory.
+        if (level == TRIM_MEMORY_RUNNING_LOW || level == TRIM_MEMORY_RUNNING_CRITICAL || level >= TRIM_MEMORY_MODERATE)
+            BMLog.w("Android is short of memory (level " + level + ")");
+        Art.trim(level);
+        if (level >= TRIM_MEMORY_RUNNING_LOW && pageReady) {
+            try { JSONObject o = new JSONObject(); o.put("level", level); emit("memory", o); } catch (Exception ignored) { }
+        }
     }
 
     /** Back: the page closes what is open. With nothing to close the app goes behind the others and the music plays on. */

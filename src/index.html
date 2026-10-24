@@ -275,70 +275,8 @@
     }
     .gallery-grid.masonry-view{grid-template-columns:repeat(auto-fill,minmax(160px,1fr))}
     
-    /* Music View */
-    .music-layout{display:flex;height:100%;overflow:hidden}
-    .music-lib{
-      width:200px;border-right:1px solid var(--border);
-      background:var(--surface);display:flex;flex-direction:column;flex-shrink:0
-    }
-    .music-lib-header{padding:12px;border-bottom:1px solid var(--border)}
-    .music-lib-sections{flex:1;overflow-y:auto;padding:8px}
-    .music-empty-lib,.music-empty-tracks{
-      display:flex;flex-direction:column;align-items:center;
-      justify-content:center;height:100%;color:var(--text-muted);font-size:13px
-    }
-    .music-center{
-      flex:1;display:flex;flex-direction:column;overflow:hidden;
-      min-width:0
-    }
-    .music-viz-wrap{
-      height:180px;position:relative;background:var(--surface);
-      border-bottom:1px solid var(--border);flex-shrink:0
-    }
-    .music-viz-canvas{width:100%;height:100%}
-    .music-viz-overlay{
-      position:absolute;bottom:0;left:0;right:0;padding:12px 16px;
-      background:linear-gradient(transparent,rgba(0,0,0,0.8))
-    }
-    .mv-title{font-size:14px;font-weight:600;color:var(--text)}
-    .mv-artist{font-size:12px;color:#8b95a5;margin-top:2px}
-    .music-center-header{
-      display:flex;align-items:center;padding:10px 16px;
-      border-bottom:1px solid var(--border);gap:10px
-    }
-    .music-path-title{font-size:13px;font-weight:500;color:var(--text)}
-    .music-tracks{flex:1;overflow-y:auto;padding:8px}
-    .music-now-playing{
-      width:220px;border-left:1px solid var(--border);
-      background:var(--surface);display:flex;flex-direction:column;padding:12px;
-      gap:10px;flex-shrink:0;overflow-y:auto
-    }
-    .np-art-wrap{position:relative;text-align:center}
-    .np-art{
-      width:140px;height:140px;margin:0 auto;border-radius:12px;
-      background:var(--surface2);display:flex;align-items:center;
-      justify-content:center;font-size:40px;color:var(--accent)
-    }
-    .np-meta{text-align:center}
-    .np-title{font-size:14px;font-weight:600;color:var(--text)}
-    .np-artist{font-size:12px;color:#8b95a5}
-    .np-format{font-size:10px;color:var(--text-muted);margin-top:4px}
-    .np-seek-wrap{display:flex;align-items:center;gap:6px}
-    .np-time{font-size:10px;color:var(--text-muted);width:30px}
-    .np-seek-track{flex:1;height:4px;background:var(--bar-bg);border-radius:2px;position:relative}
-    .np-seek-fill{height:100%;background:var(--accent);border-radius:2px;width:0%}
-    .np-controls{display:flex;justify-content:center;gap:8px}
-    .np-ctrl-btn{
-      width:32px;height:32px;border-radius:50%;border:none;
-      background:var(--surface2);color:var(--text);cursor:pointer;font-size:13px
-    }
-    .np-ctrl-btn:hover{background:var(--accent);color:var(--on-accent)}
-    .np-vol-row{display:flex;align-items:center;gap:6px;font-size:12px}
-    .np-vol-slider{flex:1;height:4px}
-    .np-vol-label{font-size:10px;color:var(--text-muted);width:24px}
-    .np-queue-label{font-size:11px;font-weight:600;color:#8b95a5;margin-top:8px}
-    .np-queue{font-size:11px;color:var(--text-muted)}
-    
+    /* Music View: css/music.css (v3.44.0) */
+
     /* PDF View */
     .pdf-toolbar{
       display:flex;align-items:center;padding:10px 16px;
@@ -457,15 +395,6 @@
     .pdf-thumb-item{border:2px solid transparent;border-radius:6px;transition:border-color .18s,box-shadow .18s}
     .pdf-thumb-item.active{border-color:var(--accent);box-shadow:0 0 16px var(--accent-glow)}
 
-    .np-art{transition:box-shadow .4s ease}
-    .np-art.has-track{box-shadow:0 14px 44px var(--accent-glow)}
-    .track-row{border-radius:8px;transition:background .16s,transform .16s}
-    .track-row:hover{background:var(--hover);transform:translateX(3px)}
-    .track-row.playing{
-      background:color-mix(in srgb, var(--accent) 14%, transparent);
-      box-shadow:inset 3px 0 0 var(--accent)
-    }
-
     .dash-action-btn{
       background:linear-gradient(135deg,var(--accent),var(--accent2));
       color:var(--on-accent);border:none;border-radius:8px;padding:8px 16px;
@@ -481,6 +410,7 @@
   <link rel="stylesheet" href="css/lyrics.css">
   <link rel="stylesheet" href="css/md-browser.css">
   <link rel="stylesheet" href="css/play.css">
+  <link rel="stylesheet" href="css/music.css">
 </head>
 <body>
 
@@ -829,67 +759,84 @@
   <div id="gallery-grid" class="gallery-grid masonry-view"></div>
 </div>
 
-<!-- ══ MUSIC DASHBOARD ══════════════════════════════════════════ -->
+<!-- ══ MUSIC DASHBOARD ══════════════════════════════════════════
+     v3.44.0: three panes side by side with a rule between them, and the
+     songs as a table with column heads. Styled by css/music.css alone. -->
 <div id="music-view" class="dashboard-view">
   <div class="music-layout">
-    <!-- Library sidebar -->
-    <div class="music-lib">
+    <!-- Library: the folders -->
+    <aside class="music-lib" aria-label="Music folders">
       <div class="music-lib-header">
-        <button class="dash-action-btn" id="btn-music-open">+ Add Folder</button>
+        <span class="music-lib-title">Library</span>
+        <button class="mv-btn mv-btn-quiet" id="btn-music-open" title="Add a music folder" aria-label="Add a music folder" data-icon="addToQ" data-icon-label="Add folder"></button>
       </div>
       <div class="music-lib-sections" id="music-lib-sections">
-        <div class="music-empty-lib">
-          <div style="font-size:36px;margin-bottom:8px">🎵</div>
-          <p>Add a music folder</p>
-        </div>
+        <p class="music-empty-lib">Folders you add show here.</p>
       </div>
-    </div>
-    <!-- Centre: big visualizer + track list -->
-    <div class="music-center">
-      <div class="music-viz-wrap">
+    </aside>
+    <!-- Centre: the folder's head, with the visualiser behind it, then its songs -->
+    <section class="music-center" aria-label="Songs">
+      <div class="music-viz-wrap" id="music-head">
         <canvas id="music-visualizer-canvas" class="music-viz-canvas"></canvas>
-        <button class="mv-settings-btn" id="mv-btn-settings" title="Visualiser settings" aria-label="Visualiser settings" data-icon="settings"></button>
-        <div class="music-viz-overlay">
-          <div class="mv-title"  id="mv-current-title">No track selected</div>
-          <div class="mv-artist" id="mv-current-artist"></div>
+        <div class="mv-scrim"></div>
+        <div class="mv-head">
+          <div class="mv-cover" id="music-cover" aria-hidden="true"></div>
+          <div class="mv-head-text">
+            <h2 class="music-path-title" id="music-path-title">Music</h2>
+            <div class="mv-stats" id="music-count">No folder yet</div>
+            <div class="mv-actions">
+              <button class="mv-btn mv-btn-primary" id="music-play-all" aria-label="Play every song in order" data-icon="play" data-icon-label="Play"></button>
+              <button class="mv-btn" id="music-shuffle-all" aria-label="Play every song shuffled" data-icon="shuffle" data-icon-label="Shuffle"></button>
+            </div>
+          </div>
         </div>
+        <button class="mv-settings-btn" id="mv-btn-settings" title="Visualiser settings" aria-label="Visualiser settings" data-icon="settings"></button>
       </div>
       <div class="music-center-header">
-        <div class="music-path-title" id="music-path-title">All Tracks</div>
-        <span class="dash-count" id="music-count"></span>
-        <input type="search" class="dash-search" id="music-filter"
-               placeholder="Filter tracks…" autocomplete="off" spellcheck="false">
-        <select class="dash-select" id="music-sort">
-          <option value="name">A–Z</option>
-          <option value="artist">Artist</option>
-          <option value="album">Album</option>
-          <option value="year">Year</option>
-          <option value="type">Type</option>
-        </select>
-        <button class="dash-icon-btn" id="music-group" title="Group by album" aria-label="Group by album" data-icon="group"></button>
+        <label class="mv-search">
+          <span class="mv-search-ico" data-icon="search" aria-hidden="true"></span>
+          <input type="search" class="mv-search-input" id="music-filter" placeholder="Search songs, artists and albums"
+                 aria-label="Search songs" autocomplete="off" spellcheck="false">
+        </label>
+        <label class="mv-sort">
+          <span class="mv-sort-label">Sort by</span>
+          <select class="mv-select" id="music-sort" aria-label="Sort songs by">
+            <option value="title">Title</option>
+            <option value="artist">Artist</option>
+            <option value="album">Album</option>
+            <option value="added">Recently added</option>
+            <option value="length">Length</option>
+            <option value="year">Year</option>
+            <option value="name">File name</option>
+            <option value="type">File type</option>
+          </select>
+        </label>
+        <button class="mv-btn mv-btn-icon" id="music-group" title="Group by album" aria-label="Group by album" aria-pressed="false" data-icon="group"></button>
       </div>
       <div class="music-tracks" id="music-tracks">
         <div class="music-empty-tracks">
-          <div style="font-size:40px;margin-bottom:8px">🎧</div>
-          <p>Select a folder from the library</p>
+          <span class="mv-empty-ico" data-icon="music" aria-hidden="true"></span>
+          <p class="mv-empty-title">Add your music</p>
+          <p class="mv-empty-text">Choose a folder with songs in it. The folders inside it are read too.</p>
+          <button class="mv-btn mv-btn-primary" data-mv-act="add" data-icon="addToQ" data-icon-label="Add a folder" aria-label="Add a music folder"></button>
         </div>
       </div>
-    </div>
-    <!-- Right: Now Playing + full transport controls -->
-    <div class="music-now-playing">
+    </section>
+    <!-- Right: what is playing, and its controls -->
+    <aside class="music-now-playing" aria-label="Now playing">
       <div class="np-art-wrap">
         <div class="np-art" id="np-art">
           <div class="np-art-inner" id="np-art-inner"><span class="np-art-placeholder" data-icon="music"></span></div>
           <div class="np-glow" id="np-glow"></div>
         </div>
-        <div class="np-bars" id="np-bars">
+        <div class="np-bars" id="np-bars" aria-hidden="true">
           <span></span><span></span><span></span><span></span><span></span>
           <span></span><span></span><span></span><span></span><span></span>
         </div>
       </div>
       <div class="np-meta">
-        <div class="np-title"  id="np-title">Not Playing</div>
-        <div class="np-artist" id="np-artist">—</div>
+        <div class="np-title"  id="np-title">Nothing playing</div>
+        <div class="np-artist" id="np-artist">Pick a song from the list</div>
         <div class="np-format" id="np-format"></div>
       </div>
       <div class="np-seek-wrap" id="np-seek-wrap">
@@ -904,22 +851,22 @@
         <button class="np-ctrl-btn" id="np-btn-prev" title="Previous" aria-label="Previous" data-icon="prev"></button>
         <button class="np-ctrl-btn np-play-btn" id="np-btn-play" title="Play/Pause" aria-label="Play/Pause" data-icon="play"></button>
         <button class="np-ctrl-btn" id="np-btn-next" title="Next" aria-label="Next" data-icon="next"></button>
-        <button class="np-ctrl-btn" id="np-btn-stop" title="Stop" aria-label="Stop" data-icon="stop"></button>
         <button class="np-ctrl-btn np-toggle" id="np-btn-repeat" title="Repeat (off)" aria-label="Repeat (off)" data-icon="repeat"></button>
       </div>
       <div class="np-vol-row">
-        <span class="np-vol-ico" data-icon="volLow" style="opacity:.7"></span>
-        <input type="range" class="np-vol-slider" id="np-volume" min="0" max="130" value="100">
+        <span class="np-vol-ico" data-icon="volLow" aria-hidden="true"></span>
+        <input type="range" class="np-vol-slider" id="np-volume" min="0" max="130" value="100" aria-label="Volume">
         <span class="np-vol-label" id="np-vol-label">100</span>
         <span class="speed-badge np-speed" id="np-speed" role="button" tabindex="0" aria-label="Playback speed">1x</span>
+        <button class="np-ctrl-btn np-stop-btn" id="np-btn-stop" title="Stop" aria-label="Stop" data-icon="stop"></button>
       </div>
       <div class="np-tabs" role="tablist" aria-label="Up next or lyrics">
-        <button class="np-tab active" id="np-tab-queue" role="tab" aria-selected="true">Up Next</button>
+        <button class="np-tab active" id="np-tab-queue" role="tab" aria-selected="true">Up next</button>
         <button class="np-tab" id="np-tab-lyrics" role="tab" aria-selected="false">Lyrics</button>
       </div>
       <div class="np-queue" id="np-queue"></div>
       <div class="np-lyrics hidden" id="np-lyrics"></div>
-    </div>
+    </aside>
   </div>
 </div>
 

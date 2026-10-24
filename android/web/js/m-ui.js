@@ -27,6 +27,8 @@ Object.assign(ICONS, {
   trash: S(`<path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3" ${line}/>`),
   // v3.42.0: home, the video player's new controls, pictures and documents
   home: S(`<path d="M4 11l8-7 8 7v9h-5v-6h-6v6H4z" ${line}/>`),
+  // v3.44.0: an update to download
+  download: S(`<path d="M12 4v11M7.5 10.5L12 15l4.5-4.5M4 17v1.5A2.5 2.5 0 0 0 6.5 21h11a2.5 2.5 0 0 0 2.5-2.5V17" ${line}/>`),
   lock: S(`<rect x="5" y="11" width="14" height="10" rx="2" ${line}/><path d="M8 11V8a4 4 0 0 1 8 0v3" ${line}/>`),
   unlock: S(`<rect x="5" y="11" width="14" height="10" rx="2" ${line}/><path d="M8 11V8a4 4 0 0 1 7.5-2" ${line}/>`),
   aspect: S(`<rect x="3" y="6" width="18" height="12" rx="2" ${line}/><path d="M7 10V9h2M17 14v1h-2" ${line}/>`),

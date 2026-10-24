@@ -484,18 +484,14 @@ html.bm-layered.playing body:not(.audio-viz) #player-view { background: transpar
 [data-icon] > .ico { margin: 0 auto; }
 [data-icon-label] { display: inline-flex; align-items: center; justify-content: center; gap: 6px; }
 [data-icon-label] > .ico { margin: 0; flex: 0 0 auto; }
-.np-ctrl-btn .ico { width: 18px; height: 18px; }
-#np-btn-play .ico { width: 20px; height: 20px; }
 .viz-btn .ico { width: 18px; height: 18px; }
 .viz-btn-main .ico { width: 22px; height: 22px; }
 .mmp-ctrl .ico { width: 15px; height: 15px; }
 .pip-bar .ico { width: 15px; height: 15px; }
-.np-vol-ico .ico { width: 14px; height: 14px; display: inline-block; vertical-align: middle; }
 .resume-prompt-icon .ico { width: 20px; height: 20px; }
 .lb-ctrl .ico { width: 18px; height: 18px; }
 /* Artwork placeholders: a large, faded note where the cover would be. */
-.np-art-placeholder .ico, #mmp-art .ico { width: 42%; height: 42%; min-width: 18px; min-height: 18px; opacity: .55; }
-.np-art-placeholder { display: flex; align-items: center; justify-content: center; width: 100%; height: 100%; }
+#mmp-art .ico { width: 42%; height: 42%; min-width: 18px; min-height: 18px; opacity: .55; }
 #mmp-art { display: flex; align-items: center; justify-content: center; }
 .ico-lbl { white-space: nowrap; }
 
@@ -612,20 +608,7 @@ html.bm-layered.playing body:not(.audio-viz) #player-view { background: transpar
 .tc-flow-reset { margin-top: 6px; }
 .tc-flow { margin-top: 4px; }
 
-/* ── The music seek bar (v3.28.0) ───────────────────────────────────────
-   Drag to scrub or click. The bar stays thin, but the area that takes the
-   pointer is 22px tall, and a handle shows on hover and while dragging. */
-#np-seek-track { overflow: visible; cursor: pointer; touch-action: none; }
-#np-seek-track::before { content: ''; position: absolute; left: -4px; right: -4px; top: -9px; bottom: -9px; }
-#np-seek-fill::after {
-  content: ''; position: absolute; right: -6px; top: 50%; width: 12px; height: 12px; border-radius: 50%;
-  background: #fff; box-shadow: 0 0 0 2px var(--accent), 0 1px 4px rgba(0,0,0,.4);
-  transform: translateY(-50%) scale(0); transition: transform .12s;
-}
-#np-seek-track:hover #np-seek-fill::after, #np-seek-track.scrubbing #np-seek-fill::after,
-#np-seek-track:focus-visible #np-seek-fill::after { transform: translateY(-50%) scale(1); }
-#np-seek-track.scrubbing #np-seek-fill { transition: none; }
-#np-seek-track:focus-visible { outline: 2px solid var(--accent); outline-offset: 5px; }
+/* The music seek bar (v3.28.0) is in music.css since v3.44.0. */
 
 /* ── The visualiser settings panel (v3.28.0) ───────────────────────────── */
 .viz-settings {
@@ -647,14 +630,6 @@ html.bm-layered.playing body:not(.audio-viz) #player-view { background: transpar
 .vs-seg button:hover { background: color-mix(in srgb, var(--accent) 14%, transparent); }
 .vs-seg button.active { background: color-mix(in srgb, var(--accent) 30%, transparent); border-color: var(--accent); }
 .vs-reset { margin-top: 6px; padding: 4px 10px; border-radius: 6px; border: 1px solid var(--border); background: transparent; color: var(--text); cursor: pointer; font: inherit; }
-.music-viz-wrap { position: relative; }
-.mv-settings-btn {
-  position: absolute; top: 8px; right: 8px; width: 28px; height: 28px; border-radius: 8px; z-index: 2;
-  display: inline-flex; align-items: center; justify-content: center; cursor: pointer;
-  background: rgba(0,0,0,.35); border: 1px solid rgba(255,255,255,.12); color: #fff; opacity: .7;
-}
-.mv-settings-btn:hover { opacity: 1; }
-.mv-settings-btn svg { width: 16px; height: 16px; }
 
 /* ── Subtitle colour and font, in the Subtitles submenu (v3.28.0) ────── */
 #ctx-panel .ctx-swatches { display: flex; gap: 6px; flex: 1; }
@@ -811,12 +786,6 @@ html.lite-mode[data-theme="light"] .titlebar,
 html.lite-mode[data-theme="light"] .menu-toolbar,
 html.lite-mode[data-theme="light"] .sidebar { background: rgba(255,255,255,.95); }
 
-/* Text on the music visualiser's overlay (v3.34.0): the overlay is dark in every
-   theme, so its text is white; it took the theme's text colour and in Light was
-   dark on dark ("No track selected"). */
-.music-viz-overlay .mv-title { color: #fff; text-shadow: 0 1px 8px rgba(0,0,0,.6); }
-.music-viz-overlay .mv-artist { color: rgba(255,255,255,.78); }
-
 /* ── Full screen (v3.37.0) ─────────────────────────────────────────────
    The window covers the whole screen, the taskbar too (main.js, setFull), on
    F, F11, the button or a double-click on the picture. The title bar, the
@@ -831,11 +800,6 @@ html.is-fs body:has(#controls-bar.faded) #player-view.active * { cursor: none !i
    whole screen. Any movement of the pointer brings everything back. */
 html.is-fs.lite-window body.playing:not(.pip-mode):has(#controls-bar.faded) #player-view.active { top: 0 !important; }
 html.is-fs.lite-window body.playing:not(.pip-mode):has(#controls-bar.faded) #player-view.active .controls-bar { display: none !important; }
-
-/* The music's speed, in Now Playing (v3.38.0): the film's speed badge, in the
-   panel's own colours. */
-.np-speed { color: var(--text-muted); background: var(--hover, rgba(255,255,255,.08)); margin-left: 2px; }
-.np-speed:hover, .np-speed:focus-visible { color: var(--text); outline: none; }
 
 /* Neon's own canvas, drawn by the graphics card (v3.38.0). The visualiser
    keeps it over its 2D canvas, the same size and place. */
@@ -952,14 +916,4 @@ html.is-fs.lite-window body.playing:not(.pip-mode):has(#controls-bar.faded) #pla
 .recent-card:hover .rc-star, .recent-card:focus-within .rc-star, .rc-star:focus-visible, .rc-star.on { opacity: 1; }
 .rc-star:hover { transform: scale(1.1); }
 .rc-star.on { color: #ffcf40; }
-/* the music library: a star on each song */
-.tr-fav {
-  width: 28px; height: 28px; flex-shrink: 0; border-radius: 50%; border: 0; padding: 0; cursor: pointer;
-  display: inline-flex; align-items: center; justify-content: center; background: transparent;
-  color: var(--text-muted); opacity: 0; transition: opacity .12s, color .12s;
-}
-.tr-fav .ico { width: 15px; height: 15px; }
-.track-row:hover .tr-fav, .track-row:focus-visible .tr-fav, .tr-fav:focus-visible, .tr-fav.on { opacity: 1; }
-.tr-fav:hover { color: var(--accent); }
-.tr-fav.on { color: #ffcf40; }
 #ctx-fav.on .ctx-ico { color: #ffcf40; }

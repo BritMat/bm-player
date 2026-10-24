@@ -551,7 +551,7 @@ class BMPlayer {
     history.onClose({ path: this._currentFilePath, timePos: this.currentTime });
     this.isPlaying=false;this.duration=0;this.currentTime=0;
     this._currentFilePath=null;
-    this.abRepeat?.clear();
+    this.abRepeat?.clear(true);
     this._renderBookmarksOnSeekbar();
     setTimeout(()=>this.speedMenu?.sync?.(),0);   // the film's speed shown again once the music has stopped (v3.38.0)
     window.bmLyrics?.clear?.();
@@ -738,16 +738,18 @@ class BMPlayer {
   }
   _resetNowPlaying(){
     const set=(id,txt)=>{const e=el(id);if(e)e.textContent=txt;};
-    set('np-title','Not Playing');set('np-artist','—');set('np-format','');
+    set('np-title','Nothing playing');set('np-artist','Pick a song from the list');set('np-format','');
+    el('np-title')?.removeAttribute('title');
     set('np-time-cur','0:00');set('np-time-tot','0:00');
-    set('mv-current-title','No track selected');set('mv-current-artist','');
     const f=el('np-seek-fill');if(f)f.style.width='0%';
     el('np-art')?.classList.remove('has-track');
     el('np-bars')?.classList.remove('playing');
     const gl=el('np-glow');if(gl)gl.style.opacity='0';
     const ai=el('np-art-inner');
     if(ai){ai.style.background='';ai.innerHTML='<span class="np-art-placeholder"></span>';setIcon(ai.firstChild,'music');}
-    if(window.bmMusic){window.bmMusic.currentPath=null;window.bmMusic._renderTracks?.(window.bmMusic.tracks||[]);}
+    // Only the playing mark goes. Redrawing the list here put it back in
+    // the order of the folder scan, whatever it was sorted or searched by.
+    if(window.bmMusic){window.bmMusic.currentPath=null;window.bmMusic._markPlaying?.();window.bmMusic._renderQueue?.();}
   }
   playMedia(files){
     this._lastOpened=Array.isArray(files)?String(files[0]||''):'';
@@ -771,7 +773,7 @@ class BMPlayer {
     document.querySelectorAll('.sidebar-btn[data-dest]').forEach(b=>b.classList.toggle('active',b.dataset.dest==='video'));
     this.currentDash='video';
     // Reset A-B loop for the new file
-    this.abRepeat?.clear();
+    this.abRepeat?.clear(true);
     // and turning and mirroring (v3.38.0): they were for the last file
     this.transform?.reset(true);
     window.bmLyrics?.clear?.();   // a film: the last song's lyrics go
@@ -1178,6 +1180,10 @@ class BMPlayer {
       // stopped playback, and arrow keys in the lightbox seeked the music.
       if(e.__bmHandled)return;
       if(e.target.matches?.('input,textarea'))return;
+      // A key the element in focus already acted on is its own (v3.44.0).
+      // Space on a song in the list played it and this then paused it again,
+      // and the arrows in the subtitle font list moved the volume as well.
+      if(e.defaultPrevented)return;
       const cmd=(c,...a)=>{e.preventDefault();this.api?.mpv.cmd(c,...a);};
       if(e.key==='?'||e.code==='F1'){e.preventDefault();this.toggleShortcuts();}   // v3.30.0
       // Rotate and mirror (v3.38.0). Ctrl+R also reloaded the whole page through
@@ -1311,7 +1317,7 @@ class BMPlayer {
       // mpv moved on to another file (a playlist, the end of the last one):
       // turning and mirroring were for the file before (v3.38.0).
       if(p.name==='filename'&&p.data&&p.data!==this._tfFile){this._tfFile=p.data;this.transform?.reset(true);}
-      if(p.name==='media-title'){const t=el('title-text');if(t)t.textContent=p.data||'';const np=el('np-title');if(np)np.textContent=p.data||'Not Playing';
+      if(p.name==='media-title'){const t=el('title-text');if(t)t.textContent=p.data||'';const np=el('np-title');if(np)np.textContent=p.data||'Nothing playing';
         // ── v1.8.0: sync mini player title ──
         const mt=el('mmp-title');if(mt)mt.textContent=p.data||'Not Playing';
         this._updateVizMeta();

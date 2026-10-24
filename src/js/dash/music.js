@@ -7,14 +7,39 @@
  * the queue here is the real playlist — transport controls and end-of-track
  * advancement both go through it rather than through mpv's own playlist
  * commands.
+ *
+ * v3.44.0: the list is a table (css/music.css): column heads that sort, one
+ * row height, the artist under the title and the album in a column of its
+ * own, neither shown when it only repeats the title. The folder's head shows
+ * its covers, how many songs and how long, and plays them all in order or
+ * shuffled. Starting a song no longer redraws the whole list, so the list
+ * stays where it was scrolled to.
  */
 
-import { el, fileURL, fmtSec, seedGrad, cleanTitle, pickFolder } from '../util.js';
+import { el, fileURL, fmtSec, cleanTitle, pickFolder } from '../util.js';
 import { setIcon, setPlaying } from '../icons.js';
 import { isFav, toggleFav } from '../favourites.js';   // v3.43.0: a star on each song
-import { Visualizer } from '../visualizer.js';
+import { Visualizer, vizSettings } from '../visualizer.js';
 import { AudioEngine } from '../audio-engine.js';
 import SpeedMenu from '../modules/speed-menu.js';
+
+const AUDIO = new Set(['mp3', 'flac', 'aac', 'ogg', 'wav', 'm4a', 'wma', 'opus', 'ape', 'mka', 'm4b']);
+const PAGE = 100;
+const FOLDER_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>';
+// Two tags say the same when their letters and digits match: "Adiye - From
+// "Bachelor"" and "Adiye (From "Bachelor")" are one name.
+const bare = s => String(s || '').toLowerCase().replace(/[^\p{L}\p{N}]+/gu, '');
+const sameText = (a, b) => { const x = bare(a); return !!x && x === bare(b); };
+// Sorting by title starts at the first letter or digit, not at an emoji or a bracket.
+const sortKey = s => String(s || '').replace(/^[^\p{L}\p{N}]+/u, '');
+const byText = (a, b) => a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' });
+const baseName = p => String(p || '').split(/[\\/]/).filter(Boolean).pop() || String(p || '');
+function fmtTotal (sec) {
+  const m = Math.round(sec / 60);
+  if (m < 60) return m + ' min';
+  const h = Math.floor(m / 60), r = m % 60;
+  return h + ' hr' + (r ? ' ' + r + ' min' : '');
+}
 
 export class MusicDash{constructor(api){this.api=api;
   // Renderer-side playback for audio-only files. Video always stays on mpv.
@@ -30,20 +55,23 @@ export class MusicDash{constructor(api){this.api=api;
   this.speed = Math.max(0.25, Math.min(4, +localStorage.getItem('bm_music_speed') || 1));
   this.engine.setSpeed(this.speed);
   this._filter='';
+  this._desc=false;
   this.shuffle=localStorage.getItem('bm_music_shuffle')==='1';
-  this.repeat=localStorage.getItem('bm_music_repeat')||'off';this.folders=JSON.parse(localStorage.getItem('bm_music_folders')||'[]');this.tracks=[];this.queue=[];this.queueIdx=-1;this.currentPath=null;this._dur={};this._activePath=null;console.log('[MusicDash] Initialized, API:', !!api);this._wire();this.folders.forEach(f=>this._addFolder(f));if(this.folders.length)this._load(this.folders[0]);}
+  this.repeat=localStorage.getItem('bm_music_repeat')||'off';
+  try{ this.folders=JSON.parse(localStorage.getItem('bm_music_folders')||'[]'); }catch(_){ this.folders=[]; }
+  if(!Array.isArray(this.folders)) this.folders=[];
+  this.tracks=[];this.queue=[];this.queueIdx=-1;this.currentPath=null;this._dur={};this._activePath=null;this.tags={};
+  console.log('[MusicDash] Initialized, API:', !!api);
+  this._wire();
+  this.folders.forEach(f=>this._addFolder(f));
+  if(this.folders.length) this._load(this.folders[0]);
+  else this._updateHead();
+}
 _wire(){
   // The speed button in Now Playing (v3.38.0): always the music's.
   this._npSpeed=new SpeedMenu({mpvApi:()=>this.api?.mpv,osd:(m,ms)=>window.bmApp?.showOSD?.(m,ms),anchorId:'np-speed',music:()=>this.speedAdapter(),musicOnly:true});
   // Folder picker
-  el('btn-music-open')?.addEventListener('click',async()=>{
-    const folder = await pickFolder(this.api);
-    if(!folder || this.folders.includes(folder)) return;
-    this.folders.push(folder);
-    localStorage.setItem('bm_music_folders', JSON.stringify(this.folders));
-    this._addFolder(folder);
-    this._load(folder);
-  });
+  el('btn-music-open')?.addEventListener('click',()=>this.addFolder());
   const ae=el('set-audio-engine');
   if(ae){
     ae.checked=this.engineEnabled;
@@ -58,23 +86,46 @@ _wire(){
   }
   el('np-btn-shuffle')?.addEventListener('click',()=>this._toggleShuffle());
   el('np-btn-repeat')?.addEventListener('click',()=>this._cycleRepeat());
-  el('music-filter')?.addEventListener('input',e=>{
+  // The folder's head (v3.44.0): every song, in order or shuffled.
+  el('music-play-all')?.addEventListener('click',()=>this.playAll(false));
+  el('music-shuffle-all')?.addEventListener('click',()=>this.playAll(true));
+  const fi=el('music-filter');
+  fi?.addEventListener('input',e=>{
     clearTimeout(this._mFilterTimer);
     this._mFilterTimer=setTimeout(()=>{ this._filter=e.target.value; this._resort(); },180);
   });
+  // Escape empties the search first, before anything else takes the key.
+  fi?.addEventListener('keydown',e=>{
+    if(e.key!=='Escape'||!fi.value) return;
+    e.preventDefault(); e.stopPropagation();
+    fi.value=''; clearTimeout(this._mFilterTimer); this._filter=''; this._resort();
+  });
   el('music-group')?.addEventListener('click',()=>{
-    this.groupByAlbum=!this.groupByAlbum;
-    el('music-group')?.classList.toggle('active',this.groupByAlbum);
+    this._setGroup(!this.groupByAlbum);
     this._resort();
   });
   // Restore the persisted toggle states into the UI
-  if(this.shuffle){ const b=el('np-btn-shuffle'); if(b){b.classList.add('active');b.title='Shuffle (on)';} }
+  this._setShuffle(this.shuffle);
   if(this.repeat!=='off'){
     const b=el('np-btn-repeat');
-    if(b){ b.classList.add('active'); setIcon(b,this.repeat==='one'?'repeatOne':'repeat'); b.title='Repeat ('+this.repeat+')'; }
+    if(b){ b.classList.add('active'); setIcon(b,this.repeat==='one'?'repeatOne':'repeat'); b.title='Repeat ('+this.repeat+')'; b.setAttribute('aria-label',b.title); }
   }
-  el('music-sort')?.addEventListener('change',e=>this._renderTracks(this._sorted(this.tracks,e.target.value)));
-  // Seekbar click
+  // The order chosen is kept between runs.
+  const so=el('music-sort');
+  if(so){
+    const saved=localStorage.getItem('bm_music_sort');
+    if(saved&&[...so.options].some(o=>o.value===saved)) so.value=saved;
+    this._desc=localStorage.getItem('bm_music_sort_desc')==='1';
+    so.addEventListener('change',()=>{ this._desc=false; this._resort(); });
+  }
+  // In the list: the column heads sort, and the buttons of an empty list act.
+  el('music-tracks')?.addEventListener('click',e=>{
+    const h=e.target.closest?.('.tr-h[data-sort]');
+    if(h){ e.stopPropagation(); this._sortBy(h.dataset.sort); return; }
+    const act=e.target.closest?.('[data-mv-act]')?.dataset.mvAct;
+    if(act==='add'){ e.stopPropagation(); this.addFolder(); }
+    else if(act==='clear'){ e.stopPropagation(); if(fi) fi.value=''; this._filter=''; this._resort(); fi?.focus(); }
+  });
   // Seek bar. It sent time-pos to mpv, which is idle whenever the in-app
   // engine is playing, and it needed a tag duration the engine doesn't need.
   // v3.28.0: drag to scrub, or click. It took a click only, on a bar 5px
@@ -141,20 +192,68 @@ _wire(){
     if(p.name==='volume'){const s=el('np-volume');if(s)s.value=p.data;const l=el('np-vol-label');if(l)l.textContent=Math.round(p.data);}
   });
 }
-_addFolder(fp){const s=el('music-lib-sections');if(!s)return;s.querySelector('.music-empty-lib')?.remove();const n=fp.split(/[\\/]/).pop();const d=document.createElement('div');d.className='music-folder-item';d.dataset.path=fp;d.innerHTML='<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg><span class="mf-name">'+n+'</span>';d.addEventListener('click',()=>this._load(fp));s.appendChild(d);}
+
+// ── Folders ────────────────────────────────────────────────────────
+async addFolder(){
+  const folder=await pickFolder(this.api);
+  if(!folder) return;
+  if(!this.folders.includes(folder)){
+    this.folders.push(folder);
+    try{ localStorage.setItem('bm_music_folders',JSON.stringify(this.folders)); }catch(_){}
+    this._addFolder(folder);
+  }
+  this._load(folder);
+}
+_addFolder(fp){
+  const s=el('music-lib-sections');if(!s)return;
+  s.querySelector('.music-empty-lib')?.remove();
+  const n=baseName(fp);
+  const d=document.createElement('div');
+  d.className='music-folder-item'; d.dataset.path=fp; d.title=fp;
+  d.tabIndex=0; d.setAttribute('role','button');
+  d.innerHTML=FOLDER_SVG;
+  const nm=document.createElement('span'); nm.className='mf-name'; nm.textContent=n;   // a name is text, never markup
+  // Out of the library, not off the disk.
+  const rm=document.createElement('button'); rm.type='button'; rm.className='mf-remove';
+  rm.title='Take this folder out of the library. Its files stay where they are.';
+  rm.setAttribute('aria-label','Take '+n+' out of the library'); setIcon(rm,'x');
+  rm.addEventListener('click',e=>{ e.stopPropagation(); this._removeFolder(fp); });
+  rm.addEventListener('keydown',e=>e.stopPropagation());
+  d.append(nm,rm);
+  d.addEventListener('click',()=>this._load(fp));
+  d.addEventListener('keydown',e=>{ if(e.target===d&&(e.key==='Enter'||e.key===' ')){ e.preventDefault(); this._load(fp); } });
+  s.appendChild(d);
+}
+_removeFolder(fp){
+  this.folders=this.folders.filter(f=>f!==fp);
+  try{ localStorage.setItem('bm_music_folders',JSON.stringify(this.folders)); }catch(_){}
+  document.querySelectorAll('.music-folder-item').forEach(e=>{ if(e.dataset.path===fp) e.remove(); });
+  const s=el('music-lib-sections');
+  if(s&&!this.folders.length){ const p=document.createElement('p'); p.className='music-empty-lib'; p.textContent='Folders you add show here.'; s.appendChild(p); }
+  if(this._activePath===fp){
+    if(this.folders.length) this._load(this.folders[0]);
+    else{
+      this._tagToken=(this._tagToken||0)+1; this._activePath=null; this.tracks=[]; this._filter='';
+      const f=el('music-filter'); if(f) f.value='';
+      this._renderTracks([]); this._buildQueue(); this._updateHead();
+    }
+  }
+  window.bmApp?.showOSD?.('Taken out of the library. The files are still there.');
+}
 async _load(fp){
   this._activePath=fp;
   document.querySelectorAll('.music-folder-item').forEach(e=>e.classList.toggle('active',e.dataset.path===fp));
-  const lbl=el('music-path-title');if(lbl)lbl.textContent=fp.split(/[\\/]/).pop();
+  const lbl=el('music-path-title');if(lbl)lbl.textContent=baseName(fp);
   let files=[];
   try{ files=await this.api?.gallery?.scan(fp)||[]; }catch(e){ console.error('[MusicDash] scan failed',e); }
-  const AUDIO=new Set(['mp3','flac','aac','ogg','wav','m4a','wma','opus','ape','mka','m4b']);
-  this.tracks=files.filter(f=>AUDIO.has(f.name.split('.').pop().toLowerCase()));
+  if(this._activePath!==fp) return;                   // another folder was opened meanwhile
+  this.tracks=files.filter(f=>AUDIO.has(String(f.name||'').split('.').pop().toLowerCase()));
   this.tags=this.tags||{};
   this._filter='';
   const fi=el('music-filter'); if(fi) fi.value='';
-  this._renderTracks(this._sorted(this.tracks,el('music-sort')?.value||'name'));
+  this._renderTracks(this._sorted(this.tracks,this._sortKey()));
   this._buildQueue();
+  this._updateHead();
   this._loadTags(this.tracks);
 }
 // Tags are read in the main process and streamed back in batches so a large
@@ -174,16 +273,24 @@ async _loadTags(tracks){
     try{ res=await this.api.music.tags(paths)||[]; }catch(_){ return; }
     if(token!==this._tagToken)return;
     res.forEach(r=>{ if(r&&r.path){ this.tags[r.path]=r; if(r.duration)this._dur[r.path]=r.duration; } });
-    this._renderTracks(this._sorted(this.tracks,el('music-sort')?.value||'name'));
-    if(this.currentPath)this._applyTagsToNowPlaying(this.currentPath);
+    this._renderTracks(this._sorted(this.tracks,this._sortKey()),true);   // where it was scrolled to
+    this._updateHead();
+    if(this.currentPath){ this._applyTagsToNowPlaying(this.currentPath); this._renderQueue(); }
+    else this._buildQueue();          // Up next in the order the list now shows
   }
 }
 _meta(t){
   const g=this.tags?.[t.path]||{};
+  const title=g.title||cleanTitle(t.name);
+  // A tag that only repeats the title says nothing more (v3.44.0). Many
+  // downloaded songs carry their title as the artist too, and a single its
+  // title as the album. The folder's name stood in for a missing artist,
+  // which put "Music" under half a library.
+  const artist=g.artist&&!sameText(g.artist,title)?g.artist:'';
+  const album=g.album||'';
   return {
-    title:  g.title  || cleanTitle(t.name),
-    artist: g.artist || t.path.split(/[\\/]/).slice(-2,-1)[0] || '',
-    album:  g.album  || '',
+    title, artist, album,
+    albumShown: sameText(album,title)?'':album,
     cover:  g.cover  || null,
     ext:    t.name.split('.').pop().toUpperCase()
   };
@@ -192,15 +299,18 @@ _applyTagsToNowPlaying(fp){
   const t=this.tracks.find(x=>x.path===fp);if(!t)return;
   const m=this._meta(t);
   const set=(id,v)=>{const e=el(id);if(e)e.textContent=v;};
-  set('np-title',m.title);set('np-artist',m.artist);
-  set('np-format',[m.ext,m.album].filter(Boolean).join(' · '));
-  set('mv-current-title',m.title);set('mv-current-artist',m.artist);
+  // With no artist known, the album takes its line (often the film the song is from).
+  set('np-title',m.title);set('np-artist',m.artist||m.albumShown);set('np-format',m.albumShown);
+  const nt=el('np-title'); if(nt) nt.title=m.title;
   const ai=el('np-art-inner');
   if(ai&&m.cover){ ai.style.background='center/cover no-repeat url("'+fileURL(m.cover)+'")'; ai.innerHTML=''; }
   const mArt=el('mmp-art');
   if(mArt&&m.cover){ mArt.style.background='center/cover no-repeat url("'+fileURL(m.cover)+'")'; mArt.textContent=''; }
   window.bmApp?._vizArtFor?.(fp, m.cover);   // the visual mode shows it too (v3.32.0)
 }
+
+// ── Order ──────────────────────────────────────────────────────────
+_sortKey(){ return el('music-sort')?.value||'title'; }
 // Tags were parsed and then thrown away outside the row label. Artist, album,
 // year and track number are all available — sorting by album then track number
 // is the ordering people actually expect from a music library.
@@ -212,19 +322,30 @@ _sorted(t,by){
     return (m.title+' '+m.artist+' '+m.album+' '+x.name).toLowerCase().includes(q);
   });
   const meta=x=>this._meta(x);
-  const byName=(x,y)=>x.name.localeCompare(y.name,undefined,{numeric:true,sensitivity:'base'});
-  const str=(x,k)=>(meta(x)[k]||'\uffff').toLowerCase();   // untagged sorts last
+  const byName=(x,y)=>byText(x.name,y.name);
+  const str=(x,k)=>(sortKey(meta(x)[k])||'\uffff').toLowerCase();   // untagged sorts last
+  const no=x=>this.tags?.[x.path]?.trackNo||0;
+  if(this.groupByAlbum) by='album';                     // grouped: album by album
   switch(by){
+    case 'title':
+      list.sort((x,y)=>byText(sortKey(meta(x).title),sortKey(meta(y).title))||byName(x,y));
+      break;
     case 'artist':
       list.sort((x,y)=>str(x,'artist').localeCompare(str(y,'artist'))
                     || str(x,'album').localeCompare(str(y,'album'))
-                    || ((this.tags?.[x.path]?.trackNo||0)-(this.tags?.[y.path]?.trackNo||0))
+                    || (no(x)-no(y))
                     || byName(x,y));
       break;
     case 'album':
       list.sort((x,y)=>str(x,'album').localeCompare(str(y,'album'))
-                    || ((this.tags?.[x.path]?.trackNo||0)-(this.tags?.[y.path]?.trackNo||0))
+                    || (no(x)-no(y))
                     || byName(x,y));
+      break;
+    case 'added':
+      list.sort((x,y)=>((y.mtime||0)-(x.mtime||0))||byName(x,y));
+      break;
+    case 'length':
+      list.sort((x,y)=>((this._dur[x.path]||0)-(this._dur[y.path]||0))||byName(x,y));
       break;
     case 'year':
       list.sort((x,y)=>((this.tags?.[y.path]?.year||0)-(this.tags?.[x.path]?.year||0))||byName(x,y));
@@ -235,16 +356,74 @@ _sorted(t,by){
     default:
       list.sort(byName);
   }
+  if(this._desc&&!this.groupByAlbum) list.reverse();
   return list;
 }
-
 _resort(){
-  this._renderTracks(this._sorted(this.tracks, el('music-sort')?.value||'name'));
+  try{ localStorage.setItem('bm_music_sort',this._sortKey()); localStorage.setItem('bm_music_sort_desc',this._desc?'1':'0'); }catch(_){}
+  this._renderTracks(this._sorted(this.tracks,this._sortKey()));
+  this._updateHead();
+}
+/** A column head was pressed: sort by it, or the other way round when it already is. */
+_sortBy(key){
+  const sel=el('music-sort');
+  if(this.groupByAlbum) this._setGroup(false);
+  if(sel&&sel.value===key) this._desc=!this._desc;
+  else{ if(sel) sel.value=key; this._desc=false; }
+  this._resort();
+  el('music-tracks')?.querySelector('.tr-h[data-sort="'+key+'"]')?.focus({preventScroll:true});
+}
+_setGroup(on){
+  this.groupByAlbum=!!on;
+  const b=el('music-group');
+  if(b){ b.classList.toggle('active',this.groupByAlbum); b.setAttribute('aria-pressed',String(this.groupByAlbum)); }
+}
+
+// ── The folder's head ──────────────────────────────────────────────
+_updateHead(){
+  const has=this.tracks.length>0;
+  el('music-view')?.querySelector('.music-center')?.classList.toggle('is-empty',!has);
+  const t=el('music-path-title');
+  if(t) t.textContent=this._activePath?baseName(this._activePath):'Music';
   const c=el('music-count');
   if(c){
-    const n=this._visible?.length||0;
-    c.textContent=this._filter?.trim()? n+' of '+this.tracks.length : this.tracks.length+' tracks';
+    if(!this._activePath) c.textContent='No folder yet';
+    else if(!has) c.textContent='No songs in this folder';
+    else{
+      const n=this.tracks.length, songs=n===1?'1 song':n+' songs';
+      if((this._filter||'').trim()) c.textContent=(this._visible?.length||0)+' of '+songs;
+      else{
+        const total=this.tracks.reduce((s,x)=>s+(+this._dur[x.path]||0),0);
+        c.textContent=songs+(total>=30?', '+fmtTotal(total):'');
+      }
+    }
   }
+  const none=!(this._visible?.length);
+  const p=el('music-play-all'), s=el('music-shuffle-all');
+  if(p) p.disabled=none;
+  if(s) s.disabled=none;
+  const sel=el('music-sort');
+  if(sel){ sel.disabled=!!this.groupByAlbum; sel.title=this.groupByAlbum?'Grouped by album, so the songs are in album order':''; }
+  this._renderCover();
+}
+// Up to four covers from the folder, one from each album, as a 2 by 2 square.
+_renderCover(){
+  const box=el('music-cover'); if(!box) return;
+  const covers=[], albums=new Set();
+  for(const t of this.tracks){
+    const g=this.tags?.[t.path]; if(!g?.cover) continue;
+    const k=bare(g.album)||t.path; if(albums.has(k)) continue;
+    albums.add(k); covers.push(g.cover);
+    if(covers.length===4) break;
+  }
+  const show=covers.length>=4?covers:covers.slice(0,1);
+  const key=show.join('|')||'blank';
+  if(box.dataset.key===key) return;
+  box.dataset.key=key;
+  box.innerHTML='';
+  box.classList.toggle('one',show.length<4);
+  if(!show.length){ const b=document.createElement('span'); b.className='mv-cover-blank'; setIcon(b,'music'); box.appendChild(b); return; }
+  for(const cv of show){ const s=document.createElement('span'); s.style.backgroundImage='url("'+fileURL(cv)+'")'; box.appendChild(s); }
 }
 
 // ── Shuffle ────────────────────────────────────────────────────────
@@ -274,17 +453,28 @@ _cycleRepeat(){
   if(b){
     b.classList.toggle('active',this.repeat!=='off');
     setIcon(b,this.repeat==='one'?'repeatOne':'repeat');
-    b.title='Repeat ('+this.repeat+')';
+    b.title='Repeat ('+this.repeat+')'; b.setAttribute('aria-label',b.title);
   }
   localStorage.setItem('bm_music_repeat',this.repeat);
   return this.repeat;
 }
-_toggleShuffle(){
-  this.shuffle=!this.shuffle;
+_setShuffle(on){
+  this.shuffle=!!on;
   const b=el('np-btn-shuffle');
-  if(b){ b.classList.toggle('active',this.shuffle); b.title='Shuffle ('+(this.shuffle?'on':'off')+')'; }
-  localStorage.setItem('bm_music_shuffle',this.shuffle?'1':'0');
+  if(b){ b.classList.toggle('active',this.shuffle); b.title='Shuffle ('+(this.shuffle?'on':'off')+')'; b.setAttribute('aria-label',b.title); b.setAttribute('aria-pressed',String(this.shuffle)); }
+  try{ localStorage.setItem('bm_music_shuffle',this.shuffle?'1':'0'); }catch(_){}
+}
+_toggleShuffle(){
+  this._setShuffle(!this.shuffle);
   this._buildQueue();
+}
+/** The head's Play and Shuffle: every song in the list, from the top or in a new order. */
+playAll(shuffled){
+  if(!(this._visible?.length||this.tracks.length)) return;
+  this._setShuffle(!!shuffled);
+  this.currentPath=null;            // nothing kept at the front: a fresh order
+  this._buildQueue();
+  if(this.queue.length) this.play(this.queue[0].path,0);
 }
 
 // Called when mpv reports end-of-file for the current track.
@@ -298,86 +488,94 @@ advance(){
   }
 }
 
-_renderTracks(tracks){
+// ── The list ───────────────────────────────────────────────────────
+/** keepScroll: the same list again with tags filled in, left where it was scrolled to. */
+_renderTracks(tracks,keepScroll){
   const c=el('music-tracks');if(!c)return;
+  const top=keepScroll?c.scrollTop:0;
+  this._tio?.disconnect();
   this._visible=tracks;this._tpage=0;
-  if(!tracks.length){
-    c.innerHTML='<div class="music-empty-tracks"><div style="font-size:48px;margin-bottom:8px">&#127911;</div><p>No audio files</p></div>';
-    return;
-  }
   c.innerHTML='';
+  c.classList.toggle('grouped',!!this.groupByAlbum);
+  if(!tracks.length){ c.appendChild(this._emptyState()); return; }
+  if(this.groupByAlbum){
+    // How many songs each album has here, and by whom, for its head.
+    this._groups=new Map();
+    for(const t of tracks){
+      const m=this._meta(t), k=m.album.trim().toLowerCase();
+      const g=this._groups.get(k)||{n:0,artists:new Set()};
+      g.n++; if(m.artist) g.artists.add(m.artist);
+      this._groups.set(k,g);
+    }
+  }
+  c.appendChild(this._headRow());
   this._renderTrackPage();
+  if(top>0){
+    while(c.scrollHeight<top+c.clientHeight&&this._tpage*PAGE<tracks.length) this._renderTrackPage();
+    c.scrollTop=top;
+  }
 }
-// Album headers turn a flat file list into something that reads like a
-// library. Only meaningful once tags have arrived, so it's a toggle.
-_albumHeader(t){
-  const m=this._meta(t);
-  return (m.album||'Unknown album')+' \u2014 '+(m.artist||'Unknown artist');
+_emptyState(){
+  const d=document.createElement('div'); d.className='music-empty-tracks';
+  const ico=document.createElement('span'); ico.className='mv-empty-ico'; ico.setAttribute('aria-hidden','true');
+  const h=document.createElement('p'); h.className='mv-empty-title';
+  const p=document.createElement('p'); p.className='mv-empty-text';
+  const q=(this._filter||'').trim();
+  let btn=null;
+  if(!this._activePath){
+    setIcon(ico,'music'); h.textContent='Add your music';
+    p.textContent='Choose a folder with songs in it. The folders inside it are read too.';
+    btn={act:'add',icon:'addToQ',label:'Add a folder',primary:true};
+  }else if(q&&this.tracks.length){
+    setIcon(ico,'search'); h.textContent='No songs match “'+q+'”';
+    p.textContent='Try fewer words, or part of a title, an artist or an album.';
+    btn={act:'clear',icon:'x',label:'Clear the search'};
+  }else{
+    setIcon(ico,'folder'); h.textContent='No songs in this folder';
+    p.textContent='BM Player plays MP3, FLAC, AAC, OGG, WAV, M4A, WMA, Opus, APE, MKA and M4B files.';
+  }
+  d.append(ico,h,p);
+  if(btn){
+    const b=document.createElement('button'); b.type='button';
+    b.className=btn.primary?'mv-btn mv-btn-primary':'mv-btn';
+    b.dataset.mvAct=btn.act; b.setAttribute('aria-label',btn.label); setIcon(b,btn.icon,btn.label);
+    d.appendChild(b);
+  }
+  return d;
+}
+// The column heads. Pressing one sorts by it; again, the other way round.
+_headRow(){
+  const by=this.groupByAlbum?'album':this._sortKey();
+  const h=document.createElement('div'); h.className='tr-head';
+  const cell=(key,label,name,cls,icon)=>{
+    const b=document.createElement('button'); b.type='button';
+    b.className='tr-h'+(cls?' '+cls:'')+(key===by?(this._desc&&!this.groupByAlbum?' on desc':' on'):'');
+    b.dataset.sort=key; b.title='Sort by '+name;
+    b.setAttribute('aria-label','Sort by '+name);
+    if(icon) setIcon(b,icon); else b.textContent=label;
+    return b;
+  };
+  const fav=document.createElement('span'); fav.className='tr-h-fav';
+  h.append(cell('name','#','file name','tr-h-num'),cell('title','Title','title'),cell('album','Album','album','tr-h-album'),fav,cell('length','','length','tr-h-dur','clock'));
+  return h;
 }
 _renderTrackPage(){
   const c=el('music-tracks');if(!c)return;
-  const PAGE=100, s=this._visible||[];
+  const s=this._visible||[];
   const start=this._tpage*PAGE, slice=s.slice(start,start+PAGE);
   if(!slice.length)return;
   el('tracks-sentinel')?.remove();
-  const g=seedGrad(this._activePath||'');
   if(this._tpage===0) this._lastAlbumKey=null;
   const frag=document.createDocumentFragment();
   slice.forEach((t,n)=>{
-    const i=start+n, m=this._meta(t), isP=t.path===this.currentPath;
-    const dur=this._dur[t.path]?fmtSec(this._dur[t.path]):'';
-    const row=document.createElement('div');
-    row.className='track-row'+(isP?' playing':'');
-    row.dataset.path=t.path; row.dataset.idx=i;
-    row.tabIndex=0; row.setAttribute('role','button');
-    row.setAttribute('aria-label',m.title+(m.artist?' by '+m.artist:''));
-
-    const num=document.createElement('span');
-    num.className='tr-num'; num.textContent=String(i+1);
-
-    const art=document.createElement('div');
-    art.className='tr-art';
-    if(m.cover) art.style.background='center/cover no-repeat url("'+fileURL(m.cover)+'")';
-    else if(isP) art.style.background=g;
-    else { art.innerHTML='<span style="opacity:.3"></span>'; setIcon(art.firstChild,'music'); }
-    if(isP&&!m.cover) setIcon(art,'play');
-
-    const info=document.createElement('div');
-    info.className='tr-info';
-    const nm=document.createElement('div');
-    // CRITICAL: this was string-concatenated into innerHTML. A file called
-    // 'Rock & Roll <live>.mp3' broke the row markup.
-    nm.className='tr-name'; nm.textContent=m.title;
-    const meta=document.createElement('div');
-    meta.className='tr-meta'; meta.textContent=[m.artist,m.album,m.ext].filter(Boolean).join(' · ');
-    info.appendChild(nm); info.appendChild(meta);
-
-    const d=document.createElement('span');
-    d.className='tr-dur'; d.textContent=dur;
-    const pb=document.createElement('div');
-    pb.className='tr-play-btn'; setIcon(pb,'play');
-    // The star (v3.43.0): the song in the welcome screen's Favourites row.
-    const fv=document.createElement('button');
-    const mark=on=>{ fv.className='tr-fav'+(on?' on':''); setIcon(fv,on?'starFill':'star'); fv.title=on?'Remove from favourites':'Add to favourites'; fv.setAttribute('aria-label',fv.title); fv.setAttribute('aria-pressed',String(on)); };
-    fv.type='button'; mark(isFav(t.path));
-    fv.addEventListener('click',e=>{ e.stopPropagation(); const on=toggleFav(t.path); mark(on); window.bmApp?.showOSD?.(on?'Added to favourites: it is on the home screen':'Taken out of favourites'); });
-    fv.addEventListener('keydown',e=>e.stopPropagation());   // Enter on the star is the star's, not the row's
-
+    const i=start+n, m=this._meta(t);
+    // Album heads turn a flat list of files into something that reads like
+    // a library. Only meaningful once tags have arrived, so it's a toggle.
     if(this.groupByAlbum){
-      const key=this._albumHeader(t);
-      if(key!==this._lastAlbumKey){
-        this._lastAlbumKey=key;
-        const hd=document.createElement('div');
-        hd.className='track-album-header';
-        hd.textContent=key;
-        frag.appendChild(hd);
-      }
+      const key=m.album.trim().toLowerCase();
+      if(key!==this._lastAlbumKey){ this._lastAlbumKey=key; frag.appendChild(this._albumHead(m.album,key)); }
     }
-    row.append(num,art,info,fv,d,pb);
-    const go=()=>this.play(t.path,i);
-    row.addEventListener('click',go);
-    row.addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();go();}});
-    frag.appendChild(row);
+    frag.appendChild(this._row(t,i,m));
   });
   c.appendChild(frag);
   this._tpage++;
@@ -389,7 +587,108 @@ _renderTrackPage(){
     this._tio=new IntersectionObserver(es=>{if(es.some(e=>e.isIntersecting))this._renderTrackPage();},{root:c,rootMargin:'500px'});
     this._tio.observe(sent);
   }
-}  // The mpv path gets its UI updates from property-change events in
+}
+_albumHead(album,key){
+  const g=this._groups?.get(key)||{n:0,artists:new Set()};
+  const hd=document.createElement('div'); hd.className='track-album-header';
+  const a=document.createElement('span'); a.className='tah-album'; a.textContent=album||'Unknown album';
+  const ar=document.createElement('span'); ar.className='tah-artist';
+  ar.textContent=g.artists.size>1?'Various artists':([...g.artists][0]||'');
+  const n=document.createElement('span'); n.className='tah-count'; n.textContent=g.n===1?'1 song':g.n+' songs';
+  hd.append(a,ar,n);
+  return hd;
+}
+_eq(){
+  const s=document.createElement('span'); s.className='tr-eq'; s.setAttribute('aria-hidden','true');
+  s.append(document.createElement('i'),document.createElement('i'),document.createElement('i'));
+  return s;
+}
+_row(t,i,m){
+  const isP=t.path===this.currentPath;
+  const row=document.createElement('div');
+  row.className='track-row'+(isP?' playing':'');
+  row.dataset.path=t.path; row.dataset.idx=i;
+  row.tabIndex=0; row.setAttribute('role','button');
+  row.setAttribute('aria-label',m.title+(m.artist?' by '+m.artist:''));
+  if(isP) row.setAttribute('aria-current','true');
+
+  const num=document.createElement('span');
+  num.className='tr-num';
+  if(isP) num.appendChild(this._eq()); else num.textContent=String(i+1);
+
+  const cell=document.createElement('div'); cell.className='tr-title';
+  const art=document.createElement('div');
+  art.className='tr-art';
+  if(m.cover) art.style.backgroundImage='url("'+fileURL(m.cover)+'")';
+  else setIcon(art,'music');
+  const info=document.createElement('div');
+  info.className='tr-info';
+  const nm=document.createElement('div');
+  // CRITICAL: this was string-concatenated into innerHTML. A file called
+  // 'Rock & Roll <live>.mp3' broke the row markup.
+  nm.className='tr-name'; nm.textContent=m.title; nm.title=m.title;
+  info.appendChild(nm);
+  // The artist under the title. With none known the title stands alone, in
+  // the middle of the row: a column of "Unknown artist" said nothing.
+  if(m.artist){ const meta=document.createElement('div'); meta.className='tr-meta'; meta.textContent=m.artist; info.appendChild(meta); }
+  cell.append(art,info);
+
+  const al=document.createElement('div');
+  al.className='tr-album'; al.textContent=m.albumShown; if(m.albumShown) al.title=m.albumShown;
+
+  // The star (v3.43.0): the song in the welcome screen's Favourites row.
+  const fv=document.createElement('button');
+  const mark=on=>{ fv.className='tr-fav'+(on?' on':''); setIcon(fv,on?'starFill':'star'); fv.title=on?'Remove from favourites':'Add to favourites'; fv.setAttribute('aria-label',fv.title); fv.setAttribute('aria-pressed',String(on)); };
+  fv.type='button'; mark(isFav(t.path));
+  fv.addEventListener('click',e=>{ e.stopPropagation(); const on=toggleFav(t.path); mark(on); window.bmApp?.showOSD?.(on?'Added to favourites: it is on the home screen':'Taken out of favourites'); });
+  fv.addEventListener('keydown',e=>e.stopPropagation());   // Enter on the star is the star's, not the row's
+
+  const d=document.createElement('span');
+  d.className='tr-dur'; d.textContent=this._dur[t.path]?fmtSec(this._dur[t.path]):'';
+
+  row.append(num,cell,al,fv,d);
+  const go=()=>this._rowGo(t);
+  row.addEventListener('click',go);
+  row.addEventListener('keydown',e=>{
+    if(e.target!==row) return;
+    if(e.key==='Enter'||e.key===' '){ e.preventDefault(); go(); return; }
+    // Up and down move along the list, past the album heads.
+    if(e.key==='ArrowDown'||e.key==='ArrowUp'){
+      e.preventDefault();
+      const step=e.key==='ArrowDown'?'nextElementSibling':'previousElementSibling';
+      let n=row[step];
+      while(n&&!n.classList.contains('track-row')) n=n[step];
+      n?.focus();
+    }
+  });
+  return row;
+}
+/** A row was pressed. Its song plays, and the list as it stands is what plays
+ *  next. The song already playing pauses or plays on instead, as its mark says. */
+_rowGo(t){
+  if(t.path===this.currentPath&&this._live()){ this.toggle(); return; }
+  this.currentPath=t.path;
+  this._buildQueue();
+  this.play(t.path,this.queueIdx);
+}
+/** True while the current song is loaded and can be paused or played on. */
+_live(){
+  if(this.engineOwns()) return !!this.engine.el?.src&&!this.engine.el.ended;
+  return !!this.currentPath&&window.bmApp?._mpvIdle===false;
+}
+/** The playing row marked, and the one before unmarked, without redrawing the list. */
+_markPlaying(){
+  const c=el('music-tracks'); if(!c) return;
+  for(const row of c.querySelectorAll('.track-row')){
+    const on=row.dataset.path===this.currentPath;
+    if(on===row.classList.contains('playing')) continue;
+    row.classList.toggle('playing',on);
+    if(on) row.setAttribute('aria-current','true'); else row.removeAttribute('aria-current');
+    const num=row.querySelector('.tr-num');
+    if(num){ num.textContent=''; if(on) num.appendChild(this._eq()); else num.textContent=String(+row.dataset.idx+1); }
+  }
+}
+  // The mpv path gets its UI updates from property-change events in
   // BMPlayer. The engine has to drive the same elements itself.
   _wireEngine(){
     const e=this.engine;
@@ -497,7 +796,11 @@ _renderTrackPage(){
 
 
 play(fp,idx){
-    this.currentPath=fp;this.queueIdx=idx;
+    this.currentPath=fp;
+    // Where the song is in the queue. The index the caller had is its place in
+    // the list on screen, which is not the queue's when shuffled or searched.
+    const qi=this.queue.findIndex(q=>q.path===fp);
+    this.queueIdx=qi>=0?qi:(idx||0);
     const useEngine=this.engineEnabled&&this.engine.available&&this.engine.canPlay(fp);
     if(useEngine){
       // Stop mpv first or both would play at once.
@@ -523,21 +826,43 @@ play(fp,idx){
     window.bmApp?.speedMenu?.sync?.(); this._npSpeed?.sync();   // the speed shown is now the music's (v3.38.0)
     const _m=this.tags?.[fp]||{};const title=_m.title||cleanTitle(fp.split(/[\\/]/).pop());
     // Its lyrics (v3.38.0): beside it, inside it, or online.
-    window.bmLyrics?.song(fp,{title,artist:_m.artist||null,album:_m.album||null,duration:_m.duration||this._dur?.[fp]||null});const folder=fp.split(/[\\/]/).slice(0,-1).pop()||'';const ext=fp.split('.').pop().toUpperCase();const g=seedGrad(folder);const ai=el('np-art-inner');if(ai){ai.style.background=g;ai.innerHTML='<span class="np-art-placeholder" style="opacity:.5"></span>';setIcon(ai.firstChild,'music');}const gl=el('np-glow');if(gl){gl.style.background=g;gl.style.opacity='.5';}el('np-art')?.classList.add('has-track');const nt=el('np-title');if(nt)nt.textContent=title;const na=el('np-artist');if(na)na.textContent=_m.artist||folder;const nf=el('np-format');if(nf)nf.textContent=ext;el('np-bars')?.classList.add('playing');const mvt=el('mv-current-title');if(mvt)mvt.textContent=title;const mva=el('mv-current-artist');if(mva)mva.textContent=folder;this._viz?.setMode('bars');this._viz?.start();this._renderTracks(this._sorted(this.tracks,el('music-sort')?.value||'name'));this._renderQueue();this._applyTagsToNowPlaying(fp);}
+    window.bmLyrics?.song(fp,{title,artist:_m.artist||null,album:_m.album||null,duration:_m.duration||this._dur?.[fp]||null});
+    // Now Playing: the cover's place shows a note until the tags give one.
+    const ai=el('np-art-inner');
+    if(ai){ ai.style.background=''; ai.innerHTML='<span class="np-art-placeholder"></span>'; setIcon(ai.firstChild,'music'); }
+    el('np-art')?.classList.add('has-track');
+    const nt=el('np-title'); if(nt){ nt.textContent=title; nt.title=title; }
+    const na=el('np-artist'); if(na) na.textContent=(_m.artist&&!sameText(_m.artist,title))?_m.artist:'';
+    const nf=el('np-format'); if(nf) nf.textContent='';
+    el('np-bars')?.classList.add('playing');
+    // The style chosen in the visualiser's settings, here as everywhere (it
+    // was always Bars in this view, whatever was chosen).
+    this._viz?.setMode(vizSettings().style);this._viz?.start();
+    this._markPlaying();this._renderQueue();this._applyTagsToNowPlaying(fp);
+}
 _renderQueue(){
   const q=el('np-queue');if(!q)return;
-  const next=this.queue.slice(this.queueIdx+1,this.queueIdx+6);
+  // With nothing playing, what Play would start with.
+  const from=this.currentPath?this.queueIdx+1:0;
+  const next=this.queue.slice(from,from+30);
   q.innerHTML='';
   if(!next.length){
-    const e=document.createElement('div');
-    e.style.cssText='font-size:11.5px;color:var(--text-muted);padding:6px 8px';
-    e.textContent='End of queue'; q.appendChild(e); return;
+    const e=document.createElement('div'); e.className='np-q-end';
+    e.textContent=this.currentPath?'Nothing after this song.':'Songs line up here when one plays.';
+    q.appendChild(e); return;
   }
-  next.forEach((t,i)=>{
+  next.forEach((t,k)=>{
+    const m=this._meta(t), idx=from+k;
     const d=document.createElement('div');
     d.className='np-q-item'; d.tabIndex=0; d.setAttribute('role','button');
-    d.textContent=this._meta(t).title;      // was unescaped innerHTML
-    const idx=this.queueIdx+1+i;
+    d.setAttribute('aria-label','Play '+m.title+(m.artist?' by '+m.artist:''));
+    const n=document.createElement('span'); n.className='np-q-n'; n.textContent=String(k+1);
+    const tx=document.createElement('span'); tx.className='np-q-text';
+    const ti=document.createElement('span'); ti.className='np-q-t'; ti.textContent=m.title;      // was unescaped innerHTML
+    const ar=document.createElement('span'); ar.className='np-q-a'; ar.textContent=m.artist||m.albumShown;
+    tx.append(ti,ar);
+    const du=document.createElement('span'); du.className='np-q-d'; du.textContent=this._dur[t.path]?fmtSec(this._dur[t.path]):'';
+    d.append(n,tx,du);
     const go=()=>this.play(t.path,idx);
     d.addEventListener('click',go);
     d.addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();go();}});

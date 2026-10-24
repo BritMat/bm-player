@@ -36,6 +36,13 @@
         <button class="m-ib" id="home-sound" type="button" aria-label="Sounds on"></button>
         <button class="m-ib" id="home-theme" type="button" data-icon="palette" aria-label="Theme"></button>
       </header>
+      <!-- v3.44.0: a newer version on GitHub (m-update.js), until Later -->
+      <div class="home-upd hidden" id="home-upd" role="status">
+        <span class="hu-ico" data-icon="download"></span>
+        <span class="hu-text"><span class="hu-title" id="home-upd-title"></span><span class="hu-sub" id="home-upd-sub"></span></span>
+        <button class="st-btn hu-go" type="button" id="home-upd-go">Update</button>
+        <button class="m-ib hu-x" type="button" id="home-upd-x" data-icon="x" aria-label="Later"></button>
+      </div>
       <div class="home-scroll">
         <div class="home-hero">
           <div class="fox-stage" id="fox-stage"><canvas id="fox-canvas"></canvas><div class="fox-fx" id="fox-fx"></div></div>
@@ -203,7 +210,13 @@
       <div class="st-card">
         <div class="st-row st-col"><span class="st-label">BM Player for Android</span><span class="st-note st-sel" id="st-about"></span></div>
         <div class="st-row"><span class="st-text"><span class="st-label">The app's log</span><span class="st-note">What happened, for a problem report.</span></span><button class="st-btn" type="button" id="st-log">Show</button></div>
-        <div class="st-row"><span class="st-text"><span class="st-label">Source code and updates</span><span class="st-note">github.com/BritMat/bm-player</span></span><button class="st-btn" type="button" id="st-github">Open</button></div>
+        <!-- v3.44.0: updates from GitHub (m-update.js, Updater.java) -->
+        <div class="st-rows" id="st-upd-rows">
+          <div class="st-row"><span class="st-text"><span class="st-label">Updates</span><span class="st-note" id="st-upd-note">Not looked yet.</span></span><button class="st-btn" type="button" id="st-upd-btn">Check</button></div>
+          <div class="st-row st-prog hidden" id="st-upd-prog"><div class="upd-prog"><i id="st-upd-bar"></i></div></div>
+          <label class="st-row st-switch"><span class="st-text"><span class="st-label">Look for updates by itself</span><span class="st-note">Once a day, on GitHub. Nothing is downloaded until you choose Update, and Android asks before it installs.</span></span><input type="checkbox" id="st-upd-auto"></label>
+        </div>
+        <div class="st-row"><span class="st-text"><span class="st-label">Source code</span><span class="st-note">github.com/BritMat/bm-player</span></span><button class="st-btn" type="button" id="st-github">Open</button></div>
         <div class="st-row"><span class="st-text"><span class="st-label">Licences</span><span class="st-note">BM Player (MIT), mpv and FFmpeg (GPL 3), butterchurn (MIT), WebGL Fluid (MIT), pdf.js (Apache 2.0), Outfit and Unbounded (SIL OFL 1.1).</span></span><button class="st-btn" type="button" id="st-licences">Show</button></div>
       </div>
       <div class="st-foot"></div>

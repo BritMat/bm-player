@@ -206,4 +206,28 @@ final class Bridge {
     /** The battery's charge in percent, or -1. */
     @JavascriptInterface
     public int batteryLevel() { return a.batteryLevel(); }
+
+    // ── updates from GitHub (v3.44.0, Updater) ───────────────────────
+    /** Where an update stands, JSON: { state, current, latest, version, size, got, total, error, canInstall, metered, ... }. Changes come as 'update' events. */
+    @JavascriptInterface
+    public String updateState() { return Updater.get(a).state(); }
+
+    /** Looks on GitHub. manual: asked for by the person (said in the log). */
+    @JavascriptInterface
+    public void updateCheck(boolean manual) { Updater.get(a).check(manual); }
+
+    @JavascriptInterface
+    public void updateDownload() { Updater.get(a).download(); }
+
+    @JavascriptInterface
+    public void updateCancel() { Updater.get(a).cancel(); }
+
+    @JavascriptInterface
+    public void updateInstall() { Updater.get(a).install(); }
+
+    /** Android's setting that lets BM Player install apps: the install goes on once it is given. */
+    @JavascriptInterface
+    public void updateAllowInstalls() {
+        onUi(new Runnable() { public void run() { a.allowInstalls(); } });
+    }
 }

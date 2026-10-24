@@ -68,7 +68,10 @@ file for any phone or tablet with Android 7.0 or newer, 32-bit or 64-bit
 (ARM, which is nearly every phone). Open it on the phone and allow your
 browser or file manager to install apps when Android asks. Android may also
 say the app is not from the Play Store: choose **Install anyway**. A newer
-APK installs over the old one and keeps your settings.
+APK installs over the old one and keeps your settings. From 3.44.0 the app
+updates itself: it looks here once a day, and when there is a newer APK,
+**Update** on Home or in Settings downloads it, checks it and installs it,
+with Android asking first.
 
 The `latest.yml`, `latest-linux.yml` and `.blockmap` files on a release are
 read by BM Player's built-in updater. You don't need to download them.
@@ -85,8 +88,12 @@ read by BM Player's built-in updater. You don't need to download them.
   selfie camera. Each new file starts straight.
 - Full screen on the whole screen, with F, F11 or a double-click on the
   picture. The controls and the pointer leave while the pointer is still.
-- A music library with tag reading, playlists (including M3U), its own
-  playback speed (0.25x to 3x, the pitch kept) and a visualizer.
+- A music library laid out as a table: columns that sort when you press
+  their heads, the artist under each title and the album beside it, and a
+  head with the folder's covers, how many songs and how long they run, Play
+  and Shuffle, with the visualizer playing behind it. Tag reading, playlists
+  (including M3U), grouping by album, and its own playback speed (0.25x to
+  3x, the pitch kept).
 - Lyrics that follow the song, with the line being sung lit, in Now Playing
   and over the visualizer. They come from a .lrc, .srt or .vtt file beside
   the song, then the song's own tags, then [LRCLIB](https://lrclib.net)
@@ -123,7 +130,10 @@ read by BM Player's built-in updater. You don't need to download them.
   low-spec machines and available as a setting in any build.
 - A battery saver: on battery power the visualiser and the animated
   backgrounds draw at 30 frames a second instead of 72. The home screen's
-  background rests when nothing plays and no one is there.
+  background rests when nothing plays and no one is there. A visualiser
+  style or background that is put away gives its graphics memory back after
+  half a minute or so (about 75 MB, measured, once the visualiser has been
+  used), and builds it again when it is shown.
 - Play on the home screen, the same as on the phone. The fox reacts where
   you touch it: boop its nose and it may sneeze, tap an ear and it flicks,
   stroke its head and it purrs, tickle its chin and it giggles, leave it
@@ -205,6 +215,14 @@ phone, and its own testing happens on real phones. What it does:
   included.
 - The 14 themes, a battery saver, and a log to share if something goes wrong
   (Settings, About).
+- Updates from this page. Once a day (Settings can turn it off) the app
+  asks GitHub for the list of releases, and shows a card on Home when one
+  has a newer APK. Nothing downloads until you choose **Update**. The
+  download is checked against GitHub's SHA-256 and against BM Player's own
+  signing key before Android's installer gets it, and Android asks you
+  before it installs. The first time, Android also asks you to allow BM
+  Player to install apps. The check sends GitHub the app's version and
+  nothing else.
 - "Open with BM Player" for a song, a video, a picture or a PDF in a file
   manager or a chat.
 

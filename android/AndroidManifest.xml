@@ -6,8 +6,14 @@
     package="io.github.britmat.bmplayer"
     android:installLocation="auto">
 
-    <!-- Lyrics from LRCLIB. Nothing else goes online. -->
+    <!-- Lyrics from LRCLIB, and (v3.44.0) the update check on GitHub. Nothing
+         else goes online. -->
     <uses-permission android:name="android.permission.INTERNET" />
+    <!-- v3.44.0, updates: whether the phone is on mobile data before 30 MB
+         go, and installing a downloaded update (Android asks the person, and
+         from Android 8 first asks to allow BM Player to install apps). -->
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
     <!-- Reading the phone's music and videos: one permission up to Android 12, two from 13. -->
     <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32" />
     <uses-permission android:name="android.permission.READ_MEDIA_AUDIO" />
@@ -86,5 +92,15 @@
             android:name=".PlaybackService"
             android:exported="false"
             android:foregroundServiceType="mediaPlayback" />
+
+        <!-- v3.44.0: the package installer's answers about an update, and the
+             app replaced by one. Only Android sends to it. -->
+        <receiver
+            android:name=".UpdateReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+            </intent-filter>
+        </receiver>
     </application>
 </manifest>

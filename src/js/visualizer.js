@@ -200,17 +200,51 @@ export class Visualizer {
     if (mode !== 'neon' && this._neonCanvas) this._neonCanvas.style.display = 'none';
     if (mode === 'off') { this.stop(); return; }
     if (!this.active) this.start();
+    this._restSoon();                                        // what the last style drew with, if it is not drawn again
   }
 
   start () {
     if (this.active || this.mode === 'off') return;
     this.active = true;
+    if (this._shrunk) { this._shrunk = false; this._resize(); }
     this.canvas?.classList.add('active');
     this._loop();
   }
 
+  // Rest (v3.44.0). MilkDrop, Neon's canvas and the visualiser's own canvas
+  // kept their graphics memory until the app closed, once shown: in the
+  // desktop app's GPU process 370 MB after the visualiser was put away
+  // against 270 before it was opened (the fluid rests by itself, fluid.js).
+  // What is not drawn for REST_MS lets it go; MilkDrop comes back on the
+  // preset it was showing, after a moment of bars while it starts again.
+  _restSoon () {
+    clearTimeout(this._restT);
+    this._restT = setTimeout(() => this._rest(), Visualizer.REST_MS);
+  }
+
+  _rest () {
+    this._restT = 0;
+    const shown = this.active && !this._hid;
+    if (this._md && !(shown && this.mode === 'milkdrop')) {
+      const fc = this._mdCanvas;
+      if (this._mdName && !this._mdWant) this._mdWant = this._mdName;
+      this._md = null; this._mdCanvas = null; this._mdLoading = false; this._mdW = this._mdH = 0;   // its context-lost handler sees it is no longer ours
+      try { fc?.getContext('webgl2')?.getExtension('WEBGL_lose_context')?.loseContext(); } catch (_) {}
+      fc?.remove();
+    }
+    if (this._neonR && !(shown && this.mode === 'neon')) {
+      try { this._neonR.destroy(); } catch (_) {}
+      this._neonCanvas?.remove(); this._neonCanvas = null; this._neonR = null;
+    }
+    if (!shown && this.canvas && this.canvas.width > 1) {
+      this.canvas.width = 1; this.canvas.height = 1;          // a 2D canvas is memory too: 6 MB at 1600x977
+      this._shrunk = true;
+    }
+  }
+
   stop () {
     this.active = false;
+    this._restSoon();
     this.canvas?.classList.remove('active');
     cancelAnimationFrame(this._raf);
     this.ctx?.clearRect(0, 0, this.canvas?.width, this.canvas?.height);
@@ -307,7 +341,11 @@ export class Visualizer {
     // another, 72 times a second into a canvas no one could see. Its fluid, if
     // that is its style, waits too.
     const hidden = !this.canvas.offsetWidth;
-    if (hidden !== !!this._hid) { this._hid = hidden; if (hidden) this._fluid?.pause?.(); else this._fluid?.resume?.(); }
+    if (hidden !== !!this._hid) {
+      this._hid = hidden;
+      if (hidden) { this._fluid?.pause?.(); this._restSoon(); }
+      else { this._fluid?.resume?.(); if (this._shrunk) { this._shrunk = false; this._resize(); } }
+    }
     if (hidden) return;
     this._lastDraw = now;
     this._tick++;
@@ -1028,3 +1066,5 @@ export class Visualizer {
 
   // ── PARTICLES ───────────────────────────────────────
 }
+/* How long a style that is not drawn keeps its graphics memory (v3.44.0, _rest()). */
+Visualizer.REST_MS = 45000;

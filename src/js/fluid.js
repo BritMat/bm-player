@@ -800,6 +800,7 @@ export class FluidFX {
   setMarkers(list) { this._marks = (list || []).slice(0, 6); }
 
   _resize(force) {
+    if (this._asleep) return;                   // resting: built when it is drawn again
     const c = this.canvas;
     // Cap the backing store: on a 4K display a 1:1 dye buffer is the single
     // biggest cost here, and the effect is a soft background either way.
@@ -813,7 +814,7 @@ export class FluidFX {
     if (cap && px > cap) dpr *= Math.sqrt(cap / px);
     const w = Math.max(1, Math.floor(c.clientWidth  * dpr));
     const h = Math.max(1, Math.floor(c.clientHeight * dpr));
-    if (!force && c.width === w && c.height === h) return;
+    if (!force && c.width === w && c.height === h && this.dye) return;   // no dye: rested, built again here
     c.width = w; c.height = h;
     this._initFramebuffers();
     // Frames spent rebuilding are not slow frames: a window being dragged to a
@@ -989,7 +990,7 @@ export class FluidFX {
   setPalette(theme) {
     if (PALETTES[theme]) this.theme = theme;
   }
-  pause()  { this.paused = true;  this._stop(); }
+  pause()  { this.paused = true;  this._stop(); this._restSoon(); }
   /* Stop at once, no fade (v3.33.0): the visualiser's fluid, once its canvas
      is hidden. setMode('off') lets the loop fade the picture out, about 74
      frames of full simulation, drawn into a canvas no one could see (seven
@@ -998,6 +999,27 @@ export class FluidFX {
     this.mode = 'off'; this._targetAlpha = 0; this._alpha = 0;
     this._stop();
     try { this._clearScreen(); } catch(_) {}
+    this._restSoon();
+  }
+  /* Rest (v3.44.0): a fluid that is not drawn gives the graphics card its
+     memory back after a while: its buffers and its canvas's own, about 50 MB
+     for HD Flow at 1600x977, 100 MB with the visualiser's other styles, held
+     until the app was closed. Measured in the GPU process of the desktop app:
+     370 MB a minute after the visualiser was put away, 265 before it was
+     opened, and 295 with this and the visualiser's own rest. The
+     next frame builds them again (a fresh picture, as after halt()), in a
+     few milliseconds. A pause keeps them for REST_MS, so coming back soon
+     carries on with the same picture. */
+  _restSoon() {
+    clearTimeout(this._restT);
+    this._restT = setTimeout(() => this.sleep(), FluidFX.REST_MS);
+  }
+  sleep() {
+    clearTimeout(this._restT); this._restT = 0;
+    if (this._raf || this._asleep || !this.gl) return;
+    this._asleep = true;
+    this._disposeFramebuffers();
+    try { this.canvas.width = 1; this.canvas.height = 1; } catch(_) {}
   }
   resume() { this.paused = false; if (this.mode === 'fluid') this._start(); }
 
@@ -1046,6 +1068,8 @@ export class FluidFX {
 
   _start() {
     if (this._raf || this.paused) return;
+    clearTimeout(this._restT); this._restT = 0;
+    this._asleep = false;                       // the loop's _resize() builds the buffers again
     this._lastTime = performance.now();
     this._accum = 0;
     const loop = () => {
@@ -1070,10 +1094,11 @@ export class FluidFX {
       const dt = Math.min(gap / 1000, 1 / 20);
 
       this._alpha += (this._targetAlpha - this._alpha) * 0.06;
-      if (this._targetAlpha === 0 && this._alpha < 0.01) { this._stop(); this._clearScreen(); return; }
+      if (this._targetAlpha === 0 && this._alpha < 0.01) { this._stop(); this._clearScreen(); this._restSoon(); return; }
 
       try {
         this._resize();
+        if (!this.dye) return;
         // The audio visualiser's fluid moves with the music only (v3.29.0).
         if (!this.audioDriven) this._autoSplat(now);
         if (this.onFrame) this.onFrame(dt, now);   // a caller's splats, once per step
@@ -1183,6 +1208,7 @@ export class FluidFX {
 
   destroy() {
     FluidFX.all?.delete(this);
+    clearTimeout(this._restT);
     this._stop();
     this._disposeFramebuffers();
     window.removeEventListener('resize', this._onResize);
@@ -1196,3 +1222,5 @@ export class FluidFX {
 /* Where each kind of quality ladder settled, for this run: 'tier' for the
    theme's fluid, and a caller's own key. Not kept on disk (see _govern). */
 FluidFX._settled = new Map();
+/* How long a fluid that is not drawn keeps its buffers (v3.44.0, sleep()). */
+FluidFX.REST_MS = 30000;

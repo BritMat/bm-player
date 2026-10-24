@@ -54,11 +54,15 @@ class ABRepeat {
     this._emit();
   }
 
-  clear() {
+  /** auto: the app clearing it for a stop or a new file. It said "A-B loop
+   *  cleared" then every time, with no loop ever set (v3.44.0). */
+  clear(auto) {
+    const had = this.aTime != null || this.bTime != null;
     this.aTime = null;
     this.bTime = null;
     this.paused = false;
-    this._show('A-B loop cleared');
+    if (had) this._show('A-B loop cleared');
+    else if (!auto) this._show('No A-B loop to clear');
     this._emit();
   }
 

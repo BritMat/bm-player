@@ -17,6 +17,9 @@
  *                                   key is there when Android keeps the
  *                                   file for the app (reopen(key) later)
  *   mpv         { e, ... }          the video engine's news (m-mpv.js)
+ *   update      { state, ... }      where an update from GitHub stands (m-update.js)
+ *   memory      { level }           Android is short of memory: what is not
+ *                                   on screen gives its memory back (m-main.js)
  * and window.BMNative.back() when Back is pressed: 'handled' when the page
  * closed something, 'background' to put the app behind the others.
  *
@@ -109,6 +112,43 @@ const fakeMpv = {
   close () { clearInterval(this.timer); this.timer = 0; if (window.__bmMpv) window.__bmMpv.closed = true; },
 };
 
+// The updater's stand-in (v3.44.0): GitHub has 9.9.0 when localStorage has
+// mock_update=1, the check fails with mock_update_fail=1, and Android has not
+// yet allowed installing with mock_update_perm=0. Install records the version.
+const fakeUpd = {
+  s: { state: 'idle', current: ls('mock_version') || 'dev', checked: 0, canInstall: true, metered: false },
+  timer: 0,
+  set (o) { this.s = { ...this.s, ...o }; const copy = { ...this.s }; setTimeout(() => emit('update', copy), 0); },
+  check () {
+    window.__bmUpdChecks = (window.__bmUpdChecks || 0) + 1;
+    this.set({ state: 'checking', error: undefined, errorKind: undefined });
+    setTimeout(() => {
+      if (ls('mock_update_fail') === '1') { this.set({ state: 'error', error: 'GitHub could not be reached. Is the phone online?', errorKind: 'network' }); return; }
+      if (ls('mock_update') === '1') this.set({ state: 'available', version: '9.9.0', latest: '9.9.0', size: 30402381, page: 'https://github.com/BritMat/bm-player/releases/tag/v9.9.0', checked: Date.now(), canInstall: ls('mock_update_perm') !== '0' });
+      else this.set({ state: 'none', version: undefined, latest: this.s.current, checked: Date.now() });
+    }, 120);
+  },
+  download () {
+    if (this.s.state !== 'available') return;
+    const total = this.s.size;
+    let got = 0;
+    this.set({ state: 'downloading', got, total, error: undefined });
+    this.timer = setInterval(() => {
+      got = Math.min(total, got + total / 6);
+      if (got >= total) { clearInterval(this.timer); this.set({ state: 'ready', got: undefined, total: undefined }); }
+      else this.set({ got });
+    }, ls('mock_update_slow') === '1' ? 700 : 90);
+  },
+  cancel () { clearInterval(this.timer); window.__bmUpdCancelled = true; this.set({ state: 'available', got: undefined, total: undefined }); },
+  install () {
+    if (this.s.state !== 'ready' && this.s.state !== 'installing') return;
+    if (this.s.canInstall === false) { this.set({ error: 'Android needs your OK first: allow BM Player to install apps, then come back.', errorKind: 'permission' }); return; }
+    window.__bmInstalled = this.s.version;
+    this.set({ state: 'installing', error: undefined });
+  },
+  allow () { window.__bmAllowAsked = true; ls('mock_update_perm', '1'); this.set({ canInstall: true, error: undefined }); },
+};
+
 // The stand-in, for a desktop browser.
 const MOCK = {
   mpvState: () => JSON.stringify(ls('mock_mpv') === '1' ? { available: true, off: false, release: 'test' } : { available: false, reason: 'This is a desktop browser.' }),
@@ -118,7 +158,13 @@ const MOCK = {
   mpvClose () { fakeMpv.close(); },
   mpvSubAdd (name, text) { fakeMpv.subAdd(name, text); },
   openWith (src) { window.__bmOpenWith = src; },
-  info: () => JSON.stringify({ version: 'dev', versionCode: 0, sdk: 34, release: '14', device: 'Desktop browser (test)', abis: [], webview: navigator.userAgent }),
+  info: () => JSON.stringify({ version: ls('mock_version') || 'dev', versionCode: 0, sdk: 34, release: '14', device: 'Desktop browser (test)', abis: [], webview: navigator.userAgent }),
+  updateState: () => JSON.stringify(fakeUpd.s),
+  updateCheck (manual) { fakeUpd.check(manual); },
+  updateDownload () { fakeUpd.download(); },
+  updateCancel () { fakeUpd.cancel(); },
+  updateInstall () { fakeUpd.install(); },
+  updateAllowInstalls () { fakeUpd.allow(); },
   ready () {},
   permission: k => { try { return localStorage.getItem('mock_perm_' + k) || 'granted'; } catch (e) { return 'granted'; } },
   requestPermission (k) { try { localStorage.setItem('mock_perm_' + k, 'granted'); } catch (e) {} setTimeout(() => emit('permission', { audio: MOCK.permission('audio'), video: MOCK.permission('video'), image: MOCK.permission('image') }), 200); },

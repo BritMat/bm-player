@@ -1,0 +1,16 @@
+[
+  {"url":"https://api.github.com/repos/BritMat/bm-player/releases/9","html_url":"https://github.com/BritMat/bm-player/releases/tag/v3.46.0","tag_name":"v3.46.0","name":"BM Player v3.46.0","draft":false,"prerelease":true,"published_at":"2026-11-02T10:00:00Z",
+   "assets":[{"name":"BM-Player-Setup-3.46.0-x64.exe","state":"uploaded","size":90000000,"browser_download_url":"https://github.com/BritMat/bm-player/releases/download/v3.46.0/BM-Player-Setup-3.46.0-x64.exe","digest":"sha256:aaaa"}]},
+  {"html_url":"https://github.com/BritMat/bm-player/releases/tag/v3.47.0","tag_name":"v3.47.0","draft":true,"prerelease":true,
+   "assets":[{"name":"BM-Player-3.47.0-android.apk","state":"uploaded","size":30000000,"browser_download_url":"https://github.com/BritMat/bm-player/releases/download/v3.47.0/BM-Player-3.47.0-android.apk"}]},
+  {"html_url":"https://github.com/BritMat/bm-player/releases/tag/v3.45.1","tag_name":"v3.45.1","draft":false,"prerelease":true,"published_at":"2026-10-30T10:00:00Z",
+   "assets":[{"name":"BM-Player-3.45.1-android.apk","state":"starter","size":30000000,"browser_download_url":"https://github.com/BritMat/bm-player/releases/download/v3.45.1/BM-Player-3.45.1-android.apk"}]},
+  {"html_url":"https://github.com/BritMat/bm-player/releases/tag/v3.44.0","tag_name":"v3.44.0","draft":false,"prerelease":true,"published_at":"2026-10-20T10:00:00Z",
+   "assets":[{"name":"BM-Player-3.44.0-android.apk","state":"uploaded","size":30402381,"browser_download_url":"https://github.com/BritMat/bm-player/releases/download/v3.44.0/BM-Player-3.44.0-android.apk","digest":"sha256:9C77BFF66B641C1F73C51A7534BE6AFAAD007DBA61F559390FB0F3DE3906372C"}]},
+  {"html_url":"https://github.com/BritMat/bm-player/releases/tag/v3.45.0","tag_name":"v3.45.0","draft":false,"prerelease":false,"published_at":"2026-10-25T10:00:00Z",
+   "assets":[{"name":"BM-Player-3.45.0-android.apk","state":"uploaded","size":30500000,"browser_download_url":"https://github.com/BritMat/bm-player/releases/download/v3.45.0/BM-Player-3.45.0-android.apk","digest":"sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"},
+             {"name":"BM-Player-9.9.9-android.apk","state":"uploaded","size":1,"browser_download_url":"https://evil.example/BM-Player-9.9.9-android.apk"},
+             {"name":"BM-Player-3.45.0-android.apk.sig","state":"uploaded","size":10,"browser_download_url":"https://github.com/x"}]},
+  {"html_url":"https://github.com/BritMat/bm-player/releases/tag/v3.43.2","tag_name":"v3.43.2","draft":false,"prerelease":true,"published_at":"2026-10-15T19:03:00Z",
+   "assets":[{"name":"BM-Player-3.43.2-android.apk","state":"uploaded","size":30393410,"browser_download_url":"https://github.com/BritMat/bm-player/releases/download/v3.43.2/BM-Player-3.43.2-android.apk"}]}
+]
