@@ -80,6 +80,23 @@ read by BM Player's built-in updater. You don't need to download them.
 
 - Plays video with mpv: subtitles, audio tracks, chapters, A-B loop,
   screenshots, playback speed, an equalizer, and resume where you left off.
+- A picture of the film above the seek bar where the pointer is, and a drag
+  on the seek bar moves the film as it goes.
+- The picture's brightness, contrast, saturation, gamma and hue, zoom
+  (Alt and + or -), moving a zoomed picture (Alt and the arrows), and
+  filling the screen with the edges cut, in Video, Picture. The colours stay
+  from film to film.
+- Sound: night mode (quiet voices up, loud bangs down), mono or one ear
+  only or the two swapped, and a boost to 150% or 200%, beside the
+  equalizer. They work for films and for music alike.
+- A second subtitle at the top of the picture, in Subtitle: two languages
+  at once.
+- A sleep timer (Playback, Sleep Timer): playing stops after 15 minutes to
+  2 hours, or at the end of the film or song, with the sound fading out
+  first.
+- If mpv stops by itself, it is started again and the film carries on from
+  where it was. A song that will not play (a broken or missing file) is
+  passed over to the next one.
 - Subtitles in any font on your computer, in the colour you choose, with a
   thin outline, a soft shadow, a see-through box or nothing round the
   letters.
@@ -101,6 +118,15 @@ read by BM Player's built-in updater. You don't need to download them.
   kept so a song is looked up once, and looking online can be switched off.
   Where none are found you can search and choose, load a file (or drop one
   on the lyrics), and move the timing earlier or later.
+- Lyrics in English letters as they sound: a Hindi, Malayalam, Tamil,
+  Telugu, Kannada, Bengali, Punjabi, Gujarati, Odia, Korean, Russian,
+  Ukrainian or Greek song's words written out for reading along, under the
+  original lines or instead of them (Original, English letters, Both, above
+  the lyrics).
+- Subtitles from the web: Subtitle, Search Online opens opensubtitles.com
+  with the film's name filled in, and the file you download loads with
+  Load a subtitle file. OpenSubtitles closed the free search the app used
+  in 2026.
 - Optionally, lyrics from the captions of a YouTube video of the same song
   and length, through [yt-dlp](https://github.com/yt-dlp/yt-dlp), which is
   downloaded from its own releases the first time you turn this on (about
@@ -134,6 +160,12 @@ read by BM Player's built-in updater. You don't need to download them.
   style or background that is put away gives its graphics memory back after
   half a minute or so (about 75 MB, measured, once the visualiser has been
   used), and builds it again when it is shown.
+- The music's sound engine starts with the first song, not with the app, and
+  rests ten seconds after the music pauses or stops. An app opened for a
+  film no longer runs one (Chromium's sound process, 69 MB measured on
+  Linux, waits until a song plays). While it plays a stream, mpv keeps at
+  most 64 MB ahead and 32 MB behind in memory (its own defaults are 150 and
+  50).
 - Play on the home screen, the same as on the phone. The fox reacts where
   you touch it: boop its nose and it may sneeze, tap an ear and it flicks,
   stroke its head and it purrs, tickle its chin and it giggles, leave it
@@ -184,7 +216,7 @@ phone, and its own testing happens on real phones. What it does:
 - Lyrics as on the desktop: a .lrc file beside the song (where Android lets
   the app read it), the words in the song's own tags (MP3, FLAC, Ogg, Opus
   and M4A), then LRCLIB, with search, loading a file, and the timing to
-  move.
+  move. And in English letters, as on the desktop.
 - Up Next, shuffle and repeat, Play next and Add to queue, a ten-band
   equaliser, the speed with the pitch kept, and the queue kept for next time
   (Settings can turn that off). The X on the music bar, or Close in the
@@ -210,6 +242,17 @@ phone, and its own testing happens on real phones. What it does:
 - Photos: every picture on the phone, or by album, in a viewer with pinch
   and double tap zoom, swipes to the next one, turning, sharing and a
   slideshow.
+- Delete and share. Press and hold a picture, a video or a song to choose
+  several (taps add more or take them away, Select all takes the whole
+  list), then share them to another app at once or delete them from the
+  phone. Press and hold an album or a folder to delete it whole, or use the
+  bin in the picture viewer, or a song's or a video's menu. From Android 11,
+  Android itself asks before anything is deleted, and no permission is
+  needed. On Android 10 and older, BM Player asks first. A folder left
+  empty stays on the phone from Android 11 on (Android does not let an app
+  remove a folder it did not make), but no longer shows in BM Player. What
+  is deleted also leaves the favourites, Resume and the queue, and a song
+  that was playing gives way to the next.
 - A PDF reader (pdf.js): pages that scroll, zoom, find, contents, a dark page
   for night, and each document opens where you left it, password ones
   included.

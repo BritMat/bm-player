@@ -41,9 +41,11 @@ const FIXTURE_FILES = [
 
 /* Callbacks the renderer registers with the preload bridge. The old stub
    discarded them, so PiP state and mpv property handling never ran at all. */
-const bridge = { pip: [], prop: [], pipCalls: [], state: [] };
+const bridge = { pip: [], prop: [], ev: [], status: [], opened: [], pipCalls: [], state: [] };
 const firePip  = on => bridge.pip.forEach(cb => cb(on));
 const fireProp = (name, data) => bridge.prop.forEach(cb => cb({ name, data }));
+const fireEvent = ev => bridge.ev.forEach(cb => cb(ev));   // mpv's events: end-file and the like (v3.46.0)
+const fireStatus = state => bridge.status.forEach(cb => cb({ state }));   // mpv started, stopped, started again
 
 /* ── stub the Electron preload bridge ───────────────────────────── */
 const ipcCalls = [];
@@ -54,8 +56,8 @@ function makeApi() {
   return {
     // Only methods the real preload exposes. This used to offer getProp,
     // setProp and tracks, which don't exist, so a test could pass against them.
-    mpv: { ...group('cmd', 'open'),
-           onProp: cb => { bridge.prop.push(cb); }, onEvent: noop, onStatus: noop, onOpened: noop,
+    mpv: { ...group('cmd', 'open'), thumbAt: async () => null,
+           onProp: cb => { bridge.prop.push(cb); }, onEvent: cb => { bridge.ev.push(cb); }, onStatus: cb => { bridge.status.push(cb); }, onOpened: cb => { bridge.opened.push(cb); },
            onMediaProps: noop, onTrackList: noop },
     win: { ...group('minimize', 'maximize', 'close', 'fullscreen', 'theatre', 'alwaysOnTop'),
            isFs: async () => false,
@@ -158,14 +160,20 @@ function installAudioStubs(win) {
     getByteFrequencyData(a) { a.fill(0); }
     getByteTimeDomainData(a) { a.fill(128); }
   }
+  const made = { n: 0 };
   win.AudioContext = class {
-    constructor() { this.state = 'running'; this.currentTime = 0; this.destination = new Node('destination'); }
+    constructor() { made.n++; this.state = 'running'; this.currentTime = 0; this.destination = new Node('destination'); }
     createMediaElementSource() { return new Node('source'); }
     createBiquadFilter() { const n = new Node('biquad'); n.type = ''; n.frequency = new Param(0); n.Q = new Param(1); n.gain = new Param(0); return n; }
     createGain() { const n = new Node('gain'); n.gain = new Param(1); return n; }
     createAnalyser() { return new Analyser(); }
+    // the sound effects' nodes (v3.46.0)
+    createChannelSplitter() { return new Node('splitter'); }
+    createChannelMerger() { return new Node('merger'); }
+    createDynamicsCompressor() { const n = new Node('compressor'); for (const k of ['threshold', 'knee', 'ratio', 'attack', 'release']) n[k] = new Param(0); return n; }
     resume() { this.state = 'running'; return Promise.resolve(); }
-    close() { return Promise.resolve(); }
+    suspend() { this.state = 'suspended'; return Promise.resolve(); }
+    close() { this.state = 'closed'; return Promise.resolve(); }
   };
   // jsdom's HTMLAudioElement can't decode anything; make it announce support
   // for the formats Chromium handles so canPlay() exercises the real branch.
@@ -183,6 +191,7 @@ function installAudioStubs(win) {
   win.HTMLMediaElement.prototype.play = function () { this.__paused = false; this.dispatchEvent(new win.Event('play')); return Promise.resolve(); };
   win.HTMLMediaElement.prototype.pause = function () { this.__paused = true; this.dispatchEvent(new win.Event('pause')); };
   win.__audioConnections = connections;
+  win.__audioContexts = made;
 }
 
 async function main() {
@@ -458,13 +467,28 @@ async function main() {
 
   /* ── 9. Audio engine ─────────────────────────────────────────── */
   const { AudioEngine } = await import(pathToFileURL(path.join(ROOT, 'src/js/audio-engine.js')).href);
-  await step('AudioEngine builds its graph', () => {
+  // v3.45.0: no AudioContext until a song loads. One made at start-up ran
+  // all day, a sound process and its thread, in an app opened for a film.
+  await step('AudioEngine builds its graph with the first song, not before, and keeps what was set', async () => {
+    const made = window.__audioContexts.n;
     const eng = new AudioEngine();
     if (!eng.available) throw new Error('engine reported unavailable');
+    if (eng.ctx || window.__audioContexts.n !== made) throw new Error('an AudioContext was made before any song');
+    if (eng.getAnalyser() !== null) throw new Error('asking for the analyser before a song made the graph (the fox asks five times a second)');
+    eng.setVolume(50); eng.setEQBand(2, 6); eng.setSpeed(1.25);
+    const n0 = window.__audioConnections.length;
+    await eng.load('file:///a/x.mp3', '/a/x.mp3', false);
+    if (!eng.ctx || window.__audioContexts.n !== made + 1) throw new Error('loading a song did not build the graph');
+    if (!eng.analyser || eng.getAnalyser() !== eng.analyser) throw new Error('no analyser once a song loaded');
+    if (eng.filters[2].gain.value !== 6) throw new Error('an EQ band set before the graph was lost: ' + eng.filters[2].gain.value);
+    if (Math.abs(eng.gain.gain.value - 0.5) > 1e-6) throw new Error('a volume set before the graph was lost: ' + eng.gain.gain.value);
+    if (eng.el.playbackRate !== 1.25) throw new Error('the speed set before the graph was lost');
+    await eng.load('file:///a/y.mp3', '/a/y.mp3', false);
+    if (window.__audioContexts.n !== made + 1) throw new Error('a second song made a second AudioContext');
     if (eng.filters.length !== 10) throw new Error('expected 10 EQ bands, got ' + eng.filters.length);
     // source -> 10 filters -> gain -> destination, and the analyser listening
     // BEFORE the gain (v3.36.0): the visualiser must not depend on the volume.
-    const chain = window.__audioConnections.map(c => c.join('>'));
+    const chain = window.__audioConnections.slice(n0).map(c => c.join('>'));
     if (!chain.includes('gain>destination')) throw new Error('the gain is not reaching the output: ' + chain.join(', '));
     if (!chain.includes('biquad>analyser')) throw new Error('the analyser is not fed from before the volume: ' + chain.join(', '));
     if (chain.includes('gain>analyser')) throw new Error('the analyser listens after the volume again');
@@ -487,6 +511,33 @@ async function main() {
     eng.destroy();
   });
 
+  // v3.45.0: paused or stopped for a while, the context is suspended (its
+  // thread stops, the sound device is let go); playing wakes it first.
+  await step('the audio rests when nothing plays and wakes to play, however playing starts', async () => {
+    const was = AudioEngine.REST_MS; AudioEngine.REST_MS = 20;
+    try {
+      const eng = new AudioEngine();
+      await eng.load('file:///a/x.mp3', '/a/x.mp3', true);
+      await tick(60);
+      if (eng.ctx.state !== 'running') throw new Error('it rested while the song played');
+      eng.pause(); await tick(60);
+      if (eng.ctx.state !== 'suspended') throw new Error('paused, the context went on running');
+      await eng.play();
+      if (eng.ctx.state !== 'running') throw new Error('play() did not wake it');
+      await tick(60);
+      if (eng.ctx.state !== 'running') throw new Error('it rested after play() although the song plays');
+      eng.stop(); await tick(60);
+      if (eng.ctx.state !== 'suspended') throw new Error('stopped, the context went on running');
+      eng.el.play();               // the element started directly (media keys, a test)
+      if (eng.ctx.state !== 'running') throw new Error('the element playing did not wake a resting context, so the song would stand still');
+      eng.setEQBand(0, 5);
+      eng.el.pause(); await tick(60);
+      eng.setEQBand(1, -4);
+      if (eng.filters[1].gain.value !== -4) throw new Error('an EQ band changed at rest did not land');
+      eng.destroy();
+    } finally { AudioEngine.REST_MS = was; }
+  });
+
   await step('codec gating routes undecodable formats to mpv', () => {
     const eng = new AudioEngine();
     for (const ok of ['/a/x.mp3', '/a/x.flac', '/a/x.m4a', '/a/x.wav', '/a/x.opus']) {
@@ -499,8 +550,9 @@ async function main() {
     eng.destroy();
   });
 
-  await step('EQ gains clamp and land on the filters', () => {
+  await step('EQ gains clamp and land on the filters', async () => {
     const eng = new AudioEngine();
+    await eng.load('file:///a/x.mp3', '/a/x.mp3', false);
     eng.setEQBand(0, 40);       // over the limit
     eng.setEQBand(1, -40);
     if (eng.filters[0].gain.value !== 12)  throw new Error('high gain not clamped: ' + eng.filters[0].gain.value);
@@ -514,8 +566,9 @@ async function main() {
 
   // Since v3.36.0 all of the volume is the gain node's, and the audio element
   // stays at full: the element's own volume is applied before the analyser.
-  await step('the whole volume range is the gain node\'s, and the element stays at full', () => {
+  await step('the whole volume range is the gain node\'s, and the element stays at full', async () => {
     const eng = new AudioEngine();
+    await eng.load('file:///a/x.mp3', '/a/x.mp3', false);
     eng.setVolume(80);
     if (eng.el.volume !== 1 || Math.abs(eng.gain.gain.value - 0.8) > 1e-9) throw new Error('80% wrong: element ' + eng.el.volume + ', gain ' + eng.gain.gain.value);
     eng.setVolume(130);
@@ -580,6 +633,26 @@ async function main() {
     if (!app.viz) throw new Error('the Video tab did not create its visualiser');
     if (app.viz.analyser !== m.engine.analyser) throw new Error("the visualiser does not have the engine's analyser, so it would draw synthetic bars");
     app.switchDest('music');
+  });
+
+  // v3.46.0: mpv tells its empty title and length when it connects; a song
+  // started just before that showed "Nothing playing" and 0:00 of 0:00.
+  await step('mpv\'s empty title and length do not overwrite a song the engine plays', async () => {
+    const m = window.bmMusic, doc = window.document;
+    m.play('/fixtures/music/01 - track.mp3', 0); await tick(20);
+    m.engine._emit('play');
+    m.engine._emit('loaded', { duration: 200 });
+    const title = doc.getElementById('np-title').textContent, tot = doc.getElementById('np-time-tot');
+    if (!title || /Nothing playing/.test(title)) throw new Error('the song has no title to begin with: ' + title);
+    const totBefore = tot?.textContent;
+    if (tot && totBefore !== '3:20') throw new Error('the song\'s length reads ' + totBefore);
+    // and paused in the engine, while idle mpv says it is not paused (v3.46.0)
+    m.engine._emit('pause');
+    const btn = doc.getElementById('np-btn-play'), before = btn?.innerHTML;
+    fireProp('media-title', null); fireProp('duration', 0); fireProp('time-pos', 0); fireProp('pause', false); await tick(5);
+    if (doc.getElementById('np-title').textContent !== title) throw new Error('mpv\'s empty title replaced the song\'s: ' + doc.getElementById('np-title').textContent);
+    if (tot && tot.textContent !== totBefore) throw new Error('mpv\'s length replaced the song\'s: ' + tot.textContent);
+    if (btn && btn.innerHTML !== before) throw new Error('mpv\'s pause turned the play button for a song the engine has paused');
   });
 
   await step('music playback leaves the sidebar and menus in place', async () => {
@@ -962,6 +1035,351 @@ async function main() {
     m.advance = realAdv;
   }
 
+  /* ── 15b. Songs that will not play (v3.46.0) ─────────────────── */
+  // A broken song stopped the music, and the message named whatever was
+  // opened last, often an old film. Now the next song plays.
+  {
+    const app = window.bmApp, m = window.bmMusic, doc = window.document;
+    const songs = ['/m/one.ape', '/m/two broken.mp3', '/m/three.ape'].map(p => ({ path: p, name: p.slice(3) }));
+    const osd = () => doc.getElementById('osd')?.textContent || '';
+    const realPlay = m.play.bind(m), realStop = app.stop.bind(app);
+    const kept = { queue: m.queue, queueIdx: m.queueIdx, currentPath: m.currentPath, repeat: m.repeat };
+    let played = [], stopped = 0;
+    const setup = (at, repeat = 'off') => {
+      m.queue = songs.slice(); m.queueIdx = at; m.currentPath = songs[at].path; m.repeat = repeat;
+      m._mpvSong = songs[at].path; m._fails = 0; m.engine.active = false;
+      played = []; stopped = 0; app._lastOpened = '/films/Old Film.mkv';
+      m.play = (fp, i) => { played.push(fp); m.currentPath = fp; m.queueIdx = i; m._mpvSong = fp; };
+      app.stop = () => { stopped++; m.currentPath = null; };
+    };
+    const broken = () => fireEvent({ event: 'end-file', reason: 'error', file_error: 'loading failed' });
+
+    await step('a song that will not play is skipped, and the next one plays', () => {
+      setup(0); broken();
+      if (stopped) throw new Error('the music stopped');
+      if (played[0] !== songs[1].path) throw new Error('played ' + JSON.stringify(played));
+      if (!/Couldn't play .*one.*next song/i.test(osd())) throw new Error('the message reads: ' + osd());
+      if (/Old Film/.test(osd())) throw new Error('the message names the film opened before');
+    });
+
+    await step('songs that all fail stop the music instead of going round', () => {
+      setup(0, 'all'); broken(); broken(); broken();
+      if (played.length !== 2) throw new Error(played.length + ' songs tried for three in the queue');
+      if (stopped !== 1) throw new Error('stopped ' + stopped + ' times');
+      if (/next song/.test(osd())) throw new Error('the last message still promises a next song: ' + osd());
+    });
+
+    await step('a song that opens resets the count of failures', () => {
+      setup(0, 'all'); broken();
+      fireProp('duration', 180);            // two broken.mp3 opened in mpv
+      broken(); broken();
+      if (stopped) throw new Error('stopped after a song had played in between');
+    });
+
+    await step('the last song failing stops, with no next song promised', () => {
+      setup(2); broken();
+      if (played.length || stopped !== 1) throw new Error(`played ${played.length}, stopped ${stopped}`);
+      if (!/^Couldn't play [^,]*three/i.test(osd())) throw new Error('the message reads: ' + osd());
+    });
+
+    await step('a song the engine cannot read goes to mpv, with no message', () => {
+      setup(1); m._mpvSong = null; m.play = realPlay;
+      const opens = []; const realOpen = app.api.mpv.open; app.api.mpv.open = f => { opens.push(f); return Promise.resolve(null); };
+      doc.getElementById('osd').textContent = '';
+      m.engine.active = true;
+      m.engine._emit('fallback', { path: songs[1].path });
+      app.api.mpv.open = realOpen;
+      if (JSON.stringify(opens) !== JSON.stringify([[songs[1].path]])) throw new Error('mpv was given ' + JSON.stringify(opens));
+      if (m._mpvSong !== songs[1].path) throw new Error('the song was not marked as mpv\'s');
+      if (osd()) throw new Error('a message about it: ' + osd());
+      if (m.engine.active) throw new Error('the engine still thinks it owns the song');
+    });
+
+    // main.js says so for every file mpv is given, the music's own songs too.
+    // Taken for a film, the song lost its speed and was no longer known as
+    // the music's, so a broken one stopped everything (found by e2e part D).
+    await step('a song the music gives mpv is not taken for a film when mpv says it opened', () => {
+      setup(0); m._filmSpeed = 1.25;
+      bridge.opened.forEach(cb => cb([songs[0].path]));
+      if (m._mpvSong !== songs[0].path) throw new Error('the song was forgotten');
+      if (m._filmSpeed !== 1.25) throw new Error('the film\'s speed was put back over the song\'s');
+      bridge.opened.forEach(cb => cb(['/films/Dropped On.mkv']));
+      if (m._mpvSong !== null) throw new Error('a film opened from outside was taken for the song');
+      if (m._filmSpeed !== null) throw new Error('the film did not get its speed back');
+    });
+
+    await step('a film that will not play still stops, and is named', () => {
+      setup(0); m._mpvSong = null; broken();
+      if (stopped !== 1 || played.length) throw new Error(`played ${played.length}, stopped ${stopped}`);
+      if (!/Couldn't play Old Film\.mkv/.test(osd())) throw new Error('the message reads: ' + osd());
+    });
+
+    m.play = realPlay; app.stop = realStop; m._mpvSong = null; m._fails = 0; m.engine.active = false;
+    Object.assign(m, kept);
+  }
+
+  /* ── 15c. mpv stops by itself (v3.46.0) ──────────────────────── */
+  // main.js starts mpv again. The film or song carries on from its place,
+  // where before it was left to you to find the file and the place again.
+  {
+    const app = window.bmApp, m = window.bmMusic, doc = window.document;
+    const osd = () => doc.getElementById('osd')?.textContent || '';
+    const tb = () => doc.getElementById('tb-status')?.textContent || '';
+    const realStop = app.stop.bind(app), realDash = app.currentDash;
+    const kept = { currentPath: m.currentPath, queue: m.queue, queueIdx: m.queueIdx };
+    let stopped = 0;
+    const film = '/films/A Film (2019).mkv';
+    const setup = () => {
+      app._afterCrash = null; app._crashedOn = null; app._crashSeek = null; app.currentDash = 'video';
+      app._currentFilePath = film; app.currentTime = 754; app._lastPause = false;
+      m._mpvSong = null; m.currentPath = null; m.engine.active = false;
+      app.stop = () => { stopped++; app._currentFilePath = null; m.currentPath = null; }; stopped = 0;
+      ipcCalls.length = 0;
+    };
+    const opened = () => ipcCalls.filter(a => Array.isArray(a[0])).map(a => a[0][0]);
+    const seeks = () => ipcCalls.filter(a => a[0] === 'seek');
+
+    await step('a film carries on from its place once mpv is started again', async () => {
+      setup();
+      fireStatus('crashed');
+      if (!/starting it again/.test(tb())) throw new Error('the title bar reads: ' + tb());
+      app.currentTime = 0;                  // the new mpv starts at nothing
+      fireStatus('ready'); fireProp('duration', 5400); await tick(5);
+      if (JSON.stringify(opened()) !== JSON.stringify([film])) throw new Error('opened ' + JSON.stringify(opened()));
+      if (JSON.stringify(seeks()) !== JSON.stringify([['seek', 754, 'absolute']])) throw new Error('seeks ' + JSON.stringify(seeks()));
+      if (!/Carrying on from 12:34/.test(osd())) throw new Error('the message reads: ' + osd());
+      if (tb()) throw new Error('the title bar still reads: ' + tb());
+    });
+
+    await step('a paused film carries on paused', async () => {
+      setup(); app._lastPause = true; app._crashedOn = { path: '/other.mkv', at: Date.now() };
+      fireStatus('crashed'); fireStatus('ready'); fireProp('duration', 5400); await tick(5);
+      if (!ipcCalls.some(a => a[0] === 'cycle' && a[1] === 'pause')) throw new Error('not paused again');
+    });
+
+    await step('a film that brings mpv down again at once is stopped, and named', async () => {
+      setup();
+      fireStatus('crashed'); fireStatus('ready'); fireProp('duration', 5400);
+      fireStatus('crashed');
+      if (stopped !== 1) throw new Error('stopped ' + stopped + ' times');
+      if (!/stopped twice on A Film \(2019\)\.mkv/.test(osd())) throw new Error('the message reads: ' + osd());
+      ipcCalls.length = 0; fireStatus('ready');
+      if (opened().length) throw new Error('it was opened again: ' + JSON.stringify(opened()));
+    });
+
+    await step('nothing carries on when something else was opened meanwhile', async () => {
+      setup();
+      fireStatus('crashed');
+      app._currentFilePath = '/films/Another.mkv';
+      fireStatus('ready'); fireProp('duration', 100);
+      if (opened().length || seeks().length) throw new Error('the old film came back: ' + JSON.stringify(ipcCalls));
+    });
+
+    await step('a song mpv plays carries on, and one that brings it down again gives way to the next', async () => {
+      setup(); app._currentFilePath = null; app.currentDash = 'music';
+      const q = ['/m/a.ape', '/m/b.ape'].map(p => ({ path: p, name: p.slice(3) }));
+      m.queue = q; m.queueIdx = 0; m.currentPath = q[0].path; m._mpvSong = q[0].path;
+      app.currentTime = 61;
+      fireStatus('crashed'); fireStatus('ready'); fireProp('duration', 200);
+      if (JSON.stringify(opened()) !== JSON.stringify([q[0].path])) throw new Error('opened ' + JSON.stringify(opened()));
+      if (m._mpvSong !== q[0].path) throw new Error('not marked as the song mpv plays');
+      const realPlay = m.play.bind(m); let played = null; m.play = fp => { played = fp; };
+      try { fireStatus('crashed'); fireStatus('ready'); } finally { m.play = realPlay; }
+      if (played !== q[1].path) throw new Error('the next song was not played: ' + played);
+    });
+
+    app.stop = realStop; app.currentDash = realDash; app._afterCrash = null; app._crashedOn = null; app._crashSeek = null;
+    app._currentFilePath = null; m._mpvSong = null; Object.assign(m, kept);
+  }
+
+
+  /* ── 15d. What VLC and KMPlayer have (v3.46.0) ────────────────── */
+  {
+    const app = window.bmApp, m = window.bmMusic, doc = window.document;
+    const sets = name => ipcCalls.filter(a => a[0] === 'set_property' && a[1] === name).map(a => a[2]);
+    const last = name => sets(name).at(-1);
+    const osd = () => doc.getElementById('osd')?.textContent || '';
+    const input = (sel, v) => { const s = doc.querySelector(sel); s.value = String(v); s.dispatchEvent(new window.Event('input', { bubbles: true })); };
+    const key = (code, mods = {}) => doc.body.dispatchEvent(new window.KeyboardEvent('keydown', { code, key: code, bubbles: true, cancelable: true, ...mods }));
+
+    await step('picture: the colour sliders reach mpv, are kept, and a double-click puts one back', async () => {
+      ipcCalls.length = 0;
+      input('#panel-picture [data-pic="brightness"]', 20); input('#panel-picture [data-pic="saturation"]', -35);
+      if (last('brightness') !== 20 || last('saturation') !== -35) throw new Error('mpv was told ' + JSON.stringify(ipcCalls));
+      const kept = JSON.parse(window.localStorage.getItem('bm_picture') || '{}');
+      if (kept.brightness !== 20 || kept.saturation !== -35) throw new Error('not kept: ' + JSON.stringify(kept));
+      if (doc.querySelector('[data-pic-val="brightness"]').textContent !== '+20') throw new Error('the value shown: ' + doc.querySelector('[data-pic-val="brightness"]').textContent);
+      doc.querySelector('#panel-picture [data-pic="saturation"]').dispatchEvent(new window.MouseEvent('dblclick', { bubbles: true }));
+      if (last('saturation') !== 0) throw new Error('a double-click did not put it back');
+    });
+
+    await step('picture: zoom by the slider and the keys, the zoomed picture moved, and a new film at its own size', async () => {
+      ipcCalls.length = 0;
+      input('#panel-picture [data-pic="zoom"]', 200);
+      if (last('video-zoom') !== 1) throw new Error('200% zoom sent as ' + last('video-zoom'));
+      if (doc.querySelector('[data-pic="pan-x"]').disabled) throw new Error('the picture cannot be moved while zoomed');
+      key('ArrowLeft', { altKey: true });
+      if (!(last('video-pan-x') > 0)) throw new Error('Alt+Left did not move the picture: ' + last('video-pan-x'));
+      key('Equal', { altKey: true });
+      if (Math.abs(last('video-zoom') - Math.log2(2.1)) > 1e-3) throw new Error('Alt+= gave ' + last('video-zoom'));
+      if (!/Zoom: 210%/.test(osd())) throw new Error('the message reads: ' + osd());
+      key('Backspace', { altKey: true });
+      if (last('video-zoom') !== 0 || last('video-pan-x') !== 0) throw new Error('Alt+Backspace left zoom ' + last('video-zoom') + ', pan ' + last('video-pan-x'));
+      if (!doc.querySelector('[data-pic="pan-x"]').disabled) throw new Error('moving is offered at normal size');
+      input('#panel-picture [data-pic="zoom"]', 150); ipcCalls.length = 0;
+      app.playMedia(['/films/Next One.mkv']);
+      if (last('video-zoom') !== 0) throw new Error('the next film kept the zoom');
+      if (sets('brightness').length) throw new Error('the next film lost or resent the colours');
+      app.stop();
+    });
+
+    await step('picture: filling the screen, and mpv started again is told everything', async () => {
+      ipcCalls.length = 0;
+      doc.querySelector('#panel-picture [data-pic-fill="on"]').click();
+      if (last('panscan') !== 1) throw new Error('panscan ' + last('panscan'));
+      ipcCalls.length = 0; fireStatus('ready');
+      if (last('brightness') !== 20 || last('panscan') !== 1 || last('video-zoom') !== 0) throw new Error('after mpv started again: ' + JSON.stringify(ipcCalls.filter(a => a[0] === 'set_property').slice(0, 12)));
+      doc.querySelector('#panel-picture [data-pic="reset"]').click();
+      if (last('brightness') !== 0 || last('panscan') !== 0) throw new Error('reset left ' + last('brightness') + ', ' + last('panscan'));
+    });
+
+    // Every .eq-preset-btn was taken for an equalizer preset: the Fluid
+    // panel's quality buttons set the equalizer back to flat (v3.46.0).
+    await step('buttons that only look like the equalizer\'s presets leave the equalizer alone', async () => {
+      doc.querySelector('#eq-presets .eq-preset-btn[data-p="rock"]').click();
+      const before = JSON.stringify(app.eqValues);
+      if (before === JSON.stringify(app.eqValues.map(() => 0))) throw new Error('the Rock preset set nothing');
+      for (const sel of ['#fluid-presets .eq-preset-btn[data-tier="medium"]', '#snd-section [data-snd-night="off"]', '#panel-picture [data-pic-fill="off"]']) {
+        doc.querySelector(sel)?.click();
+        if (JSON.stringify(app.eqValues) !== before) throw new Error(sel + ' changed the equalizer to ' + JSON.stringify(app.eqValues));
+        if (!doc.querySelector('#eq-presets .eq-preset-btn[data-p="rock"]').classList.contains('active')) throw new Error(sel + ' took the mark off Rock');
+      }
+      doc.getElementById('btn-reset-eq').click();
+      if (app.eqValues.some(v => v)) throw new Error('Reset EQ left ' + JSON.stringify(app.eqValues));
+    });
+
+    await step('sound: night mode, channels and boost go to mpv with the equalizer, and to the engine', async () => {
+      const eng = m.engine;
+      ipcCalls.length = 0;
+      const box = doc.getElementById('snd-section');
+      box.querySelector('[data-snd-night="on"]').click();
+      box.querySelector('[data-snd-ch="mono"]').click();
+      box.querySelector('[data-snd-boost="150"]').click();
+      const af = last('af');
+      for (const part of ['acompressor', 'aformat=channel_layouts=stereo', 'pan=stereo|c0=0.5*c0+0.5*c1|c1=0.5*c0+0.5*c1', 'volume=1.5', 'alimiter']) if (!af.includes(part)) throw new Error('af lacks ' + part + ': ' + af);
+      if (!/^lavfi=\[[^\]]+\]$/.test(af)) throw new Error('not one lavfi chain: ' + af);
+      const fx = eng.getFx();
+      if (!fx.night || fx.channels !== 'mono' || fx.boost !== 1.5) throw new Error('the engine has ' + JSON.stringify(fx));
+      app.eqValues[1] = 4; app._applyEQ();
+      if (!last('af').startsWith('lavfi=[equalizer=f=62:')) throw new Error('the equalizer is not first: ' + last('af'));
+      const kept = JSON.parse(window.localStorage.getItem('bm_sound') || '{}');
+      if (kept.night !== true || kept.channels !== 'mono' || 'boost' in kept) throw new Error('kept: ' + JSON.stringify(kept));
+      app.eqValues[1] = 0; app.sound.reset();
+      if (last('af') !== '') throw new Error('all off still sends ' + last('af'));
+      if (eng.getFx().night || eng.getFx().channels !== 'stereo' || eng.getFx().boost !== 1) throw new Error('the engine kept ' + JSON.stringify(eng.getFx()));
+    });
+
+    await step('second subtitle: offered with two tracks, sent as secondary-sid, and not shown as the main one', async () => {
+      const tracks = [{ type: 'video', id: 1, selected: true }, { type: 'sub', id: 1, lang: 'en', title: 'English', selected: true, 'main-selection': 0 },
+        { type: 'sub', id: 2, lang: 'ml', title: 'Malayalam', selected: false }];
+      app.renderTrackMenus(tracks);
+      const menu = doc.getElementById('sub2-track-sub');
+      if (menu.classList.contains('hidden')) throw new Error('no second subtitle menu with two tracks');
+      const rows = [...menu.querySelectorAll('.mr')].map(r => r.textContent);
+      if (rows.length !== 2 || !/Off/.test(rows[0]) || !/Malayalam/.test(rows[1])) throw new Error('rows: ' + JSON.stringify(rows));
+      ipcCalls.length = 0; menu.querySelectorAll('.mr')[1].click();
+      if (last('secondary-sid') !== 2) throw new Error('secondary-sid ' + last('secondary-sid'));
+      tracks[2].selected = true; tracks[2]['main-selection'] = 1;
+      app.renderTrackMenus(tracks);
+      const main = [...doc.querySelectorAll('#sub-track-sub .mr.active-opt')].map(r => r.textContent);
+      if (main.length !== 1 || !/English/.test(main[0])) throw new Error('marked as the main subtitle: ' + JSON.stringify(main));
+      if (!/✓ .*Malayalam/.test(doc.querySelector('#sub2-track-sub .mr.active-opt')?.textContent || '')) throw new Error('the second is not marked');
+      app.renderTrackMenus(tracks.slice(0, 2));
+      if (!menu.classList.contains('hidden')) throw new Error('offered with one track');
+      ipcCalls.length = 0; app.playMedia(['/films/Another.mkv']);
+      if (last('secondary-sid') !== 'no') throw new Error('the next film kept the second subtitle');
+      app.stop();
+    });
+
+    await step('sleep timer: counts down on its badge, fades, pauses and puts the volume back', async () => {
+      const s = app.sleep, badge = doc.getElementById('sleep-badge');
+      const realToggle = app.togglePlay.bind(app); let paused = 0; app.togglePlay = () => { paused++; app.isPlaying = false; };
+      const vols = []; const realVol = app.setVolume.bind(app); app.setVolume = v => { vols.push(v); };
+      try {
+        app.openSleep();
+        const chips = [...doc.querySelectorAll('#sleep-chips .eq-preset-btn')].map(b => b.textContent);
+        if (chips.length !== 8 || !chips.includes('At the end of this file')) throw new Error('choices: ' + JSON.stringify(chips));
+        doc.querySelector('#sleep-chips [data-sleep="30"]').click();
+        if (badge.classList.contains('hidden') || !/30 min/.test(badge.textContent)) throw new Error('the badge: ' + badge.className + ' ' + badge.textContent);
+        if (!/stops in 30 minutes/.test(doc.getElementById('sleep-state').textContent)) throw new Error('the dialog says ' + doc.getElementById('sleep-state').textContent);
+        doc.getElementById('sleep-close').click();
+        s.fadeMs = 1000; app.isPlaying = true; doc.getElementById('volume-slider').value = 80;
+        s.set(0.006);                                         // a third of a second, faded over one
+        await tick(1600);
+        if (paused !== 1) throw new Error('paused ' + paused + ' times');
+        if (vols.at(-1) !== 80 || !vols.some(v => v < 80)) throw new Error('the volume went ' + JSON.stringify(vols));
+        if (!badge.classList.contains('hidden') || s.mode) throw new Error('still set after it fired');
+      } finally { app.togglePlay = realToggle; app.setVolume = realVol; s.fadeMs = 10000; }
+    });
+
+    await step('sleep timer at the end of a file: a song that ends stops there, and Next is only Next', async () => {
+      const realPlay = m.play.bind(m); let played = 0; m.play = () => { played++; };
+      const q = ['/m/a.mp3', '/m/b.mp3'].map(p => ({ path: p, name: p.slice(3) }));
+      const kept = { queue: m.queue, queueIdx: m.queueIdx, currentPath: m.currentPath };
+      try {
+        Object.assign(m, { queue: q, queueIdx: 0, currentPath: q[0].path });
+        ipcCalls.length = 0; app.sleep.set('end');
+        if (last('keep-open') !== 'always') throw new Error('mpv not told to stop at the end of this file: ' + last('keep-open'));
+        m.advance();                                    // Next pressed
+        if (played !== 1 || app.sleep.mode !== 'end') throw new Error('Next used up the timer');
+        m.advance(true);                                // the song ended
+        if (played !== 1) throw new Error('the next song played');
+        if (app.sleep.mode) throw new Error('still set');
+        if (last('keep-open') !== 'yes') throw new Error('keep-open left at ' + last('keep-open'));
+        // a film: mpv holds at its end until it is left, or it goes on to the next
+        app.sleep.set('end'); app._hasVideo = true; app._eofHandled = false; ipcCalls.length = 0;
+        fireProp('eof-reached', true);
+        if (app.sleep.mode || sets('keep-open').length) throw new Error('at the film\'s end: mode ' + app.sleep.mode + ', keep-open ' + JSON.stringify(sets('keep-open')));
+        fireProp('eof-reached', false);
+        if (last('keep-open') !== 'yes') throw new Error('not let go once the film was left: ' + JSON.stringify(sets('keep-open')));
+        app._hasVideo = false;
+      } finally { m.play = realPlay; Object.assign(m, kept); app.sleep.cancel(); }
+    });
+
+    await step('the seek bar: a drag moves the film as it goes and leaves it where it is let go', async () => {
+      const bar = doc.getElementById('seek-container');
+      const r0 = bar.getBoundingClientRect;
+      bar.getBoundingClientRect = () => ({ left: 100, right: 1100, width: 1000, top: 600, bottom: 610, height: 10, x: 100, y: 600 });
+      const realOwns = m.engineOwns; m.engineOwns = () => false;
+      try {
+        app.duration = 1000; ipcCalls.length = 0;
+        bar.dispatchEvent(new window.MouseEvent('mousedown', { bubbles: true, button: 0, clientX: 300 }));
+        await tick(160);
+        doc.dispatchEvent(new window.MouseEvent('mousemove', { bubbles: true, clientX: 600 }));
+        doc.dispatchEvent(new window.MouseEvent('mouseup', { bubbles: true, clientX: 900, clientY: 700 }));
+        const seeks = ipcCalls.filter(a => a[0] === 'seek').map(a => [Math.round(a[1]), a[2]]);
+        if (JSON.stringify(seeks) !== JSON.stringify([[200, 'absolute'], [500, 'absolute+keyframes'], [500, 'absolute']])) throw new Error('seeks: ' + JSON.stringify(seeks));
+      } finally { bar.getBoundingClientRect = r0; m.engineOwns = realOwns; await tick(350); }
+    });
+
+    await step('the seek bar shows a picture of the film where the pointer is, for films on this computer only', async () => {
+      const asked = []; const real = app.api.mpv.thumbAt;
+      app.api.mpv.thumbAt = async (f, t) => { asked.push([f, t]); return 'data:image/jpeg;base64,AAAA'; };
+      try {
+        app._currentFilePath = '/films/A Film.mkv'; app._hasVideo = true; app.duration = 3000;
+        app._seekThumb(0.5); await tick(120);
+        const box = doc.getElementById('seek-preview'), img = doc.getElementById('seek-preview-img');
+        if (asked.length !== 1 || asked[0][0] !== '/films/A Film.mkv' || Math.abs(asked[0][1] - 1500) > 10) throw new Error('asked ' + JSON.stringify(asked));
+        if (!box.classList.contains('has-pic') || !img.src.startsWith('data:image/jpeg')) throw new Error('no picture shown');
+        app._seekThumb(0.5); await tick(120);
+        if (asked.length !== 1) throw new Error('the same place was asked for twice');
+        app._currentFilePath = 'https://example.com/live.m3u8'; app._seekThumb(0.3); await tick(120);
+        if (asked.length !== 1 || box.classList.contains('has-pic')) throw new Error('a stream was asked for a picture');
+        app._currentFilePath = '/music/song.mp3'; app._hasVideo = false; app._seekThumb(0.3); await tick(120);
+        if (asked.length !== 1) throw new Error('a song was asked for a picture');
+      } finally { app.api.mpv.thumbAt = real; app._currentFilePath = null; app._hasVideo = false; app.duration = 0; }
+    });
+  }
 
   /* ── 16. Every control reaches the in-app engine ─────────────── */
   // For most music the in-app engine plays and mpv sits idle. About twenty
@@ -1258,6 +1676,59 @@ async function main() {
       box.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));            // a click turns it off
       if (ly.online !== false || localStorage.getItem('bm_lyrics_online') !== '0') throw new Error('the online switch was not kept');
       ly.online = true; localStorage.removeItem('bm_lyrics_online'); ly.showTab('queue'); bridge.lyrics = null; eng.stop?.(); app.switchDest('video');
+    });
+    // v3.46.0: lyrics in another alphabet, in English letters or both.
+    await step('lyrics in English letters: offered for Hindi and Malayalam, not for English; Original, English letters and Both, kept', async () => {
+      ly.showTab('lyrics');
+      bridge.lyrics = { source: 'lrclib', synced: '[00:00.00]तुम ही हो\n[00:10.00]മഴയാണ്\n[00:20.00]and in English', plain: null };
+      await ly.song('/fixtures/music/03 - hindi.mp3', { title: 'x', artist: 'y' });
+      const pane = doc.getElementById('np-lyrics');
+      const btn = v => pane.querySelector(`.lyr-sbtn[data-v="${v}"]`);
+      if (!btn('original') || !btn('latin') || !btn('both')) throw new Error('the choice of letters is not offered');
+      if (ly.script !== 'original' || !btn('original').classList.contains('on')) throw new Error('not Original by default');
+      if (pane.querySelector('.lyr-line[data-i="0"]').textContent !== 'तुम ही हो') throw new Error('Original changed the words');
+      btn('latin').dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      const l = i => pane.querySelector(`.lyr-line[data-i="${i}"]`);
+      if (l(0).textContent !== 'Tum hi ho' || l(1).textContent !== 'Mazhayaanu' || l(2).textContent !== 'and in English') throw new Error('English letters: ' + [0, 1, 2].map(i => l(i).textContent).join(' / '));
+      if (localStorage.getItem('bm_lyrics_script') !== 'latin') throw new Error('the choice was not kept');
+      pane.querySelector('.lyr-sbtn[data-v="both"]').dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      const rom = l(0).querySelector('.lyr-rom');
+      if (!rom || rom.textContent !== 'Tum hi ho' || !l(0).textContent.startsWith('तुम ही हो')) throw new Error('Both: ' + l(0).textContent);
+      if (l(2).querySelector('.lyr-rom')) throw new Error('a line already in English letters was written twice');
+      // over the visualiser: the line sung, its English letters under it
+      Object.defineProperty(eng, 'currentTime', { configurable: true, get: () => 1 });
+      doc.body.classList.add('audio-viz'); ly.setOverlay(true); ly._tick(true);
+      const r = doc.getElementById('vl-roman');
+      if (doc.getElementById('vl-now').textContent !== 'तुम ही हो' || r.textContent !== 'Tum hi ho' || r.classList.contains('hidden')) throw new Error('over the visualiser: ' + doc.getElementById('vl-now').textContent + ' / ' + r.textContent);
+      ly.setScript('latin'); ly._tick(true);
+      if (doc.getElementById('vl-now').textContent !== 'Tum hi ho' || !r.classList.contains('hidden')) throw new Error('English letters over the visualiser: ' + doc.getElementById('vl-now').textContent);
+      ly.setOverlay(false); doc.body.classList.remove('audio-viz'); delete eng.currentTime;
+      // words without times, in both
+      ly.setScript('both');
+      bridge.lyrics = { source: 'file', synced: null, plain: 'നീ\nhello' };
+      await ly.song('/fixtures/music/04 - ml.mp3', { title: 'x', artist: 'y' });
+      const pls = [...pane.querySelectorAll('.lyr-plain .lyr-pl')];
+      if (pls.length !== 2 || pls[0].querySelector('.lyr-rom')?.textContent !== 'Nee' || pls[1].querySelector('.lyr-rom')) throw new Error('plain words in both: ' + pls.map(p => p.textContent).join(' / '));
+      // English lyrics: nothing to offer
+      bridge.lyrics = { source: 'file', synced: '[00:00.00]only english here', plain: null };
+      await ly.song('/fixtures/music/05 - en.mp3', { title: 'x', artist: 'y' });
+      if (pane.querySelector('.lyr-script')) throw new Error('the choice of letters is offered for English lyrics');
+      ly.setScript('original'); localStorage.removeItem('bm_lyrics_script'); ly.showTab('queue'); bridge.lyrics = null; eng.stop?.(); app.switchDest('video');
+    });
+    // v3.46.0: OpenSubtitles closed the service the search used; it opens their site now.
+    await step('subtitle search: the film\'s name filled in, and the search opened on opensubtitles.com', async () => {
+      const was = { file: app._currentFilePath, api: app.api.app };
+      let opened = null;
+      app.api.app = { external: async u => { opened = u; return true; } };
+      try {
+        app._currentFilePath = '/films/07. The.Long.Road.2021.1080p.WEB-DL.x264.mkv';
+        doc.getElementById('subsearch-query').value = '';
+        app._fillSubSearch();
+        if (doc.getElementById('subsearch-query').value !== 'The Long Road 2021') throw new Error('filled with ' + doc.getElementById('subsearch-query').value);
+        doc.getElementById('subs-search-btn').dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+        await tick(5);
+        if (opened !== 'https://www.opensubtitles.com/en/search-all/q-The+Long+Road+2021') throw new Error('opened ' + opened);
+      } finally { app._currentFilePath = was.file; app.api.app = was.api; }
     });
   }
 

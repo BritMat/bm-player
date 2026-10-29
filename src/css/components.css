@@ -917,3 +917,46 @@ html.is-fs.lite-window body.playing:not(.pip-mode):has(#controls-bar.faded) #pla
 .rc-star:hover { transform: scale(1.1); }
 .rc-star.on { color: #ffcf40; }
 #ctx-fav.on .ctx-ico { color: #ffcf40; }
+
+/* v3.46.0: the subtitle search now opens opensubtitles.com (its old service closed) */
+.subs-note { font-size: 11.5px; line-height: 1.5; color: var(--text-muted); margin: 0 0 12px; }
+.dash-action-btn.subs-load { background: transparent; border: 1px solid var(--border); color: var(--text); }
+.dash-action-btn.subs-load:hover { border-color: var(--accent); color: var(--accent); }
+
+/* v3.46.0: the Sound part of the equalizer panel (sound.js) and the Picture
+   panel (picture.js), in the panels' own rows, labels and chips */
+.snd-section { margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--border); }
+.snd-section .ctx-section-label, #panel-picture .ctx-section-label { margin-top: 14px; }
+.snd-section .ctx-section-label:first-child, #panel-picture .panel-body > .ctx-section-label:first-child { margin-top: 0; }
+.snd-note { font-size: 11.5px; line-height: 1.45; color: var(--text-muted); margin: 6px 0 8px; }
+.snd-note kbd { background: var(--bar-bg); border: 1px solid var(--border); border-radius: 4px; padding: 0 5px; font-size: 10.5px; font-family: 'Consolas', monospace; color: var(--accent); }
+.snd-chips { margin: 4px 0 6px; flex-wrap: wrap; }
+.pic-row { margin-top: 9px; }
+.pic-row .ctx-row-label { min-width: 86px; }
+.pic-row .ctx-val { min-width: 40px; font-variant-numeric: tabular-nums; }
+.pic-row .ctx-slider:disabled { opacity: .35; cursor: default; }
+#panel-picture .btn-reset-eq { margin-top: 16px; }
+
+/* v3.46.0: a picture of the film above the seek bar, where the pointer is */
+.seek-preview-img { display: none; width: 192px; height: auto; max-height: 216px; object-fit: contain; border-radius: 4px; background: #000; margin: 0 auto 4px; }
+.seek-preview.has-pic { padding: 4px 4px 3px; }
+.seek-preview.has-pic .seek-preview-img { display: block; }
+.seek-preview.has-pic .seek-preview-time { display: block; text-align: center; }
+.seek-container.dragging .seek-preview { display: block; }
+/* Lite: the picture's window lies over the video area, and would hide it */
+.lite-window .seek-preview.has-pic .seek-preview-img { display: none; }
+.lite-window .seek-preview.has-pic { padding: 4px 10px; }
+
+/* v3.46.0: a heading inside a menu, over the second subtitle's tracks */
+.mr-head { padding: 8px 11px 3px; font-size: 10px; font-weight: 800; text-transform: uppercase; letter-spacing: .08em; color: var(--text-muted); cursor: default; }
+
+/* v3.46.0: the sleep timer's dialog, and its badge by the speed */
+.sleep-box { width: min(440px, calc(100vw - 32px)); }
+.sleep-state { font-size: 13px; color: var(--text); margin: 2px 0 12px; }
+.sleep-chips { flex-wrap: wrap; margin-bottom: 6px; }
+.sleep-foot { display: flex; justify-content: flex-end; margin-top: 8px; }
+.sleep-badge { display: inline-flex; align-items: center; gap: 4px; font-size: 11px; font-weight: 800; color: var(--accent); background: rgba(255,255,255,.1); border: 0; border-radius: 6px; padding: 3px 8px; cursor: pointer; white-space: nowrap; letter-spacing: .02em; }
+.sleep-badge:hover { background: rgba(255,255,255,.18); }
+.sleep-badge.hidden { display: none; }
+.sleep-badge .ico { width: 13px; height: 13px; display: inline-flex; }
+.sleep-badge .ico svg { width: 100%; height: 100%; }

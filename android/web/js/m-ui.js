@@ -42,6 +42,8 @@ Object.assign(ICONS, {
   burst: S(`<path d="M12 3v4M12 17v4M3 12h4M17 12h4M5.6 5.6l2.8 2.8M15.6 15.6l2.8 2.8M5.6 18.4l2.8-2.8M15.6 8.4l2.8-2.8" ${line}/>`),
   page: S(`<path d="M6 3h8l4 4v14H6z" ${line}/><path d="M14 3v4h4M9 12h6M9 16h6" ${line}/>`),
   rotateL: S(`<path d="M4 12a8 8 0 1 0 2.3-5.6" ${line}/><path d="M4 4v4.5h4.5" ${line}/>`),
+  // v3.45.0: several chosen at once (m-select.js)
+  selectAll: S(`<rect x="3.5" y="3.5" width="17" height="17" rx="4" ${line}/><path d="M8 12.2l2.8 2.8L16.2 9.5" ${line}/>`),
 });
 applyIcons();
 
@@ -83,8 +85,17 @@ export function toast (text, ms = 2400) {
 
 // ── the sheet: choices from the bottom of the screen ────────────────
 let sheetClose = null;
+// v3.45.0: a sheet a long press opens comes up under the finger still held
+// there, and the click that ends that press landed on it: on the shade
+// behind (which closed the sheet at once) or on one of its choices (which
+// it then made). That click is not a choice: the press began before the
+// sheet was there.
+let pressing = false, guard = false;
+document.addEventListener('pointerdown', () => { pressing = true; guard = false; }, true);
+for (const ev of ['pointerup', 'pointercancel']) document.addEventListener(ev, () => { pressing = false; }, true);
+const fresh = () => { if (!guard) return false; guard = false; return true; };
 /**
- * open({ title, sub, art, items: [{ icon, label, note, on, action }], body })
+ * open({ title, sub, art, items: [{ icon, label, note, on, danger, action }], body })
  * shows a sheet. An item's action runs after the sheet closes. body is an
  * element put under the items (the equaliser, the log). Returns close().
  */
@@ -101,10 +112,10 @@ export function sheet ({ title = '', sub = '', art = '', items = [], body = null
     h.appendChild(t); s.appendChild(h);
   }
   for (const it of items) {
-    const b = document.createElement('button'); b.type = 'button'; b.className = 'sh-item' + (it.on ? ' on' : '');
+    const b = document.createElement('button'); b.type = 'button'; b.className = 'sh-item' + (it.on ? ' on' : '') + (it.danger ? ' danger' : '');
     if (it.on !== undefined) b.setAttribute('aria-checked', String(!!it.on));
     b.innerHTML = (it.icon ? `<span class="sh-ico">${ICONS[it.icon] || ''}</span>` : '') + `<span class="sh-lbl">${esc(it.label)}${it.note ? `<span class="sh-note">${esc(it.note)}</span>` : ''}</span>` + (it.on ? `<span class="sh-check">${ICONS.check}</span>` : '');
-    b.addEventListener('click', () => { closeSheet(); setTimeout(() => it.action?.(), 0); });
+    b.addEventListener('click', () => { if (fresh()) return; closeSheet(); setTimeout(() => it.action?.(), 0); });
     s.appendChild(b);
   }
   if (body) s.appendChild(body);
@@ -118,7 +129,8 @@ export function sheet ({ title = '', sub = '', art = '', items = [], body = null
     onClose?.();
   };
   sheetClose = close;
-  back.onclick = close;
+  back.onclick = () => { if (!fresh()) close(); };
+  guard = pressing;
   return close;
 }
 export function closeSheet () { if (sheetClose) { sheetClose(); return true; } return false; }
@@ -142,20 +154,26 @@ export function pickFile (accept) {
 // ── a long press ─────────────────────────────────────────────────────
 /** fn(target, event) after a press held still for half a second, within root, on what matches sel. */
 export function onLongPress (root, sel, fn) {
-  let timer = 0, x = 0, y = 0, target = null;
+  let timer = 0, x = 0, y = 0, target = null, eat = false;
   const cancel = () => { clearTimeout(timer); timer = 0; target = null; };
   root.addEventListener('pointerdown', e => {
+    eat = false;
     // A button inside the target (a row's ⋮) is its own. v3.43.0: the target
     // may be a button itself, as Home's cards are: their long press never came.
     const b = e.target.closest('button');
     target = e.target.closest(sel); if (!target || (b && b !== target && target.contains(b))) return;
     x = e.clientX; y = e.clientY;
-    timer = setTimeout(() => { const t = target; cancel(); if (t) { t.dataset.long = '1'; navigator.vibrate?.(12); fn(t, e); } }, 520);
+    timer = setTimeout(() => { const t = target; cancel(); if (t) { t.dataset.long = '1'; eat = true; navigator.vibrate?.(12); fn(t, e); } }, 520);
   }, { passive: true });
   root.addEventListener('pointermove', e => { if (timer && Math.hypot(e.clientX - x, e.clientY - y) > 10) cancel(); }, { passive: true });
   for (const ev of ['pointerup', 'pointercancel', 'scroll']) root.addEventListener(ev, cancel, { passive: true, capture: ev === 'scroll' });
-  // The click that ends a long press is not a tap.
-  root.addEventListener('click', e => { const t = e.target.closest(sel); if (t?.dataset.long) { delete t.dataset.long; e.stopImmediatePropagation(); e.preventDefault(); } }, true);
+  // The click that ends a long press is not a tap. v3.45.0: also when the
+  // long press drew the row again (choosing several does), so the element
+  // the click lands on is a new one, not the one marked.
+  root.addEventListener('click', e => {
+    const t = e.target.closest(sel);
+    if (t?.dataset.long || eat) { if (t) delete t.dataset.long; eat = false; e.stopImmediatePropagation(); e.preventDefault(); }
+  }, true);
 }
 
 /** Text for sorting and searching: lower case, no accents. */

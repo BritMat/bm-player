@@ -14,6 +14,10 @@ const LITE = new URLSearchParams(location.search).get('lite') === '1';
 // one came up and grew back when it closed (v3.25.3): in Lite playback they
 // now sit over the menu row instead (components.css).
 const KEEP_VISIBLE = ['body.pip-mode .pip-bar'];
+// Panels down the right side (v3.46.0): the picture makes room for one while
+// it is open. It lay over them, so the equalizer and sound, the picture's
+// sliders, the playlist and the rest could not be seen during a film.
+const KEEP_RIGHT = ['.side-panel.open'];
 
 function shown(el) {
   if (!el || el.classList.contains('hidden')) return null;
@@ -40,8 +44,16 @@ export function videoRect() {
       else bottom = Math.min(bottom, r.top - 6);                              // near the bottom: end above it
     }
   }
-  if (bottom - top < 2) return null;
-  return { x: Math.round(a.left), y: Math.round(top), width: Math.round(a.width), height: Math.round(bottom - top) };
+  let right = a.right;
+  for (const sel of KEEP_RIGHT) {
+    for (const el of document.querySelectorAll(sel)) {
+      const r = shown(el);
+      if (!r || r.bottom <= top || r.top >= bottom || r.right <= a.left || r.left >= right) continue;
+      right = Math.min(right, r.left - 6);
+    }
+  }
+  if (bottom - top < 2 || right - a.left < 2) return null;
+  return { x: Math.round(a.left), y: Math.round(top), width: Math.round(right - a.left), height: Math.round(bottom - top) };
 }
 
 let last = '', queued = false;
@@ -68,6 +80,11 @@ if (LITE) {
     for (const sel of ['#resume-prompt', '#default-player-prompt', '#update-banner', '#pip-overlay']) {
       const el = document.querySelector(sel);
       if (el) watch.observe(el, { attributes: true, attributeFilter: ['class', 'style'] });
+    }
+    // A panel slides in: measured again once it is where it stops.
+    for (const el of document.querySelectorAll('.side-panel')) {
+      watch.observe(el, { attributes: true, attributeFilter: ['class'] });
+      el.addEventListener('transitionend', report);
     }
     const area = document.getElementById('video-area');
     if (area && 'ResizeObserver' in window) new ResizeObserver(report).observe(area);

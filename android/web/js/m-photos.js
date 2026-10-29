@@ -4,15 +4,22 @@
  * opens over the tab, as a folder of videos does). A tap opens the picture
  * viewer (m-viewer.js) with its album around it, to swipe through. The
  * folder button opens a picture or a PDF from anywhere on the phone.
+ *
+ * v3.45.0: a long press on a picture starts choosing several (m-select.js),
+ * to share them or delete them from the phone (m-delete.js); a long press on
+ * an album offers to delete it.
  */
 import { lib, loadImages } from './m-library.js';
 import { VList } from './m-list.js';
-import { $, esc, fmtSize, sheet, artBg } from './m-ui.js';
+import { $, esc, fmtSize, sheet, artBg, onLongPress } from './m-ui.js';
 import { ICONS } from './icons.js';
 import { call, has, permission } from './m-android.js';
-import { openSub } from './m-sub.js';
+import { openSub, closeSub } from './m-sub.js';
 import { openImages } from './m-viewer.js';
+import { startSelect, selecting, toggle, mark, ring, endSelect, shareItems } from './m-select.js';
+import { deleteItems, onDeleted, canDelete, howMany } from './m-delete.js';
 
+// album: the one open over the tab, { name, items, vl, n }
 const st = { state: 'idle', show: 'all', sort: 'newest', list: [], vl: null, vlKind: '', album: null };
 try { st.sort = localStorage.getItem('bm_m_psort') || 'newest'; } catch (_) {}
 // All or Albums, kept as the sort is (v3.43.2).
@@ -23,7 +30,7 @@ const sorted = list => list.slice().sort((SORTS.find(s => s[0] === st.sort) || S
 const cols = () => Math.max(3, Math.min(8, Math.floor((window.innerWidth - 8) / 112)));
 
 export function initPhotos () {
-  $('ph-chips').addEventListener('click', e => { const b = e.target.closest('.chip'); if (!b) return; st.show = b.dataset.k; try { localStorage.setItem('bm_m_pshow', st.show); } catch (_) {} render(); });
+  $('ph-chips').addEventListener('click', e => { const b = e.target.closest('.chip'); if (!b) return; endSelect('photos'); st.show = b.dataset.k; try { localStorage.setItem('bm_m_pshow', st.show); } catch (_) {} render(); });
   $('ph-sort-btn').addEventListener('click', () => sheet({ title: 'Sort pictures', items: SORTS.map(([k, label]) => ({ label, on: st.sort === k, action: () => { st.sort = k; try { localStorage.setItem('bm_m_psort', k); } catch (_) {} render(); } })) }));
   $('ph-open').addEventListener('click', () => sheet({ title: 'Open', items: [
     { icon: 'images', label: 'A picture…', action: () => call('pickMedia', 'image') },
@@ -36,7 +43,28 @@ export function initPhotos () {
     const a = e.target.closest('[data-ai]');
     if (a) { const al = st.list[+a.dataset.ai]; if (al) openAlbum(al); return; }
     const p = e.target.closest('[data-pi]');
-    if (p) openImages(st.list, +p.dataset.pi);
+    if (!p) return;
+    if (selecting('photos')) toggle(st.list[+p.dataset.pi]);
+    else openImages(st.list, +p.dataset.pi);
+  });
+  // A long press: a picture starts choosing (or is added), an album offers to go.
+  onLongPress(box, '[data-pi], [data-ai]', t => {
+    if (t.dataset.ai !== undefined) { const al = st.list[+t.dataset.ai]; if (al) albumMenu(al); return; }
+    const it = st.list[+t.dataset.pi]; if (!it) return;
+    if (selecting('photos')) toggle(it); else startSelect(chooser('photos'), it);
+  });
+  onLongPress($('sub-list'), '[data-pi]', t => {
+    const it = st.album?.items[+t.dataset.pi]; if (!it) return;
+    if (selecting('album')) toggle(it); else startSelect(chooser('album'), it);
+  });
+  onDeleted((kind, gone) => {
+    if (kind !== 'image') return;
+    if (st.state === 'ready') render();
+    const al = st.album;
+    if (!al) return;
+    al.items = al.items.filter(x => !gone.has(x.id));
+    if (!al.items.length) closeSub();
+    else al.vl?.setCount(Math.ceil(al.items.length / al.n), true);
   });
   $('ph-empty').addEventListener('click', e => {
     const b = e.target.closest('[data-perm], [data-settings], [data-retry]'); if (!b) return;
@@ -77,7 +105,7 @@ function render () {
   if (!st.vl) {
     st.vl = st.show === 'albums'
       ? new VList(box, { rowHeight: Math.round((window.innerWidth - 32 - (n - 1) * 10) / n) + 52, render: (i, row) => cards(row, i, n, k => albumCard(st.list[k], k)) })
-      : new VList(box, { rowHeight: Math.floor((window.innerWidth - 8) / n), render: (i, row) => tiles(row, i, n, st.list) });
+      : new VList(box, { rowHeight: Math.floor((window.innerWidth - 8) / n), render: (i, row) => tiles(row, i, n, st.list, 'photos') });
   }
   st.vl.setCount(Math.ceil(st.list.length / n), true);
 }
@@ -89,11 +117,12 @@ function cards (row, i, n, card) {
   row.innerHTML = html;
 }
 
-/** A row of square pictures, edge to edge with a hairline between. */
-function tiles (row, i, n, list) {
+/** A row of square pictures, edge to edge with a hairline between. key: the list's, for choosing several. */
+function tiles (row, i, n, list, key) {
   row.className = 'vrow ptiles'; row.style.setProperty('--cols', n);
   let html = '';
-  for (let k = i * n; k < Math.min(list.length, (i + 1) * n); k++) html += `<span class="ptile" data-pi="${k}" style="background-image:${artBg(list[k].thumb)}"></span>`;
+  const r = ring(key);
+  for (let k = i * n; k < Math.min(list.length, (i + 1) * n); k++) { const x = list[k]; html += `<span class="ptile${mark(key, x.id)}" data-pi="${k}" data-id="${x.id}" style="background-image:${artBg(x.thumb)}">${r}</span>`; }
   row.innerHTML = html;
 }
 
@@ -102,17 +131,42 @@ function albumCard (a, k) {
 }
 
 function openAlbum (a) {
-  const items = sorted(lib.images.filter(x => x.folder === a.name));
+  const al = st.album = { name: a.name, items: sorted(lib.images.filter(x => x.folder === a.name)), vl: null, n: cols() };
   openSub({
     title: a.name, owner: 'photos',
     fill: sc => {
-      const n = cols();
-      const vl = new VList(sc, { rowHeight: Math.floor((window.innerWidth - 8) / n), render: (i, row) => tiles(row, i, n, items) });
-      vl.setCount(Math.ceil(items.length / n));
-      sc.onclick = e => { const p = e.target.closest('[data-pi]'); if (p) openImages(items, +p.dataset.pi); };
+      al.vl = new VList(sc, { rowHeight: Math.floor((window.innerWidth - 8) / al.n), render: (i, row) => tiles(row, i, al.n, al.items, 'album') });
+      al.vl.setCount(Math.ceil(al.items.length / al.n));
+      sc.onclick = e => {
+        const p = e.target.closest('[data-pi]'); if (!p) return;
+        if (selecting('album')) toggle(al.items[+p.dataset.pi]);
+        else openImages(al.items, +p.dataset.pi);
+      };
     },
-    onClose: () => { $('sub-list').onclick = null; },
+    onClose: () => { endSelect('album'); $('sub-list').onclick = null; if (st.album === al) st.album = null; },
   });
+}
+
+/** Choosing several pictures: in the tab's grid ('photos') or in an album open over it ('album'). */
+function chooser (key) {
+  const inAlbum = key === 'album';
+  return {
+    key, kind: 'image',
+    scroller: inAlbum ? $('sub-list') : $('ph-list'),
+    items: () => (inAlbum ? st.album?.items || [] : st.show === 'all' ? st.list : []),
+    refresh: () => (inAlbum ? st.album?.vl : st.vl)?.refresh(),
+    actions: [
+      { icon: 'share', label: 'Share', run: list => { shareItems('image', list); endSelect(); } },
+      ...(canDelete() ? [{ icon: 'trash', label: 'Delete', run: list => deleteItems('image', list) }] : []),
+    ],
+  };
+}
+
+/** An album's long press: open it, or delete every picture in it. */
+function albumMenu (a) {
+  const items = [{ icon: 'images', label: 'Open', action: () => openAlbum(a) }];
+  if (canDelete()) items.push({ icon: 'trash', label: 'Delete the album', danger: true, note: howMany('image', a.count), action: () => deleteItems('image', lib.images.filter(x => x.folder === a.name), { folder: a.name }) });
+  sheet({ title: a.name, sub: `${howMany('image', a.count)}${a.size ? ' · ' + fmtSize(a.size) : ''}`, art: a.thumb, items });
 }
 
 /** For Settings: how many pictures there are. */

@@ -185,9 +185,13 @@ _wire(){
   }
   // mpv property sync
   this.api?.mpv?.onProp(p=>{
-    if(p.name==='duration'&&this.currentPath){this._dur[this.currentPath]=p.data;const t=el('np-time-tot');if(t)t.textContent=fmtSec(p.data);}
-    if(p.name==='time-pos'&&this.currentPath&&!this._scrubbing){const dur=this._dur[this.currentPath];if(dur&&dur>0){const pct=(p.data/dur)*100;const f=el('np-seek-fill');if(f)f.style.width=pct+'%';const c=el('np-time-cur');if(c)c.textContent=fmtSec(p.data);}}
-    if(p.name==='pause'){const on=!p.data&&!!this.currentPath;   // idle mpv reports 'not paused'
+    // A song the in-app engine plays has its own length, time and pause: what
+    // mpv reports as it stops or starts up is not that song's (v3.46.0). The
+    // length went to 0:00 and the play button to playing while it played.
+    const mine=!!this.currentPath&&!this.engineOwns();
+    if(p.name==='duration'&&mine){if(p.data>0)this._fails=0;this._dur[this.currentPath]=p.data;const t=el('np-time-tot');if(t)t.textContent=fmtSec(p.data);}
+    if(p.name==='time-pos'&&mine&&!this._scrubbing){const dur=this._dur[this.currentPath];if(dur&&dur>0){const pct=(p.data/dur)*100;const f=el('np-seek-fill');if(f)f.style.width=pct+'%';const c=el('np-time-cur');if(c)c.textContent=fmtSec(p.data);}}
+    if(p.name==='pause'&&!this.engineOwns()){const on=!p.data&&!!this.currentPath;   // idle mpv reports 'not paused'
       el('np-bars')?.classList.toggle('playing',on);const b=el('np-btn-play');if(b)setPlaying(b,on);}
     if(p.name==='volume'){const s=el('np-volume');if(s)s.value=p.data;const l=el('np-vol-label');if(l)l.textContent=Math.round(p.data);}
   });
@@ -477,15 +481,52 @@ playAll(shuffled){
   if(this.queue.length) this.play(this.queue[0].path,0);
 }
 
-// Called when mpv reports end-of-file for the current track.
-advance(){
+// Called when mpv reports end-of-file for the current track, and for Next.
+// ended: the song came to its end by itself, rather than Next pressed. With
+// the sleep timer set for the end of the file, playing stops there (v3.46.0).
+advance(ended){
+  if(ended&&window.bmApp?.sleep?.atEnd?.()) return;
   if(this.repeat==='one'&&this.currentPath){ this.play(this.currentPath,this.queueIdx); return; }
+  this._next();
+}
+/** The next song in the queue, round to the top under repeat all. False at the end. */
+_next(){
   const next=this.queueIdx+1;
-  if(next<this.queue.length){ this.play(this.queue[next].path,next); return; }
+  if(next<this.queue.length){ this.play(this.queue[next].path,next); return true; }
   if(this.repeat==='all'&&this.queue.length){
     if(this.shuffle) this._buildQueue();
     this.play(this.queue[0].path,0);
+    return true;
   }
+  return false;
+}
+/** Neither player could play the song: a broken or missing file, or a format
+ *  nothing here reads. Music players go on to the next song, and so does this
+ *  one now (v3.46.0). Playback stopped before, with the name of whatever was
+ *  opened last, often an old film. It stops when every song in the queue has
+ *  failed in a row, so a drive that went away is not tried round and round. */
+skipBroken(){
+  const fp=this.currentPath; if(!fp) return false;
+  this._mpvSong=null;
+  const name=this.tags?.[fp]?.title||cleanTitle(fp.split(/[\\/]/).pop());
+  this._fails=(this._fails||0)+1;
+  const more=this.queue.length>1&&this._fails<this.queue.length&&(this.queueIdx+1<this.queue.length||this.repeat==='all');
+  window.bmApp?.showOSD?.(more?`Couldn't play ${name}, playing the next song`:`Couldn't play ${name}`,4000);
+  if(more&&this._next()) return true;
+  this._fails=0;
+  window.bmApp?.stop?.({stay:window.bmApp?.currentDash==='music'});
+  return true;
+}
+/** A song mpv plays (the engine cannot read it, or gave up on it). Kept so a
+ *  failure mpv reports can be told apart from a film's. At the music's speed:
+ *  mpv's own is the film's, kept aside while mpv plays a song and given back
+ *  when a film opens (v3.38.0). A song the engine handed over after it gave
+ *  up played at the film's (v3.46.0). */
+_mpvOpen(fp){
+  this._mpvSong=fp;
+  if(this._filmSpeed==null)this._filmSpeed=window.bmApp?.speedMenu?._current||1;
+  this.api?.mpv?.open([fp]);
+  this.api?.mpv?.cmd('set_property','speed',this.speed);
 }
 
 // ── The list ───────────────────────────────────────────────────────
@@ -693,6 +734,7 @@ _markPlaying(){
   _wireEngine(){
     const e=this.engine;
     e.on('loaded', d=>{
+      if(d.duration>0) this._fails=0;   // it opened: not a broken file
       const tot=el('np-time-tot'); if(tot)tot.textContent=fmtSec(d.duration);
       if(window.bmApp) window.bmApp.duration=d.duration;
     });
@@ -716,13 +758,15 @@ _markPlaying(){
     });
     e.on('play', ()=>this._engineState(true));
     e.on('pause',()=>this._engineState(false));
-    e.on('ended',()=>this.advance());
-    // Decoder gave up mid-file: hand this track to mpv rather than skipping it.
+    e.on('ended',()=>this.advance(true));
+    // The engine could not read the song: mpv tries it. If mpv cannot either,
+    // its error comes back through skipBroken() and the next song plays.
+    // Nothing is said here: which player plays a song is not news (v3.46.0).
     e.on('fallback', d=>{
       if(!d.path) return;
       this.engine.active=false;
-      this.api?.mpv?.open([d.path]);
-      window.bmApp?.showOSD?.('Codec unsupported in-app, using mpv');
+      if(d.path!==this.currentPath) return;   // a song already left behind
+      this._mpvOpen(d.path);
     });
   }
 
@@ -743,6 +787,7 @@ _markPlaying(){
    *  never reports a change, so nothing would correct it. Found when a test
    *  tone outlasted its step: PiP then refused, as nothing was "playing". */
   yieldToPlayer(){
+    this._mpvSong=null;   // what mpv plays next is a film, not a song
     // mpv played a song at the music's speed: the film gets its own back (v3.38.0).
     if(this._filmSpeed!=null){const v=this._filmSpeed;this._filmSpeed=null;this.api?.mpv?.cmd('set_property','speed',v);}
     if(!this.engineOwns?.()) return false;
@@ -803,6 +848,7 @@ play(fp,idx){
     this.queueIdx=qi>=0?qi:(idx||0);
     const useEngine=this.engineEnabled&&this.engine.available&&this.engine.canPlay(fp);
     if(useEngine){
+      this._mpvSong=null;
       // Stop mpv first or both would play at once.
       this.api?.mpv?.cmd('stop');
       this.engine.load(fileURL(fp),fp,true);
@@ -817,11 +863,7 @@ play(fp,idx){
     }else{
       if(!this.api?.mpv)return;
       this.engine.stop();
-      // mpv's speed is the film's. It is kept aside while mpv plays a song at
-      // the music's own speed, and given back when a film opens (v3.38.0).
-      if(this._filmSpeed==null)this._filmSpeed=window.bmApp?.speedMenu?._current||1;
-      this.api.mpv.open([fp]);
-      this.api.mpv.cmd('set_property','speed',this.speed);
+      this._mpvOpen(fp);   // at the music's speed (v3.38.0)
     }
     window.bmApp?.speedMenu?.sync?.(); this._npSpeed?.sync();   // the speed shown is now the music's (v3.38.0)
     const _m=this.tags?.[fp]||{};const title=_m.title||cleanTitle(fp.split(/[\\/]/).pop());

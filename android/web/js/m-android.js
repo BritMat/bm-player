@@ -20,6 +20,8 @@
  *   update      { state, ... }      where an update from GitHub stands (m-update.js)
  *   memory      { level }           Android is short of memory: what is not
  *                                   on screen gives its memory back (m-main.js)
+ *   deleted     { kind, ids, asked, cancelled, denied, error }
+ *                                   what deleteMedia really deleted (m-delete.js)
  * and window.BMNative.back() when Back is pressed: 'handled' when the page
  * closed something, 'background' to put the app behind the others.
  *
@@ -158,7 +160,7 @@ const MOCK = {
   mpvClose () { fakeMpv.close(); },
   mpvSubAdd (name, text) { fakeMpv.subAdd(name, text); },
   openWith (src) { window.__bmOpenWith = src; },
-  info: () => JSON.stringify({ version: ls('mock_version') || 'dev', versionCode: 0, sdk: 34, release: '14', device: 'Desktop browser (test)', abis: [], webview: navigator.userAgent }),
+  info: () => JSON.stringify({ version: ls('mock_version') || 'dev', versionCode: 0, sdk: +(ls('mock_sdk') || 34), release: '14', device: 'Desktop browser (test)', abis: [], webview: navigator.userAgent }),
   updateState: () => JSON.stringify(fakeUpd.s),
   updateCheck (manual) { fakeUpd.check(manual); },
   updateDownload () { fakeUpd.download(); },
@@ -175,6 +177,17 @@ const MOCK = {
   batteryLevel: () => 76,
   reopen: key => (window.__bmDocs || {})[key] || null,
   shareFile (src, type) { window.__bmSharedFile = [src, type]; },
+  // v3.45.0: several shared at once, and deleting. mock_delete says what the
+  // person answers Android: 'yes' (the default), 'no', or 'denied' (no access).
+  shareFiles (json) { window.__bmSharedFiles = JSON.parse(json); },
+  deleteMedia (json) {
+    const o = JSON.parse(json), how = ls('mock_delete') || 'yes';
+    (window.__bmDeleted = window.__bmDeleted || []).push(o);
+    const base = { kind: o.kind, asked: o.ids.length };
+    setTimeout(() => emit('deleted', how === 'no' ? { ...base, ids: [], cancelled: true }
+      : how === 'denied' ? { ...base, ids: [], denied: true, error: 'BM Player may not change files on this phone. Allow it Files and media (storage) in the app\'s settings to delete from here.' }
+        : { ...base, ids: o.ids }), 120);
+  },
   openAppSettings () {},
   playback (json) { window.__bmPlayback = JSON.parse(json); },
   orientation (m) { window.__bmOrientation = m; },

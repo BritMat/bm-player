@@ -2,7 +2,11 @@
  * m-music: the Music tab. Songs, albums, artists and folders, each a long
  * list (m-list.js), with search and sort; an album, artist or folder opens
  * over it with its songs. A tap plays from there; the button at the end of
- * a row (or a long press) offers Play next, Add to queue and the rest.
+ * a row offers Play next, Add to queue and the rest.
+ *
+ * v3.45.0: a long press on a song starts choosing several (m-select.js), to
+ * play, queue, share or delete them from the phone (m-delete.js). A long
+ * press on an album or a folder offers its choices, deleting it among them.
  */
 import { lib, loadSongs, view, songArt, SORT_NAMES, build, showAll, setShowAll } from './m-library.js';
 import { player } from './m-player.js';
@@ -11,6 +15,8 @@ import { $, esc, fmtTime, fmtSize, sheet, toast, onLongPress, artBg } from './m-
 import { ICONS } from './icons.js';
 import { call, permission } from './m-android.js';
 import { favItem, songFav } from './m-favs.js';
+import { startSelect, selecting, toggle, mark, ring, endSelect, shareItems } from './m-select.js';
+import { deleteItems, onDeleted, canDelete, howMany } from './m-delete.js';
 
 const st = {
   kind: 'songs', q: '', sorts: {}, list: [], vl: null, cols: 2,
@@ -23,6 +29,7 @@ const sortOf = k => st.sorts[k] || SORT_NAMES[k][0][0];
 export function initMusic () {
   $('mu-chips').addEventListener('click', e => {
     const b = e.target.closest('.chip'); if (!b) return;
+    endSelect('songs');
     st.kind = b.dataset.k;
     for (const c of $('mu-chips').children) { c.classList.toggle('on', c === b); c.setAttribute('aria-selected', String(c === b)); }
     try { localStorage.setItem('bm_m_kind', st.kind); } catch (_) {}
@@ -45,10 +52,11 @@ export function initMusic () {
   // too. They are in a box of their own, beside the list, and until v3.41.0
   // nothing listened there: "Allow access to music" did nothing.
   $('mu-empty').addEventListener('click', e => tapRow(e, false));
-  onLongPress(list, '.vrow, .acard', t => menuFor(t, false));
+  onLongPress(list, '.vrow, .acard', t => longPress(t, false));
   const dl = $('dt-list');
   dl.addEventListener('click', e => tapRow(e, true));
-  onLongPress(dl, '.vrow', t => menuFor(t, true));
+  onLongPress(dl, '.vrow', t => longPress(t, true));
+  onDeleted(kind => { if (kind === 'audio') afterDelete(); });
   $('dt-back').addEventListener('click', closeDetail);
   window.addEventListener('resize', () => { if (st.kind === 'albums') render(true); });
   player.on('track', markPlaying);
@@ -73,6 +81,15 @@ export async function loadMusic () {
 }
 
 export function rebuild () { build(); render(); if (st.detail) openDetail(st.detail.kind, st.detail.key, true); }
+
+/** Songs deleted from the phone (the library is already without them): the lists drawn again. */
+function afterDelete () {
+  render(true);
+  const d = st.detail;
+  if (!d) return;
+  const there = d.kind === 'album' ? lib.albums.some(a => a.key === d.key) : d.kind === 'artist' ? lib.artists.some(a => a.key === d.key) : lib.folders.some(f => f.key === d.key);
+  if (there) openDetail(d.kind, d.key, true); else closeDetail();
+}
 
 // ── the list ─────────────────────────────────────────────────────────
 function render (keepScroll = false) {
@@ -112,11 +129,13 @@ function render (keepScroll = false) {
   st.vl.setCount(st.list.length, keepScroll);
 }
 
-function songRow (s, row, i, { number = false } = {}) {
+/** A song in a list. key: the list's, for choosing several ('songs' or 'detail'). */
+function songRow (s, row, i, { number = false, key = 'songs' } = {}) {
   const cur = player.current;
-  row.className = 'vrow song' + (cur && cur.id === s.id ? ' playing' + (player.paused ? ' paused' : '') : '');
+  row.className = 'vrow song' + (cur && cur.id === s.id ? ' playing' + (player.paused ? ' paused' : '') : '') + mark(key, s.id);
   row.dataset.id = String(s.id);
-  const lead = number ? `<span class="num">${s.track || i + 1}</span>` : `<span class="art" style="background-image:${artBg(songArt(s))}"></span>`;
+  const r = ring(key);
+  const lead = number ? `<span class="num">${s.track || i + 1}${r}</span>` : `<span class="art" style="background-image:${artBg(songArt(s))}">${r}</span>`;
   row.innerHTML = `${lead}<span class="txt"><span class="t1">${esc(s.title)}</span><span class="t2">${esc([s.artist || 'Unknown artist', number ? '' : s.album].filter(Boolean).join(' · '))}</span></span><span class="dur">${fmtTime(s.duration)}</span><button class="more" type="button" aria-label="More for ${esc(s.title)}">${ICONS.more}</button>`;
 }
 
@@ -167,6 +186,7 @@ function tapRow (e, inDetail) {
   const card = e.target.closest('.acard');
   if (card) { if (!more) openDetail('album', card.dataset.k); return; }
   const row = e.target.closest('.vrow'); if (!row) return;
+  if (selecting(inDetail ? 'detail' : 'songs')) { const s = songAt(row, inDetail); if (s) toggle(s); return; }
   if (more) { menuFor(row, inDetail); return; }
   if (inDetail) {
     const i = +row.dataset.i, d = st.detail;
@@ -212,9 +232,12 @@ export function openDetail (kind, key, keep = false) {
     `<div class="dt-btns"><button class="m-btn" type="button" data-play>${ICONS.play}<span>Play</span></button><button class="m-btn m-btn-2" type="button" data-shuffle>${ICONS.shuffle}<span>Shuffle</span></button></div>`;
   head.querySelector('[data-play]').addEventListener('click', () => player.playList(songs, 0, { shuffle: false, from }));
   head.querySelector('[data-shuffle]').addEventListener('click', () => player.playList(songs, -1, { shuffle: true, from }));
+  // Drawn again (after a delete): where it was scrolled to stays.
+  const y = keep ? $('dt-list').scrollTop : 0;
   st.dvl?.destroy();
-  st.dvl = new VList($('dt-list'), { rowHeight: 64, head, render: (i, row) => songRow(songs[i], row, i, { number: kind === 'album' }) });
+  st.dvl = new VList($('dt-list'), { rowHeight: 64, head, render: (i, row) => songRow(songs[i], row, i, { number: kind === 'album', key: 'detail' }) });
   st.dvl.setCount(songs.length);
+  if (y) { $('dt-list').scrollTop = y; st.dvl.refresh(); }
   const v = $('v-detail');
   if (!keep) { v.classList.remove('hidden'); requestAnimationFrame(() => v.classList.add('on')); }
   setTimeout(() => st.dvl?.refresh(), 60);                     // the header's height, once laid out
@@ -223,6 +246,7 @@ export function openDetail (kind, key, keep = false) {
 export function closeDetail () {
   const v = $('v-detail');
   if (!st.detail) return false;
+  endSelect('detail');
   st.detail = null;
   v.classList.remove('on');
   setTimeout(() => { if (!st.detail) { v.classList.add('hidden'); st.dvl?.destroy(); st.dvl = null; } }, 220);
@@ -252,16 +276,73 @@ function sortMenu () {
 }
 
 // ── a song's choices ─────────────────────────────────────────────────
+const songAt = (row, inDetail) => (inDetail ? st.dsongs[+row.dataset.i] : st.kind === 'songs' ? st.list[+row.dataset.i] : null) || null;
+
+/** A long press: on a song, choosing several starts (or it is added); on an album or a folder, its choices. */
+function longPress (row, inDetail) {
+  const key = inDetail ? 'detail' : 'songs';
+  const s = row.classList.contains('song') ? songAt(row, inDetail) : null;
+  if (!s) { menuFor(row, inDetail); return; }
+  if (!s.id) { songMenu(s); return; }
+  if (selecting(key)) toggle(s); else startSelect(chooser(key), s);
+}
+
+/** Choosing several songs: in the Songs list ('songs') or in an album, artist or folder ('detail'). */
+function chooser (key) {
+  const inDetail = key === 'detail';
+  const from = () => (inDetail ? st.detail?.from || '' : '');
+  return {
+    key, kind: 'audio',
+    scroller: inDetail ? $('dt-list') : $('mu-list'),
+    items: () => (inDetail ? st.dsongs : st.kind === 'songs' ? st.list : []),
+    refresh: () => (inDetail ? st.dvl : st.vl)?.refresh(),
+    actions: [
+      { icon: 'share', label: 'Share', run: list => { shareItems('audio', list); endSelect(); } },
+      ...(canDelete() ? [{ icon: 'trash', label: 'Delete', run: list => deleteItems('audio', list) }] : []),
+      { icon: 'more', label: 'More', run: list => sheet({ title: howMany('audio', list.length), items: [
+        { icon: 'play', label: 'Play', action: () => { endSelect(); player.playList(list, 0, { shuffle: false, from: from() }); } },
+        { icon: 'shuffle', label: 'Shuffle', action: () => { endSelect(); player.playList(list, -1, { shuffle: true, from: from() }); } },
+        { icon: 'queueNext', label: 'Play next', action: () => { endSelect(); playNext(list); } },
+        { icon: 'queueAdd', label: 'Add to queue', action: () => { endSelect(); addToQueue(list); } },
+      ] }) },
+    ],
+  };
+}
+
+/** After the song playing, in their order. Nothing playing: they play. */
+function playNext (list) {
+  if (!player.current) { player.playList(list, 0, { shuffle: false, from: '' }); return; }
+  for (let k = list.length - 1; k >= 0; k--) player.playNext(list[k]);
+  toast(list.length === 1 ? 'Plays next: ' + list[0].title : `${list.length} songs play next`);
+}
+/** At the end of the queue. Nothing playing: they play. */
+function addToQueue (list) {
+  if (!player.current) { player.playList(list, 0, { shuffle: false, from: '' }); return; }
+  for (const s of list) player.addToQueue(s);
+  toast(list.length === 1 ? 'Added to the queue' : `${list.length} songs added to the queue`);
+}
+
 function menuFor (row, inDetail) {
   if (row.classList.contains('acard')) {
     const a = lib.albums.find(x => x.key === row.dataset.k); if (!a) return;
     return sheet({ title: a.name, sub: a.artist, art: a.art ? a.art + '?s=144' : '', items: [
       { icon: 'play', label: 'Play', action: () => player.playList(a.songs, 0, { shuffle: false, from: 'Album: ' + a.name }) },
       { icon: 'shuffle', label: 'Shuffle', action: () => player.playList(a.songs, -1, { shuffle: true, from: 'Album: ' + a.name }) },
-      { icon: 'queueAdd', label: 'Add to queue', action: () => { for (const s of a.songs) player.addToQueue(s); toast(`${a.songs.length} songs added to the queue`); } },
+      { icon: 'queueAdd', label: 'Add to queue', action: () => addToQueue(a.songs) },
+      ...(canDelete() ? [{ icon: 'trash', label: 'Delete the album', danger: true, note: howMany('audio', a.songs.length), action: () => deleteItems('audio', a.songs) }] : []),
     ] });
   }
-  const s = inDetail ? st.dsongs[+row.dataset.i] : st.kind === 'songs' ? st.list[+row.dataset.i] : null;
+  // v3.45.0: a folder of songs, its choices
+  if (!inDetail && st.kind === 'folders' && row.classList.contains('folder')) {
+    const f = lib.folders.find(x => x.key === row.dataset.k); if (!f) return;
+    return sheet({ title: f.name, sub: f.path.replace(/^\/storage\/emulated\/0\/?/, '') || 'Phone', items: [
+      { icon: 'play', label: 'Play', action: () => player.playList(f.songs, 0, { shuffle: false, from: 'Folder: ' + f.name }) },
+      { icon: 'shuffle', label: 'Shuffle', action: () => player.playList(f.songs, -1, { shuffle: true, from: 'Folder: ' + f.name }) },
+      { icon: 'queueAdd', label: 'Add to queue', action: () => addToQueue(f.songs) },
+      ...(canDelete() ? [{ icon: 'trash', label: 'Delete the folder', danger: true, note: howMany('audio', f.songs.length), action: () => deleteItems('audio', f.songs, { folder: f.name }) }] : []),
+    ] });
+  }
+  const s = songAt(row, inDetail);
   if (!s) return;
   songMenu(s);
 }
@@ -279,7 +360,10 @@ export function songMenu (s, { fromPlayer = false } = {}) {
   if (s.folder) items.push({ icon: 'folder', label: 'Go to the folder', note: s.folderName, action: () => { window.bmClosePlayer?.(); openDetail('folder', s.folder); } });
   const star = fromPlayer ? null : favItem(songFav(s));   // v3.43.0: for Home's Favourites row (Now Playing has its own)
   if (star) items.push(star);
+  // v3.45.0: the file itself to another app, or deleted from the phone
+  if (s.id) items.push({ icon: 'share', label: 'Share', action: () => shareItems('audio', [s]) });
   items.push({ icon: 'info', label: 'Details', action: () => details(s) });
+  if (s.id && canDelete()) items.push({ icon: 'trash', label: 'Delete', danger: true, action: () => deleteItems('audio', [s]) });
   sheet({ title: s.title, sub: [s.artist, s.album].filter(Boolean).join(' · '), art: songArt(s), items });
 }
 

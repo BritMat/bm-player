@@ -97,64 +97,6 @@ export function relativeTime(ts){
   if(w < 5) return w+'w ago';
   return new Date(ts).toLocaleDateString();
 }
-/**
- * Extract the first .srt file from a ZIP byte array using the spec-defined
- * ZIP central-directory format. Renderer-native (no adm-zip needed) — the
- * OpenSubtitles ZIP is small (a single subtitle file).
- */
-async function extractSrtFromZip(buf){
-  if(!buf || buf.length < 22) return null;
-  // Find End-of-Central-Directory record (0x06054b50) by scanning backwards
-  let eocd = -1;
-  for(let i = buf.length - 22; i >= Math.max(0, buf.length - 65557); i--){
-    if(buf[i]===0x50 && buf[i+1]===0x4b && buf[i+2]===0x05 && buf[i+3]===0x06){ eocd = i; break; }
-  }
-  if(eocd === -1) return null;
-  const dv = new DataView(buf.buffer, buf.byteOffset, buf.byteLength);
-  const cdEntries = dv.getUint16(eocd + 10, true);
-  const cdOffset = dv.getUint32(eocd + 16, true);
-  let offset = cdOffset;
-  for(let i = 0; i < cdEntries; i++){
-    if(offset + 46 > buf.length) break;
-    const sig = dv.getUint32(offset, true);
-    if(sig !== 0x02014b50) break;
-    const compMethod = dv.getUint16(offset + 10, true);
-    const compSize = dv.getUint32(offset + 20, true);
-    const uncompSize = dv.getUint32(offset + 24, true);
-    const fnameLen = dv.getUint16(offset + 28, true);
-    const extraLen = dv.getUint16(offset + 30, true);
-    const commentLen = dv.getUint16(offset + 32, true);
-    const localHeaderOffset = dv.getUint32(offset + 42, true);
-    // Read filename
-    let fname = '';
-    for(let j = 0; j < fnameLen; j++){
-      fname += String.fromCharCode(buf[offset + 46 + j]);
-    }
-    // Move to next entry
-    offset += 46 + fnameLen + extraLen + commentLen;
-    // Is this an .srt file?
-    if(!fname.toLowerCase().endsWith('.srt')) continue;
-    // Find the local file header to get the actual data offset
-    if(localHeaderOffset + 30 > buf.length) continue;
-    const localFnameLen = dv.getUint16(localHeaderOffset + 26, true);
-    const localExtraLen = dv.getUint16(localHeaderOffset + 28, true);
-    const dataOffset = localHeaderOffset + 30 + localFnameLen + localExtraLen;
-    const compressed = buf.slice(dataOffset, dataOffset + compSize);
-    if(compMethod === 0){
-      // Stored — no decompression needed
-      return compressed;
-    } else if(compMethod === 8){
-      // Deflate — use the renderer's DecompressionStream
-      try{
-        const blob = new Blob([compressed]);
-        const ds = blob.stream().pipeThrough(new DecompressionStream('deflate-raw'));
-        const decompressed = await new Response(ds).arrayBuffer();
-        return new Uint8Array(decompressed);
-      }catch(_){ continue; }
-    }
-  }
-  return null;
-}
 
 // Shared folder picker.
 // The old per-module code had three "fallbacks": Electron IPC, then
@@ -178,3 +120,18 @@ export async function pickFolder(api){
 }
 
 // ── Gallery ────────────────────────────────────────────────────
+
+/**
+ * A film's name from its file, for a subtitle search (v3.46.0): the
+ * folder, the extension, a leading number and the release words (1080p,
+ * x264, BluRay, the group's name in brackets) taken off, the year kept.
+ * "12. The.Film.2019.1080p.BluRay.x264-GRP.mkv" gives "The Film 2019".
+ */
+export function filmName(p){
+  let n=basenameOf(String(p||'')).replace(/\.[^.]{1,5}$/,'');
+  n=n.replace(/^\d{1,3}[\s.\-_]+(?=\D)/,'').replace(/[._]+/g,' ').replace(/\[[^\]]*\]/g,' ');
+  // everything from the first release word on is the release, not the name
+  const tag=/\b(2160p|1080p|720p|480p|4k|uhd|hdr|10bit|x26[45]|h\.?26[45]|hevc|avc|bluray|blu ray|brrip|bdrip|web ?dl|web ?rip|webrip|hdrip|dvdrip|hdtv|remux|aac|ac3|dts|ddp?5 1|yify|rarbg|proper|repack|extended|unrated)\b/i;
+  const m=tag.exec(n); if(m&&m.index>0) n=n.slice(0,m.index);
+  return n.replace(/\(\s*\)/g,' ').replace(/\s*-\s*$/,'').replace(/\s+/g,' ').trim();
+}

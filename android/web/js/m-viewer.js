@@ -10,12 +10,16 @@
  * Big photos are fetched no larger than the screen can show (Java scales
  * them, /media/image/ID?fit=N): a 50-megapixel photo decoded whole would
  * take hundreds of megabytes.
+ *
+ * v3.45.0: a picture of the phone's library can be deleted from here (the
+ * bin at the bottom, or More). The next one takes its place.
  */
 import { $, esc, fmtSize, sheet, toast } from './m-ui.js';
 import { call } from './m-android.js';
 import { remember } from './m-recent.js';
 import { isFav, toggleFav, imageFav, imageKey } from './m-favs.js';
 import { setIcon } from './icons.js';
+import { deleteItems, onDeleted, canDelete } from './m-delete.js';
 
 const v = { open: false, list: [], i: 0, z: 1, x: 0, y: 0, rot: 0, slideT: 0, uiT: 0 };
 let strip, slides = [];
@@ -32,11 +36,31 @@ export function initViewer () {
   $('iv-fav').addEventListener('click', () => { const it = cur(); if (!it) return; toast(toggleFav(imageFav(it)) ? 'Added to favourites' : 'Taken out of favourites', 1300); markFav(); });
   $('iv-info').addEventListener('click', details);
   $('iv-show').addEventListener('click', () => (v.slideT ? stopShow() : startShow()));
+  $('iv-del').addEventListener('click', del);
   wireTouch($('iv'));
   window.addEventListener('resize', () => { if (v.open) { reset(); place(); apply(); } });
+  // Deleted (here or anywhere): out of the pictures swiped through; the
+  // next one shows, or the viewer closes when none are left.
+  onDeleted((kind, gone) => {
+    if (kind !== 'image' || !v.open) return;
+    const it = cur(), list = v.list.filter(x => !gone.has(x.id));
+    if (list.length === v.list.length) return;
+    if (!list.length) { v.list = []; closeViewer(); return; }
+    const before = v.list.slice(0, v.i).filter(x => gone.has(x.id)).length;
+    v.i = it && !gone.has(it.id) ? list.indexOf(it) : Math.min(v.i - before, list.length - 1);
+    v.list = list; v.rot = 0;
+    reset(); load(); place(); apply();
+  });
 }
 
 const cur = () => v.list[v.i];
+/** A picture of the phone's library (one from another app is not BM Player's to delete). */
+const deletable = it => !!it && !!it.id && /^\/media\/image\//.test(it.url || '') && canDelete();
+function del () {
+  const it = cur(); if (!deletable(it)) return;
+  stopShow();
+  deleteItems('image', [it]);
+}
 
 /** Opens pictures: list of { url, title, mime, w, h, size, ... }, at index. */
 export function openImages (list, index = 0) {
@@ -83,6 +107,7 @@ function load () {
   $('iv-meta').textContent = [it?.w && it?.h ? `${it.w} × ${it.h}` : '', it?.size ? fmtSize(it.size) : '', it?.taken ? new Date(it.taken).toLocaleDateString() : ''].filter(Boolean).join(' · ');
   $('iv-count').textContent = v.list.length > 1 ? `${v.i + 1} / ${v.list.length}` : '';
   $('iv-show').classList.toggle('hidden', v.list.length < 2);
+  $('iv-del').classList.toggle('hidden', !deletable(it));
   markFav();
 }
 
@@ -229,6 +254,7 @@ function more () {
     { icon: 'rotateL', label: 'Turn it', action: () => { v.rot = (v.rot + 270) % 360; reset(); apply(); } },
     ...(v.list.length > 1 ? [{ icon: 'slides', label: 'Slideshow', action: startShow }] : []),
     { icon: 'info', label: 'Details', action: details },
+    ...(deletable(it) ? [{ icon: 'trash', label: 'Delete', danger: true, action: del }] : []),
   ] });
 }
 

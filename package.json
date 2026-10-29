@@ -1,7 +1,7 @@
 {
   "name": "bm-player",
   "productName": "BM Player",
-  "version": "3.44.0",
+  "version": "3.46.0",
   "description": "A professional media player powered by mpv — TV/IPTV, gallery, music library with tag reading, and a PDF suite",
   "main": "main.js",
   "scripts": {
@@ -19,15 +19,16 @@
     "lint:syntax": "node scripts/check-syntax.js",
     "lint:contracts": "node scripts/check-contracts.js",
     "test:smoke": "node scripts/smoke-renderer.mjs",
-    "test": "npm run lint:syntax && npm run lint:contracts && npm run lint:electron && npm run test:plugins && npm run test:main && npm run test:modules && npm run test:smoke && npm run test:mpv",
+    "test": "npm run lint:syntax && npm run lint:contracts && npm run lint:electron && npm run test:plugins && npm run test:main && npm run test:modules && npm run test:translit && npm run test:smoke && npm run test:mpv",
     "pretest": "echo \"BM Player verification pipeline\"",
     "test:main": "node scripts/smoke-main.cjs && node scripts/smoke-main.cjs --compat-run && node scripts/smoke-main.cjs --lite-run",
     "lint:electron": "node scripts/check-electron-api.js",
     "diag:sample": "node scripts/print-diag-sample.mjs",
     "test:modules": "node scripts/smoke-modules.mjs",
+    "test:translit": "node scripts/check-translit.mjs",
     "start:compat": "electron . --no-sandbox --compat",
     "test:mpv": "node scripts/integration-mpv.cjs",
-    "test:e2e": "node scripts/e2e.mjs --part=a && node scripts/e2e.mjs --part=b && node scripts/e2e.mjs --part=c",
+    "test:e2e": "node scripts/e2e.mjs --part=a && node scripts/e2e.mjs --part=b && node scripts/e2e.mjs --part=c && node scripts/e2e.mjs --part=d",
     "test:plugins": "node scripts/smoke-plugins.cjs",
     "build:android": "node android/build-apk.mjs",
     "test:android": "node scripts/android-page.mjs && node scripts/updater-check.mjs"

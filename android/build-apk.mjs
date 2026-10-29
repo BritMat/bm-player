@@ -93,7 +93,7 @@ const MPV = {
 // The desktop's files the phone's page uses, as they are (src/ unless said).
 const FROM_DESKTOP = [
   'js/visualizer.js', 'js/fluid.js', 'js/viz-art.js', 'js/viz-beat.js', 'js/neon-gl.js', 'js/perf.js', 'js/power.js',
-  'js/md-browser.js', 'js/viz-settings.js', 'js/icons.js', 'js/audio-engine.js', 'js/modules/lyrics.js',
+  'js/md-browser.js', 'js/viz-settings.js', 'js/icons.js', 'js/audio-engine.js', 'js/modules/lyrics.js', 'js/translit.js',
   // v3.42.0: the home screen's fox, backgrounds and play, and the PDF reader
   'js/fox3d.js', 'js/fox3d-mesh.js', 'js/geofox.js', 'js/theme-fx.js', 'js/theme-scenes.js', 'js/flow-settings.js',
   'js/play/sfx.js', 'js/play/fox-play.js', 'js/play/fox-voice.js', 'js/play/flow-toy.js', 'js/play/slice-game.js',

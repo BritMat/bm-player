@@ -271,9 +271,12 @@ final class MpvPlayer implements MPVLib.Listener, SurfaceHolder.Callback, AudioM
             MPVLib.setOptionString("ao", "audiotrack,opensles");
             MPVLib.setOptionString("audio-set-media-role", "yes");
             MPVLib.setOptionString("volume-max", "150");                 // the volume swipe's boost (v3.42.0)
-            String cacheBytes = String.valueOf((Build.VERSION.SDK_INT >= 27 ? 64 : 32) * 1024 * 1024);
-            MPVLib.setOptionString("demuxer-max-bytes", cacheBytes);
-            MPVLib.setOptionString("demuxer-max-back-bytes", cacheBytes);
+            // What mpv keeps in memory ahead of where it plays, and behind:
+            // by how much memory the phone has (v3.45.0). It was 64 MB both
+            // ways on every phone since Android 8, a lot on a 2 GB one.
+            int mb = cacheMegabytes();
+            MPVLib.setOptionString("demuxer-max-bytes", String.valueOf(mb * 1024 * 1024));
+            MPVLib.setOptionString("demuxer-max-back-bytes", String.valueOf(mb / 2 * 1024 * 1024));
             float hz = refreshRate();
             if (hz > 1) MPVLib.setOptionString("display-fps-override", String.valueOf(hz));
             // BM Player's own: the last picture stays at the end (as a video
@@ -313,6 +316,20 @@ final class MpvPlayer implements MPVLib.Listener, SurfaceHolder.Callback, AudioM
     }
 
     @SuppressWarnings("deprecation")
+    /** 64 MB on a phone with 4 GB or more, 48 from 3 GB, 32 below, 16 on one Android calls low on memory. */
+    private int cacheMegabytes() {
+        try {
+            android.app.ActivityManager am = (android.app.ActivityManager) app.getSystemService(Context.ACTIVITY_SERVICE);
+            if (am == null) return 32;
+            if (am.isLowRamDevice()) return 16;
+            android.app.ActivityManager.MemoryInfo mi = new android.app.ActivityManager.MemoryInfo();
+            am.getMemoryInfo(mi);
+            // A phone sold as 4 GB tells of 3.5 GB or so: what the system keeps is not counted.
+            long mb = mi.totalMem / (1024L * 1024L);
+            return mb >= 3400 ? 64 : mb >= 2600 ? 48 : 32;
+        } catch (Exception e) { return 32; }
+    }
+
     private float refreshRate() {
         try {
             Display d = a.getWindowManager().getDefaultDisplay();

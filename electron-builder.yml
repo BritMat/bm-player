@@ -23,6 +23,7 @@ files:
   - "lyrics.js"
   - "lyrics-core.js"
   - "ytdlp.js"
+  - "thumbs.js"
   - "plugin-templates/**/*"
   - "src/**/*"
   - "plugins/**/*"

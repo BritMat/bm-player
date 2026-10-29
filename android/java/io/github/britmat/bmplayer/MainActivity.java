@@ -74,6 +74,7 @@ public class MainActivity extends Activity {
     WebView web;
     LocalServer server;
     MpvPlayer mpv;
+    MediaDelete deleter;
     private boolean videoBehind;
     private WebChromeClient chrome;
     private View customView;
@@ -106,6 +107,7 @@ public class MainActivity extends Activity {
         setContentView(root);
         server = new LocalServer(getApplicationContext());
         mpv = new MpvPlayer(this);
+        deleter = new MediaDelete(this);
         try {
             makeWeb();
         } catch (Throwable t) {
@@ -298,6 +300,8 @@ public class MainActivity extends Activity {
 
     @Override
     protected void onActivityResult(int request, int result, Intent data) {
+        // Android's answer about deleting (v3.45.0).
+        if (request == MediaDelete.REQ_ALL || request == MediaDelete.REQ_ONE) { deleter.onResult(request, result); return; }
         if (request == REQ_FILE) {
             ValueCallback<Uri[]> cb = fileCallback;
             fileCallback = null;
@@ -368,10 +372,15 @@ public class MainActivity extends Activity {
     /** A song, video or picture by its address in the page (/media/KIND/ID, /opened/N) as Android's. */
     Uri uriOf(String src) {
         if (src == null) return null;
+        // All here (v3.45.0), so sharing works when mpv could not start.
+        String s = src.split("\\?")[0];
         try {
-            if (src.startsWith("/media/image/")) return android.content.ContentUris.withAppendedId(android.provider.MediaStore.Images.Media.EXTERNAL_CONTENT_URI, Long.parseLong(src.substring(13).split("\\?")[0]));
+            if (s.startsWith("/media/image/")) return android.content.ContentUris.withAppendedId(MediaDelete.base("image"), Long.parseLong(s.substring(13)));
+            if (s.startsWith("/media/video/")) return android.content.ContentUris.withAppendedId(MediaDelete.base("video"), Long.parseLong(s.substring(13)));
+            if (s.startsWith("/media/audio/")) return android.content.ContentUris.withAppendedId(MediaDelete.base("audio"), Long.parseLong(s.substring(13)));
+            if (s.startsWith("/opened/") && server != null) return server.uri(Integer.parseInt(s.substring(8)));
         } catch (NumberFormatException ignored) { }
-        return mpv == null ? null : mpv.uriOf(src);
+        return null;
     }
 
     /** Sent to another app (a chat, an email), as the file itself. */
@@ -385,6 +394,31 @@ public class MainActivity extends Activity {
             i.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
             startActivity(Intent.createChooser(i, "Share"));
         } catch (Exception e) { BMLog.w("share file: " + e); }
+    }
+
+    /**
+     * Several files to another app at once (v3.45.0): JSON { srcs, type }.
+     * One goes as a single file, as shareFile sends it.
+     */
+    void shareFiles(String json) {
+        ArrayList<Uri> uris = new ArrayList<Uri>();
+        String type = "*/*";
+        try {
+            JSONObject o = new JSONObject(json);
+            org.json.JSONArray srcs = o.getJSONArray("srcs");
+            for (int k = 0; k < srcs.length() && uris.size() < 500; k++) { Uri u = uriOf(srcs.getString(k)); if (u != null) uris.add(u); }
+            String t = o.optString("type", "");
+            if (t.length() > 0) type = t;
+        } catch (Exception e) { BMLog.w("share files: " + e); return; }
+        if (uris.isEmpty()) return;
+        try {
+            Intent i;
+            if (uris.size() == 1) { i = new Intent(Intent.ACTION_SEND); i.putExtra(Intent.EXTRA_STREAM, uris.get(0)); }
+            else { i = new Intent(Intent.ACTION_SEND_MULTIPLE); i.putParcelableArrayListExtra(Intent.EXTRA_STREAM, uris); }
+            i.setType(type);
+            i.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+            startActivity(Intent.createChooser(i, "Share"));
+        } catch (Exception e) { BMLog.w("share files: " + e); }
     }
 
     // ── files Android keeps for the app (v3.42.0) ────────────────────
@@ -572,6 +606,7 @@ public class MainActivity extends Activity {
     @Override
     public void onRequestPermissionsResult(int code, String[] perms, int[] results) {
         super.onRequestPermissionsResult(code, perms, results);
+        if (code == MediaDelete.REQ_WRITE) { deleter.onPermission(results.length > 0 && results[0] == PackageManager.PERMISSION_GRANTED); return; }
         if (code == REQ_MIC && pendingMic != null) {
             PermissionRequest r = pendingMic;
             pendingMic = null;

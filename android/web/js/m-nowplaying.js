@@ -160,11 +160,10 @@ function applyMode () {
 }
 
 function startViz () {
-  if (!viz) {
-    viz = new Visualizer($('np-viz'));
-    const an = player.engine?.getAnalyser?.();
-    if (an) viz.analyser = an;
-  }
+  if (!viz) viz = new Visualizer($('np-viz'));
+  // Asked each time: the engine makes its analyser with the first song (v3.45.0).
+  const an = player.engine?.getAnalyser?.();
+  if (an) viz.analyser = an;
   const s = vizSettings();
   viz.setOptions(s);
   viz.setMode(s.style && s.style !== 'off' ? s.style : 'bars');
@@ -230,8 +229,12 @@ function queueRow (i, row) {
 
 // ── showing the song ─────────────────────────────────────────────────
 function trackChanged (s) {
+  // Nothing left to play (the notification's Close, or the last song of the
+  // queue deleted, v3.45.0): Now Playing goes too, rather than showing it still.
+  if (!s && open) closePlayer();
   showTrack(s);
   updateMini();
+  if (viz && !viz.analyser) { const an = player.engine?.getAnalyser?.(); if (an) viz.analyser = an; }
   if (s) {
     setSharedArt(songArt(s, 480) || null);
     lyrics.song(lyricsKey(s), { title: s.title, artist: s.artist, album: s.album, duration: s.duration });

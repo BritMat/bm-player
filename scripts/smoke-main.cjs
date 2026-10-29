@@ -698,6 +698,37 @@ await step('PiP size button cycles three sizes, anchored and on screen', async (
     if (r !== null || b.width !== NORMAL.width) throw new Error('resized a normal window');
   });
 
+  // v3.46.0: a crash on Linux or macOS ends mpv with a signal and no exit
+  // code. That was taken for a clean exit, so mpv was never started again and
+  // nothing played until BM Player itself was restarted.
+  const mpvStates = () => rec.sent.filter(([ch]) => ch === 'mpv:status').map(([, v]) => v.state);
+  const crashNow = (proc, ...why) => {
+    const realNow = Date.now;
+    Date.now = () => realNow() + 60000;      // it had played for a minute
+    try { proc.emit('exit', ...why); } finally { Date.now = realNow; }
+  };
+  await step('mpv that crashes with a signal is started again', async () => {
+    const last = rec.spawned.at(-1);
+    if (!last) { console.log('      (no mpv on this machine: not checked)'); return; }
+    const n = rec.spawned.length;
+    crashNow(last.proc, null, 'SIGSEGV');
+    await new Promise(r => setTimeout(r, 1200));
+    if (rec.spawned.length !== n + 1) throw new Error('mpv was not started again');
+    if (mpvStates().at(-1) !== 'crashed') throw new Error('the page was told ' + mpvStates().at(-1));
+  });
+  if (!LITE && !COMPAT) {
+    await step('mpv that keeps crashing is left alone, and started again for the next file opened', async () => {
+      if (!rec.spawned.length) { console.log('      (no mpv on this machine: not checked)'); return; }
+      for (let i = 0; i < 4; i++) { crashNow(rec.spawned.at(-1).proc, 3221225477, null); await new Promise(r => setTimeout(r, 1150)); }
+      const n = rec.spawned.length;
+      await new Promise(r => setTimeout(r, 1200));
+      if (mpvStates().at(-1) !== 'crash-loop') throw new Error('the page was told ' + mpvStates().at(-1));
+      if (rec.spawned.length !== n) throw new Error('mpv went on being started');
+      await rec.handlers.get('mpv:open')({}, [path.join(TMP, 'film.mkv')]);
+      if (rec.spawned.length !== n + 1) throw new Error('opening a file did not start mpv again');
+    });
+  }
+
   // v3.37.0, from a real machine's main-errors.log: quitting in the first
   // moments of a start had mpv started on a picture window that was already
   // destroyed ("Object has been destroyed"). mpv dying at once is one of the
@@ -829,6 +860,46 @@ await step('PiP size button cycles three sizes, anchored and on screen', async (
   });
 
   // yt-dlp, fetched on first use and checked against its published sum (v3.39.0).
+  // v3.46.0: the seek bar's pictures, each from an mpv of its own (thumbs.js).
+  // A fake mpv writes the JPEG into the folder it is given, as mpv's image
+  // output does, or never finishes.
+  await step('seek bar pictures: one mpv a picture, kept, files only, the newest asked for made, a stuck mpv stopped', async () => {
+    const { makeThumbs } = require(path.join(ROOT, 'thumbs.js'));
+    const EE = require('events');
+    const film = path.join(TMP, 'a film #1.mkv'); fs.writeFileSync(film, 'x');
+    const runs = [];
+    const fakeSpawn = hang => (exe, args) => {
+      const p = new EE(); p.kill = () => { p.killed = true; setTimeout(() => p.emit('exit', null, 'SIGTERM'), 5); };
+      runs.push(args);
+      if (!hang) setTimeout(() => {
+        const dir = args.find(a => a.startsWith('--vo-image-outdir=')).split('=').slice(1).join('=');
+        fs.writeFileSync(path.join(dir, '00000001.jpg'), Buffer.from([0xff, 0xd8, 0xff, 0xd9]));
+        p.emit('exit', 0, null);
+      }, 30);
+      return p;
+    };
+    const t = makeThumbs({ getMpv: () => '/usr/bin/mpv', spawnFn: fakeSpawn(false) });
+    const one = await t.thumbAt(film, 12);
+    if (!/^data:image\/jpeg;base64,/.test(one || '')) throw new Error('no picture: ' + one);
+    const a = runs[0];
+    for (const want of ['--vo=image', '--start=12.00', '--frames=1', '--no-config', '--aid=no']) if (!a.includes(want)) throw new Error('mpv was not given ' + want + ': ' + a.join(' '));
+    if (a.at(-1) !== film || a.at(-2) !== '--') throw new Error('the file is not last, after --: ' + a.slice(-2).join(' '));
+    await t.thumbAt(film, 12.2);
+    if (runs.length !== 1) throw new Error('the same second was made twice');
+    if (await t.thumbAt('https://example.com/film.mkv', 5) !== null || await t.thumbAt(path.join(TMP, 'not there.mkv'), 5) !== null) throw new Error('a stream or a missing file was answered');
+    if (runs.length !== 1) throw new Error('mpv was started for a stream or a missing file');
+    const [p1, p2, p3] = [t.thumbAt(film, 100), t.thumbAt(film, 200), t.thumbAt(film, 300)];
+    const got = await Promise.all([p1, p2, p3]);
+    if (!got[0] || got[1] !== null || !got[2]) throw new Error('the one passed over was made, or the newest was not: ' + got.map(Boolean));
+    if (runs.length !== 3 || !runs[2].includes('--start=300.00')) throw new Error(runs.length + ' runs, the last for ' + runs.at(-1).find(x => x.startsWith('--start')));
+    const stuck = makeThumbs({ getMpv: () => '/usr/bin/mpv', spawnFn: fakeSpawn(true), timeoutMs: 150 });
+    const t0 = Date.now(), none = await stuck.thumbAt(film, 5);
+    if (none !== null || Date.now() - t0 > 1500) throw new Error('a stuck mpv: ' + none + ' after ' + (Date.now() - t0) + ' ms');
+    await new Promise(r => setTimeout(r, 50));
+    const left = fs.readdirSync(os.tmpdir()).filter(n => n.startsWith('bm-thumb-'));
+    if (left.length) throw new Error('folders left behind: ' + left.join(', '));
+  });
+
   await step('YouTube captions: yt-dlp fetched once and checked, the song found by its length, its own captions first', async () => {
     const { makeYtdlp, binaryName } = require(path.join(ROOT, 'ytdlp.js'));
     if (binaryName('win32', 'x64') !== 'yt-dlp.exe' || binaryName('linux', 'arm64') !== 'yt-dlp_linux_aarch64' || binaryName('darwin', 'arm64') !== 'yt-dlp_macos') throw new Error('the release file names are wrong');

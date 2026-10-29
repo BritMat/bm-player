@@ -293,6 +293,23 @@ try {
     ok(await until(() => window.bmLyrics.source === 'lrclib' && window.bmLyrics.lines.length === 4), 'LRCLIB, through Java (the best match, timed)');
     ok(mock.hits.lrclib.some(u => u.includes('/api/search')), 'asked LRCLIB by artist and title');
     void s7;
+    // v3.46.0: lyrics in another alphabet, in English letters or both
+    await page.tap('#mini-open');
+    await until(() => document.getElementById('np').classList.contains('on'));
+    await page.tap('#np-tab-lyrics');
+    await until(() => document.getElementById('np-drawer').classList.contains('on'));
+    await ev(() => { const l = window.bmLyrics; l._apply({ source: 'file', synced: '[00:00.00]ഇന്ന് നല്ല മഴയാണ്\n[00:04.00]നീ എന്റെ കൂടെ വരുമോ\n[00:08.00]காதல் வந்தேன்\n[00:12.00]and English', plain: null }); l._render(); });
+    ok(await until(() => document.querySelectorAll('#np-lyrics .lyr-sbtn').length === 3), 'Malayalam lyrics: Original, English letters and Both offered');
+    await page.tap('#np-lyrics .lyr-sbtn[data-v="both"]');
+    ok(await until(() => document.querySelector('#np-lyrics .lyr-line[data-i="0"] .lyr-rom')?.textContent === 'Innu nalla mazhayaanu'
+      && document.querySelector('#np-lyrics .lyr-line[data-i="2"] .lyr-rom')?.textContent === 'Kaadhal vandhen' && !document.querySelector('#np-lyrics .lyr-line[data-i="3"] .lyr-rom')), 'Both: the English letters under each line (Malayalam and Tamil), none under English');
+    const sb = await ev(() => { const r = document.querySelector('#np-lyrics .lyr-script').getBoundingClientRect(); return { h: r.height, w: r.width, right: r.right, vw: innerWidth }; });
+    ok(sb.h >= 34 && sb.right <= sb.vw, `the choice fits the phone and is big enough to tap (${Math.round(sb.w)}×${Math.round(sb.h)})`);
+    await sleep(300); await shot('06b-lyrics-english-letters');
+    await page.tap('#np-lyrics .lyr-sbtn[data-v="latin"]');
+    ok(await until(() => document.querySelector('#np-lyrics .lyr-line[data-i="1"]')?.textContent === 'Nee ente koode varumo' && localStorage.getItem('bm_lyrics_script') === 'latin'), 'English letters alone, and the choice kept');
+    await page.tap('#np-lyrics .lyr-sbtn[data-v="original"]');
+    await ev(() => window.BMNative.back()); await ev(() => window.BMNative.back());
   }
 
   step = 'Back';
@@ -716,6 +733,141 @@ try {
   await ev(() => window.BMNative.event('open', { url: '/media/audio/101', kind: 'audio', name: 'From a file manager.mp3', mime: 'audio/mpeg' }));
   ok(await until(() => window.__bmPlayback?.title === 'From a file manager' && document.getElementById('np').classList.contains('on')), 'an audio file plays, in Now Playing');
   await ev(() => window.BMNative.back());
+
+  // v3.45.0: several chosen at once, shared, and deleted from the phone. The
+  // stand-in answers as Android would (m-android.js): mock_delete is what the
+  // person says to Android's question, mock_sdk the Android version.
+  if (mock.lib.images.length) {
+    step = 'choosing and deleting';
+    console.log('\n' + step);
+    const cdp = await page.context().newCDPSession(page);
+    const centre = sel => ev(s => { const r = document.querySelector(s)?.getBoundingClientRect(); return r && r.width ? [r.x + r.width / 2, r.y + r.height / 2] : null; }, sel);
+    const hold = async sel => {
+      const p = await centre(sel); if (!p) throw new Error('nothing to hold at ' + sel);
+      await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x: p[0], y: p[1] }] });
+      await sleep(800);
+      await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+      await sleep(250);
+    };
+    const bar = () => ev(() => ({ on: document.getElementById('sel-bar').classList.contains('on'), n: document.getElementById('sel-n').textContent }));
+    const toastSays = src => until(s => document.getElementById('toast').classList.contains('on') && new RegExp(s).test(document.getElementById('toast').textContent), src);
+    const sheetSays = src => until(s => !document.getElementById('sheet').classList.contains('hidden') && new RegExp(s).test(document.getElementById('sheet').textContent), src);
+    const asked = () => ev(() => (window.__bmDeleted || []).length);
+
+    // Pictures: a long press starts choosing, taps add and take away
+    await page.tap('#nav button[data-tab="photos"]');
+    await page.tap('#ph-chips .chip[data-k="all"]');
+    await until(() => document.querySelectorAll('#ph-list .ptile').length === 3);
+    await hold('#ph-list .ptile[data-pi="0"]');
+    let b = await bar();
+    ok(b.on && b.n === '1 selected' && await ev(() => document.getElementById('ph-list').classList.contains('selecting') && document.querySelector('#ph-list .ptile[data-pi="0"]').classList.contains('sel')
+      && document.querySelectorAll('#ph-list .sel-mark').length === 3), `a long press on a picture starts choosing, with it chosen (${b.n})`);
+    ok(await ev(() => document.getElementById('iv').classList.contains('hidden')), 'and does not open it');
+    await page.tap('#ph-list .ptile[data-pi="1"]');
+    ok((await bar()).n === '2 selected', 'a tap chooses another');
+    await page.tap('#ph-list .ptile[data-pi="1"]');
+    ok((await bar()).n === '1 selected' && await ev(() => !document.querySelector('#ph-list .ptile[data-pi="1"]').classList.contains('sel')), 'a second tap takes it away');
+    await page.tap('#sel-all');
+    ok((await bar()).n === '3 selected' && await ev(() => document.getElementById('sel-all').getAttribute('aria-label') === 'Select none'), 'Select all chooses all three');
+    await sleep(250); await shot('17-choosing');
+    ok(await ev(() => window.BMNative.back()) === 'handled' && await until(() => !document.getElementById('sel-bar').classList.contains('on')
+      && !document.querySelector('#ph-list .sel, #ph-list .sel-mark') && !document.getElementById('ph-list').classList.contains('selecting')), 'Back ends the choosing, and nothing is left marked');
+
+    // Two shared at once
+    await hold('#ph-list .ptile[data-pi="0"]');
+    await page.tap('#ph-list .ptile[data-pi="2"]');
+    await page.tap('#sel-acts button[aria-label="Share"]');
+    const shared = await ev(() => window.__bmSharedFiles);
+    ok(shared?.srcs?.length === 2 && shared.srcs.every(s => /^\/media\/image\/30\d$/.test(s)) && shared.type === 'image/*', `Share sends both pictures at once (${JSON.stringify(shared)})`);
+    ok(!(await bar()).on, 'and the choosing ends');
+
+    // From the viewer: the person says no to Android, then yes
+    const favImages = () => ev(() => JSON.parse(localStorage.getItem('bm_m_favs') || '[]').filter(f => f.kind === 'image').map(f => f.url));
+    const starred = ((await favImages())[0] || '').split('/').pop();
+    ok(!!starred, `a picture was starred earlier (${starred})`);
+    await ev(() => localStorage.setItem('mock_delete', 'no'));
+    await page.tap(`#ph-list .ptile[data-id="${starred}"]`);
+    await until(() => !document.getElementById('iv').classList.contains('hidden'));
+    ok(await ev(() => !document.getElementById('iv-del').classList.contains('hidden')), 'the viewer has Delete for a picture of the phone');
+    let n0 = await asked();
+    await page.tap('#iv-del');
+    ok(await toastSays('Nothing was deleted') && await ev(n => window.__bmDeleted.length === n + 1 && /\/ 3$/.test(document.getElementById('iv-count').textContent), n0), 'Android asked, the person said no: the picture stays');
+    await ev(() => localStorage.setItem('mock_delete', 'yes'));
+    await page.tap('#iv-del');
+    ok(await toastSays('^1 picture deleted') && await until(() => /\/ 2$/.test(document.getElementById('iv-count').textContent)), 'said yes: it goes, and the next one shows');
+    ok(await ev(id => { const d = window.__bmDeleted.at(-1); return d.kind === 'image' && d.ids.join() === id && !d.folder; }, starred), 'Android was asked to delete that one picture');
+    ok((await favImages()).length === 0, 'it is no longer among the favourites');
+    await ev(() => window.BMNative.back());
+    ok(await until(() => document.querySelectorAll('#ph-list .ptile').length === 2), 'the grid has the other two');
+
+    // Android 10 and older delete without asking: the page asks
+    await ev(() => localStorage.setItem('mock_sdk', '29'));
+    await page.reload();
+    await until(() => window.__bmStarted === true, null, 15000);
+    await page.tap('#nav button[data-tab="photos"]');
+    await page.tap('#ph-chips .chip[data-k="albums"]');
+    await until(() => document.querySelectorAll('#ph-list .acard').length === 2);
+    await hold('#ph-list .acard[data-ai="0"]');
+    ok(await sheetSays('Delete the album'), 'a long press on an album offers to delete it');
+    await page.tap('#sheet .sh-item:has-text("Delete the album")');
+    ok(await sheetSays('Delete the folder Camera\\?') && await ev(() => /2 pictures are deleted from the phone for good/.test(document.querySelector('#sheet .sh-sub')?.textContent || '')), 'Android 10: the page asks first, and says how many go');
+    n0 = await asked();
+    await page.tap('#sheet .sh-item:has-text("Cancel")');
+    await sleep(400);
+    ok(await ev(n => (window.__bmDeleted || []).length === n && document.querySelectorAll('#ph-list .acard').length === 2, n0), 'Cancel: Android is not asked, and nothing goes');
+    await hold('#ph-list .acard[data-ai="0"]');
+    await page.tap('#sheet .sh-item:has-text("Delete the album")');
+    await sheetSays('Delete the folder');
+    await page.tap('#sheet .sh-item:has-text("Delete")');
+    ok(await until(() => document.querySelectorAll('#ph-list .acard').length === 1) && await ev(() => { const d = window.__bmDeleted.at(-1); return d.kind === 'image' && d.folder === true && d.ids.length === 2; }), 'Delete: the album\'s two pictures go, and the album with them');
+    ok(await toastSays('^2 pictures deleted'), 'and it says so');
+
+    // A video: chosen, the page asks, and it goes with where it was left
+    if (mock.lib.videos.length) {
+      await page.tap('#nav button[data-tab="videos"]');
+      await page.tap('#vd-chips .chip[data-k="all"]');
+      await until(n => document.querySelectorAll('#vd-list .vrow.video').length === n, mock.lib.videos.length);
+      await hold('#vd-list .vrow.video .txt');
+      ok((await bar()).n === '1 selected' && await ev(() => document.querySelector('#vd-list .vrow.video').classList.contains('sel') && getComputedStyle(document.querySelector('#vd-list .vrow.video .more')).visibility === 'hidden'), 'a long press on a video chooses it (its ⋮ out of the way meanwhile)');
+      await sleep(250); await shot('18-choosing-videos');
+      await page.tap('#sel-acts button[aria-label="Delete"]');
+      ok(await sheetSays('Delete this video\\?'), 'Delete: the page asks first');
+      await page.tap('#sheet .sh-item:has-text("Delete")');
+      ok(await until(() => /No videos found/.test(document.getElementById('vd-empty').textContent)), 'the video goes from the list');
+      ok(await ev(() => !JSON.parse(localStorage.getItem('bm_m_vpos') || '{}').v201 && !JSON.parse(localStorage.getItem('bm_m_recent') || '[]').some(e => e.key === 'v201')), 'and where it was left, and from the recent things');
+      ok(!(await bar()).on, 'the choosing ends with it');
+    }
+
+    // Songs: the one playing goes, the next one left plays
+    await page.tap('#nav button[data-tab="music"]');
+    await page.tap('#mu-chips .chip[data-k="songs"]');
+    await until(() => document.querySelectorAll('#mu-list .vrow.song').length >= 4);
+    const night = await rowOf('Night Lights');
+    await page.tap(`#mu-list .vrow[data-i="${night}"] .txt`);
+    ok(await until(() => window.__bmPlayback?.title === 'Night Lights' && window.__bmPlayback.playing === true, null, 8000), 'a song plays');
+    await hold(`#mu-list .vrow[data-i="${night}"] .txt`);
+    await page.tap(`#mu-list .vrow[data-i="${await rowOf('Ocean Drive')}"] .txt`);
+    ok((await bar()).n === '2 selected' && await ev(() => window.__bmPlayback?.title === 'Night Lights'), 'songs are chosen the same way, and a tap then plays nothing');
+    await sleep(250); await shot('19-choosing-songs');
+    await page.tap('#sel-acts button[aria-label="More"]');
+    ok(await until(() => ['Play', 'Shuffle', 'Play next', 'Add to queue'].every(l => [...document.querySelectorAll('#sheet .sh-lbl')].some(e => e.textContent === l))), 'More offers to play or queue them');
+    await ev(() => window.BMNative.back());
+    await ev(() => localStorage.setItem('mock_delete', 'denied'));
+    await page.tap('#sel-acts button[aria-label="Delete"]');
+    await sheetSays('Delete 2 songs\\?');
+    await sleep(250); await shot('20-delete-asks');
+    await page.tap('#sheet .sh-item:has-text("Delete")');
+    ok(await toastSays('may not change files') && (await bar()).n === '2 selected', 'no access to the storage: it says what to allow, and they stay chosen');
+    await ev(() => localStorage.setItem('mock_delete', 'yes'));
+    await page.tap('#sel-acts button[aria-label="Delete"]');
+    await sheetSays('Delete 2 songs\\?');
+    await page.tap('#sheet .sh-item:has-text("Delete")');
+    ok(await until(() => !!window.__bmPlayback?.title && !/Night Lights|Ocean Drive/.test(window.__bmPlayback.title) && window.__bmPlayback.playing === true, null, 8000), `the song playing went: the next one left plays (${await ev(() => window.__bmPlayback?.title)})`);
+    ok(await ev(() => ![...document.querySelectorAll('#mu-list .vrow .t1')].some(e => /Night Lights|Ocean Drive/.test(e.textContent))), 'both go from the list');
+    ok(await ev(() => !JSON.parse(localStorage.getItem('bm_m_favs') || '[]').some(f => f.key === 's101' || f.key === 's102')), 'and from the favourites');
+    await page.tap('#mini-close');
+    await ev(() => { localStorage.removeItem('mock_sdk'); localStorage.removeItem('mock_delete'); });
+  }
 
   step = 'a long library';
   console.log('\n' + step);

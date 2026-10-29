@@ -48,6 +48,12 @@ export function toggleFav (e) {
   return true;
 }
 export function clearFavs () { const n = list.length; list = []; changed(); return n; }
+/** Several taken away at once, one write (things deleted from the phone, v3.45.0). */
+export function removeFavs (keys) {
+  const n = list.length;
+  list = list.filter(x => !keys.has(x.key));
+  if (list.length !== n) changed();
+}
 
 /** The star as an item for a menu (sheet): adds or takes away, and says so. */
 export function favItem (e) {

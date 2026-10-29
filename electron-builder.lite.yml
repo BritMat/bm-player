@@ -39,6 +39,7 @@ files:
   - "lyrics.js"
   - "lyrics-core.js"
   - "ytdlp.js"
+  - "thumbs.js"
   - "plugin-templates/**/*"
   - "src/**/*"
   - "node_modules/**/*"

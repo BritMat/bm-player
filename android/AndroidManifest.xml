@@ -20,6 +20,10 @@
     <uses-permission android:name="android.permission.READ_MEDIA_VIDEO" />
     <!-- v3.42.0: the Photos tab. -->
     <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
+    <!-- v3.45.0: deleting pictures, videos and songs on Android 7 to 10, asked
+         for only then. From Android 11 Android asks the person about each
+         delete itself, and no permission is needed. -->
+    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="29" />
     <!-- v3.42.0: the fox repeats what it hears. Asked for only when Talk is
          pressed; the sound stays on the phone. MODIFY_AUDIO_SETTINGS is what
          the web engine needs to record at all. -->
@@ -37,7 +41,9 @@
 
     <!-- mpv's libraries (lib/arm64-v8a, lib/armeabi-v7a) are packed compressed,
          which keeps the APK small, and Android unpacks them when it installs
-         the app: extractNativeLibs. -->
+         the app: extractNativeLibs. requestLegacyExternalStorage (v3.45.0):
+         on Android 10, the storage permission lets the app delete a file
+         another app made, as on Android 9. Android 11 and later ignore it. -->
     <application
         android:label="@string/app_name"
         android:icon="@mipmap/ic_launcher"
@@ -48,6 +54,7 @@
         android:supportsRtl="true"
         android:usesCleartextTraffic="false"
         android:extractNativeLibs="true"
+        android:requestLegacyExternalStorage="true"
         android:resizeableActivity="true">
 
         <activity

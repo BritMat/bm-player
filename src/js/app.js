@@ -15,8 +15,10 @@ import ABRepeat from './modules/abrepeat.js';
 import bookmarks from './modules/bookmarks.js';
 import SpeedMenu, { SPEED_PRESETS } from './modules/speed-menu.js';
 import VideoTransform from './modules/video-transform.js';   // v3.38.0
+import { Picture } from './modules/picture.js';               // v3.46.0: brightness and the rest, zoom
+import { Sound, audioFilter } from './modules/sound.js';      // v3.46.0: night mode, channels, boost
+import { SleepTimer, SLEEP_CHOICES, label as sleepLabel } from './modules/sleep-timer.js';   // v3.46.0
 import { Lyrics } from './modules/lyrics.js';                 // v3.38.0
-import SubtitleSearch from './modules/subtitle-search.js';
 import { parseM3u, serializeM3u, readM3uFile, writeM3uFile, isM3uPath } from './modules/playlist-io.js';
 import liteMode from './modules/lite-mode.js';
 import './lite-video.js';   // Lite: where the video window goes
@@ -32,7 +34,7 @@ import { flowSettings } from './flow-settings.js';   // the Flow theme's control
 import { applySubStyle } from './sub-style.js';   // subtitle font and colour
 import { TVModule } from './modules/tv.js';
 import { el, fileURL, fmtSec, seedGrad,
-         escapeHtml, escapeAttr, basenameOf, relativeTime } from './util.js';
+         escapeHtml, escapeAttr, basenameOf, relativeTime, filmName } from './util.js';
 import { PluginManager } from './plugins.js';
 import { collectDiagnostics, formatDiagnostics } from './diagnostics.js';
 import { GalleryDash } from './dash/gallery.js';
@@ -139,12 +141,16 @@ class BMPlayer {
       anchorId: 'speed-badge',
       music: () => window.bmMusic?.speedAdapter?.(),   // while the music plays itself, its speed (v3.38.0)
     });
-    this.subSearch = new SubtitleSearch({
-      mpvApi: () => this.api?.mpv,
-      osd: (m, ms) => this.showOSD(m, ms),
-    });
     // Rotate and mirror the picture (v3.38.0), for the file that is open.
     this.transform = new VideoTransform({ mpv: () => this.api?.mpv, osd: m => this.showOSD(m), paused: () => !!this.isPaused });
+    // The picture's colours and zoom, and the sound's effects (v3.46.0).
+    this.picture = new Picture(this.api, { osd: m => this.showOSD(m) });
+    this.sound = new Sound({ apply: () => this._applyEQ(), osd: m => this.showOSD(m) });
+    this.sleep = new SleepTimer({
+      playing: () => !!this.isPlaying, pause: () => this.togglePlay(),
+      volume: () => +(el('volume-slider')?.value ?? 100), setVolume: v => this.setVolume(v),
+      osd: (m, ms) => this.showOSD(m, ms), onChange: () => this._sleepChanged(),
+    });
     // React to A-B repeat state changes (updates on-screen indicator)
     window.addEventListener('bm:abrepeat', () => this._renderABIndicator());
     // React to bookmark store changes (re-render panel if open)
@@ -154,6 +160,7 @@ class BMPlayer {
     this.wireTitlebar();this.wireThemes();this.wireSidebar();this.wireMenu();
     this.wireWelcome();this.wireTransport();this.wireSeek();this.wireVolume();
     this.wirePanels();this.wireEQ();this.wirePlaylistPanel();this.wireCtxPanel();
+    this.picture.wire(el('panel-picture'));this.sound.wire(el('snd-section'));this.wireSleep();
     this.wireDialogs();this.wireOverlayKeys();this.wireKeyboard();this.wireDragDrop();this.wireControlsHide();
     this.wirePiP();this.wireMiniPlayer();this.wireVizOverlay();this.wireCtxMenu();this.wireFluidPointer();this.wirePlayModes();this.wireDiagnostics();
     this.wireUpdate();this.wireDefaultPrompt();this.listenMpv();this.renderRecent();this.renderTrackMenus([]);
@@ -440,13 +447,16 @@ class BMPlayer {
       'speed-presets':()=>this.speedMenu?.toggle(),
       'speed-reset':()=>this.speedMenu?.set(1) ?? cmd('set_property','speed',1),
       'loop-file':()=>cmd('cycle','loop-file'),
-      'screenshot':()=>{cmd('screenshot','subtitles');this.showOSD('Screenshot saved');},'jump-to-time':()=>{el('dlg-jump')?.classList.remove('hidden');el('jump-input')?.focus();},
+      'screenshot':()=>{cmd('screenshot','subtitles');this.showOSD('Screenshot saved');},'sleep-timer':()=>this.openSleep(),'jump-to-time':()=>{el('dlg-jump')?.classList.remove('hidden');el('jump-input')?.focus();},
       'cycle-audio':()=>cmd('cycle','audio'),'vol-up':()=>this.bumpVolume(settings.get('behaviour.volumeStep') ?? 5),'vol-down':()=>this.bumpVolume(-(settings.get('behaviour.volumeStep') ?? 5)),'mute':()=>this.toggleMute(),
       'fullscreen':()=>this.api?.win.fullscreen(),'theatre':()=>this.api?.win.theatre(),'cycle-sub':()=>cmd('cycle','sub'),
       'rotate-right':()=>this.transform?.rotate(90),'rotate-left':()=>this.transform?.rotate(-90),'mirror':()=>this.transform?.mirror(),'transform-reset':()=>this.transform?.reset(),
       'sub-delay-p':()=>this.api?.adj.subDelay(0.5),'sub-delay-m':()=>this.api?.adj.subDelay(-0.5),'sub-delay-r':()=>this.api?.adj.resetSub(),
       'sub-size-p':()=>cmd('add','sub-font-size',4),'sub-size-m':()=>cmd('add','sub-font-size',-4),
       'open-eq':()=>this.openPanel('eq'),'open-info':()=>this.openPanel('info'),'open-playlist':()=>this.openPanel('playlist'),
+      // v3.46.0: the picture's colours and zoom
+      'open-picture':()=>this.openPanel('picture'),'fill-screen':()=>this.picture?.setFill(!this.picture.fill),
+      'zoom-in':()=>this.picture?.zoomBy(1),'zoom-out':()=>this.picture?.zoomBy(-1),'zoom-reset':()=>this.picture?.resetView(true),
       'open-bookmarks':()=>{this.openPanel('bookmarks');this._renderBookmarksPanel();},
       'open-history':()=>{this.openPanel('history');this._renderHistoryPanel();},
       'open-plugins':()=>{this.openPanel('plugins');this.pluginManager?.refreshPanel();},'open-fluid':()=>{this.openPanel('fluid');this._refreshFluidPanel();},
@@ -469,7 +479,7 @@ class BMPlayer {
       'import-m3u':()=>this.importM3u(),
       'export-m3u':()=>this.exportM3u(),
       // ── v1.7.0: Online subtitle search ──
-      'search-subs':()=>{this.openPanel('subsearch');},
+      'search-subs':()=>{this.openPanel('subsearch');this._fillSubSearch();},
       'check-update':()=>{this.api?.app.checkUpdate();this.showOSD('Checking for updates...');},
       'preferences':()=>{this.openPanel('settings');this._syncSettingsPanel();},
       'about':()=>this.openAbout(),
@@ -537,16 +547,18 @@ class BMPlayer {
     window.bmMusic?.engine?.stop?.();
     this.api?.mpv.cmd('stop');
   }
-  seekTo(seconds){
+  // fast: to the nearest keyframe, for a seek bar being dragged (v3.46.0).
+  seekTo(seconds,fast){
     const m=window.bmMusic;
     if(m?.engineOwns?.()) return m.engine.seek(seconds);
-    this.api?.mpv.cmd('seek',seconds,'absolute');
+    this.api?.mpv.cmd('seek',seconds,fast?'absolute+keyframes':'absolute');
   }
   // opts.stay keeps you on the current tab (the music panel's own stop
   // button). Everywhere else, including the video-mode visualiser, stop
   // returns to the home screen.
   stop(opts){
     if(!this.api?.mpv)return;this.api.mpv.cmd('stop');
+    if(this._holdAtEnd){this._holdAtEnd=false;this.api.mpv.cmd('set_property','keep-open','yes');}   // the sleep timer's hold (v3.46.0)
     // ── v1.7.0: persist last position before stopping ──
     history.onClose({ path: this._currentFilePath, timePos: this.currentTime });
     this.isPlaying=false;this.duration=0;this.currentTime=0;
@@ -716,7 +728,7 @@ class BMPlayer {
     if(this._pipActive)return{modal:false,close:()=>this.togglePiP(false)};
     const shown=id=>{const x=el(id);return !!x&&!x.classList.contains('hidden');};
     if(shown('about-dialog'))return{modal:true,close:()=>this.closeAbout()};
-    const dlg=['dlg-url','dlg-jump','dlg-speed','dlg-substyle'].find(shown);
+    const dlg=['dlg-url','dlg-jump','dlg-speed','dlg-substyle','dlg-sleep'].find(shown);
     if(dlg)return{modal:true,close:()=>el(dlg)?.classList.add('hidden')};
     if(shown('ctx-panel'))return{modal:true,close:()=>this._closeCtxPanel()};
     if(shown('theme-customizer'))return{modal:true,close:()=>el('theme-customizer')?.classList.add('hidden')};
@@ -776,6 +788,8 @@ class BMPlayer {
     this.abRepeat?.clear(true);
     // and turning and mirroring (v3.38.0): they were for the last file
     this.transform?.reset(true);
+    this.picture?.newFile();   // and zoom (v3.46.0); the colours stay
+    if(this._sid2){this._sid2=null;this.api?.mpv.cmd('set_property','secondary-sid','no');}   // the second subtitle was the last film's
     window.bmLyrics?.clear?.();   // a film: the last song's lyrics go
     // Capture current file path for resume/bookmark tracking
     this._currentFilePath = files[0]?.startsWith('http') ? null : files[0];
@@ -795,12 +809,50 @@ class BMPlayer {
   }
   updatePlayIcon(){setTogglePair('btn-play',!this.isPlaying);}
   updateMuteIcon(m){setTogglePair('btn-mute',!m);}
+  // The seek bar. A drag moved the bar but did not seek: the film stayed
+  // where the press was, and the bar went back there once let go (v3.46.0).
+  // Now the picture follows the drag, to the nearest keyframe as it goes and
+  // exactly where it is let go, also off the bar. Above it, a picture of the
+  // film at that place, made by a second mpv (thumbs.js), as KMPlayer has.
   wireSeek(){
-    const sc=el('seek-container');if(!sc)return;let drag=false;
-    const getPct=e=>{const r=sc.getBoundingClientRect();return Math.max(0,Math.min(1,(e.clientX-r.left)/r.width));};
-    sc.addEventListener('mousedown',e=>{drag=true;this.isSeeking=true;const p=getPct(e);this.setSeekPct(p);this.seekTo(p*this.duration);});
-    sc.addEventListener('mousemove',e=>{const p=getPct(e);const pt=el('seek-preview-time');if(pt)pt.textContent=fmtSec(p*this.duration);const sp=el('seek-preview');if(sp)sp.style.left=(p*sc.clientWidth)+'px';if(drag){this.setSeekPct(p);}});
-    document.addEventListener('mouseup',()=>{if(drag){drag=false;this.isSeeking=false;}});
+    const sc=el('seek-container');if(!sc)return;let drag=false,lastP=0,lastSeek=0,endT=0;
+    const getPct=e=>{const r=sc.getBoundingClientRect();return Math.max(0,Math.min(1,(e.clientX-r.left)/(r.width||1)));};
+    const box=el('seek-preview'),img=el('seek-preview-img');
+    const show=p=>{const pt=el('seek-preview-time');if(pt)pt.textContent=fmtSec(p*this.duration);if(box){const w=sc.clientWidth,half=(box.offsetWidth||0)/2;box.style.left=Math.max(half,Math.min(w-half,p*w))+'px';}this._seekThumb(p);};
+    sc.addEventListener('mousedown',e=>{if(e.button!==0)return;e.preventDefault();drag=true;clearTimeout(endT);this.isSeeking=true;sc.classList.add('dragging');const p=lastP=getPct(e);this.setSeekPct(p);show(p);this.seekTo(p*this.duration);lastSeek=performance.now();});
+    sc.addEventListener('mousemove',e=>{if(!drag)show(getPct(e));});
+    document.addEventListener('mousemove',e=>{
+      if(!drag)return;
+      const p=lastP=getPct(e);this.setSeekPct(p);show(p);
+      const now=performance.now();if(now-lastSeek>140&&this.duration>0){lastSeek=now;this.seekTo(p*this.duration,true);}
+    });
+    document.addEventListener('mouseup',()=>{
+      if(!drag)return;drag=false;sc.classList.remove('dragging');
+      if(this.duration>0)this.seekTo(lastP*this.duration);
+      // the position mpv reports from before the seek does not pull the bar back
+      endT=setTimeout(()=>{this.isSeeking=false;},300);
+    });
+    sc.addEventListener('mouseleave',()=>{if(!drag)this._thumbWant=null;});
+    if(img)img.addEventListener('error',()=>box?.classList.remove('has-pic'));
+  }
+  /** The seek bar's picture for a place along it, p from 0 to 1 (v3.46.0). Films on this computer only. */
+  _seekThumb(p){
+    const box=el('seek-preview'),img=el('seek-preview-img'),f=this._currentFilePath,d=this.duration;
+    if(!box||!img)return;
+    if(!f||!this._hasVideo||!(d>0)||/^[a-z][a-z0-9+.-]*:\/\//i.test(f)||!this.api?.mpv?.thumbAt){box.classList.remove('has-pic');this._thumbFile=null;return;}
+    if(this._thumbFile!==f){this._thumbFile=f;box.classList.remove('has-pic');}
+    // about three hundred places along a film: the pictures are of keyframes anyway
+    const step=Math.max(1,d/300),t=Math.max(0,Math.min(d-0.5,Math.round(p*d/step)*step)),key=f+'\n'+t.toFixed(1);
+    const cache=this._thumbs||(this._thumbs=new Map());
+    this._thumbWant=key;
+    if(cache.has(key)){img.src=cache.get(key);box.classList.add('has-pic');return;}
+    clearTimeout(this._thumbT);
+    this._thumbT=setTimeout(async()=>{
+      let url=null;try{url=await this.api.mpv.thumbAt(f,t);}catch(_){}
+      if(url){cache.set(key,url);if(cache.size>150)cache.delete(cache.keys().next().value);}
+      if(this._thumbWant!==key||this._thumbFile!==f||!url)return;   // the pointer moved on, or another film
+      img.src=url;box.classList.add('has-pic');
+    },70);
   }
   setSeekPct(p){const sf=el('seek-fill'),st=el('seek-thumb');if(sf)sf.style.width=(p*100)+'%';if(st)st.style.left=(p*100)+'%';}
   setTime(id,s){const e=el(id);if(e)e.textContent=fmtSec(s);}
@@ -866,15 +918,22 @@ class BMPlayer {
     const bands=el('eq-bands');if(!bands)return;
     bands.innerHTML=EQ_BANDS.map((b,i)=>'<div class="eq-band"><span class="eq-band-val" id="eq-val-'+i+'">0</span><input type="range" min="-12" max="12" value="0" step="0.5" id="eq-s-'+i+'"><span class="eq-band-label">'+b.label+'</span></div>').join('');
     EQ_BANDS.forEach((_,i)=>{el('eq-s-'+i)?.addEventListener('input',e=>{this.eqValues[i]=+e.target.value;const v=el('eq-val-'+i);if(v)v.textContent=(+e.target.value>0?'+':'')+e.target.value;this._applyEQ();});});
-    document.querySelectorAll('.eq-preset-btn').forEach(btn=>{btn.addEventListener('click',()=>{document.querySelectorAll('.eq-preset-btn').forEach(b=>b.classList.remove('active'));btn.classList.add('active');const vals=EQ_PRESETS[btn.dataset.p]||EQ_PRESETS.flat;this.eqValues=[...vals];EQ_BANDS.forEach((_,i)=>{const s=el('eq-s-'+i),v=el('eq-val-'+i);if(s)s.value=vals[i];if(v)v.textContent=(vals[i]>0?'+':'')+vals[i];});this._applyEQ();});});
-    el('btn-reset-eq')?.addEventListener('click',()=>document.querySelector('.eq-preset-btn[data-p="flat"]')?.click());
+    // The equalizer's own presets only (v3.46.0). Every .eq-preset-btn was
+    // taken for one, so the Fluid panel's quality buttons, and now the sound's
+    // and the picture's, set the equalizer back to flat when pressed.
+    const presets=[...document.querySelectorAll('#eq-presets .eq-preset-btn')];
+    presets.forEach(btn=>{btn.addEventListener('click',()=>{presets.forEach(b=>b.classList.remove('active'));btn.classList.add('active');const vals=EQ_PRESETS[btn.dataset.p]||EQ_PRESETS.flat;this.eqValues=[...vals];EQ_BANDS.forEach((_,i)=>{const s=el('eq-s-'+i),v=el('eq-val-'+i);if(s)s.value=vals[i];if(v)v.textContent=(vals[i]>0?'+':'')+vals[i];});this._applyEQ();});});
+    el('btn-reset-eq')?.addEventListener('click',()=>document.querySelector('#eq-presets .eq-preset-btn[data-p="flat"]')?.click());
   }
   _applyEQ(){
     // Two backends, one set of sliders. The engine owns audio-only playback,
     // so its BiquadFilter chain has to track the same values mpv's `af`
     // string does — otherwise moving a slider does nothing for music.
+    // The sound's effects go with it (v3.46.0, sound.js): one filter for mpv.
+    const fx=this.sound?.fx||{};
     window.bmMusic?.engine?.setEQ?.(this.eqValues);
-    const af=this.eqValues.map((v,i)=>'equalizer=f='+EQ_BANDS[i].freq+':width_type=o:width=2:g='+v).join(',');this.api?.mpv.cmd('set_property','af',this.eqValues.every(v=>v===0)?'':`lavfi=[${af}]`).catch(()=>{});}
+    window.bmMusic?.engine?.setFx?.({night:!!fx.night,channels:fx.channels||'stereo',boost:(fx.boost||100)/100});
+    this.api?.mpv.cmd('set_property','af',audioFilter(this.eqValues,EQ_BANDS,fx))?.catch?.(()=>{});}
   wirePlaylistPanel(){
     el('pl-add')?.addEventListener('click',()=>this.openDialog(true));
     el('pl-clear')?.addEventListener('click',()=>{this.api?.mpv.cmd('playlist-clear');this.renderPlaylistPanel();});
@@ -896,12 +955,21 @@ class BMPlayer {
     // against real mpv 0.37 (scripts/integration-mpv.cjs). Advance on that.
     this.api?.mpv.onProp?.(p=>{
       if(p?.name!=='eof-reached') return;
-      if(p.data!==true){ this._eofHandled=false; return; }
+      if(p.data!==true){
+        this._eofHandled=false;
+        // Off the end again (played on, another file): mpv goes on through its playlist as before.
+        if(this._holdAtEnd){ this._holdAtEnd=false; this.api?.mpv.cmd('set_property','keep-open','yes'); }
+        return;
+      }
       if(this._eofHandled) return;           // one advance per end of file
       this._eofHandled=true;
       const m=window.bmMusic;
       // Only for audio mpv is playing. The in-app engine has its own 'ended'.
-      if(m?.currentPath && !this._hasVideo && !m.engineOwns?.()) m.advance();
+      if(m?.currentPath && !this._hasVideo && !m.engineOwns?.()) m.advance(true);
+      // A film at its end, with the sleep timer set for the end of it (v3.46.0).
+      // mpv is left holding there: let go now, with the next film in its
+      // playlist, it would go straight on to it.
+      else if(this._hasVideo&&this.sleep?.mode==='end'){ this._holdAtEnd=true; this.sleep.atEnd(); }
     });
     // Kept for keep-open=no, should that ever change.
     this.api?.mpv.onEvent?.(ev=>{
@@ -910,6 +978,11 @@ class BMPlayer {
       // missing codec or a video output that would not start left you looking
       // at an empty player with no explanation.
       if(ev.reason==='error'){
+        // A song from the music list: on to the next one (v3.46.0).
+        const m=window.bmMusic;
+        if(m?._mpvSong&&m._mpvSong===m.currentPath){ m.skipBroken(); return; }
+        // Late news of a file already replaced by a song the engine plays.
+        if(m?.engineOwns?.()) return;
         const what=(this._lastOpened||'').split(/[\\/]/).pop()||'this file';
         this.showOSD(`Couldn't play ${what}${ev.file_error?': '+ev.file_error:''}`,4000);
         // The TV tab reports stream failures itself and retries, so leave it be.
@@ -919,7 +992,7 @@ class BMPlayer {
       // 'eof' is a natural finish; 'stop'/'quit' mean the user did it.
       if(ev.reason && ev.reason!=='eof') return;
       const m=window.bmMusic;
-      if(m?.currentPath && !this._hasVideo) m.advance();
+      if(m?.currentPath && !this._hasVideo) m.advance(true);
     });
     this.api?.mpv.onProp(p=>{if(p.name==='volume'){const e=el('ctx-vol');if(e){e.value=p.data;const l=el('ctx-vol-val');if(l)l.textContent=Math.round(p.data)+'%';}}if(p.name==='mute'){const e=el('ctx-mute');if(e)e.checked=!!p.data;}});
     this.api?.mpv.onTrackList?.(tl=>{this._lastTracks=tl;});
@@ -1190,6 +1263,13 @@ class BMPlayer {
       // Electron's built-in menu, music and all: that menu is gone too (main.js).
       else if(e.ctrlKey&&e.code==='KeyR'){e.preventDefault();this.transform?.rotate(e.shiftKey?-90:90);}
       else if(e.ctrlKey&&e.code==='KeyM'){e.preventDefault();this.transform?.mirror();}
+      // Zoom, and moving the zoomed picture (v3.46.0, picture.js). Before the
+      // plain arrows and Backspace, which seek, change the volume and reset
+      // the speed.
+      else if(e.altKey&&!e.ctrlKey&&(e.code==='Equal'||e.code==='NumpadAdd')){e.preventDefault();this.picture?.zoomBy(1);}
+      else if(e.altKey&&!e.ctrlKey&&(e.code==='Minus'||e.code==='NumpadSubtract')){e.preventDefault();this.picture?.zoomBy(-1);}
+      else if(e.altKey&&!e.ctrlKey&&e.code==='Backspace'){e.preventDefault();this.picture?.resetView(true);}
+      else if(e.altKey&&!e.ctrlKey&&/^Arrow(Left|Right|Up|Down)$/.test(e.code)){e.preventDefault();const d={ArrowLeft:[1,0],ArrowRight:[-1,0],ArrowUp:[0,1],ArrowDown:[0,-1]}[e.code];this.picture?.panBy(d[0],d[1]);}
     else if(e.code==='Space'){e.preventDefault();this.togglePlay();}
       else if(e.code==='KeyS'){e.preventDefault();this.stop();}
       else if(e.code==='KeyF'||e.code==='F11'){e.preventDefault();this.api?.win.fullscreen();}
@@ -1252,6 +1332,84 @@ class BMPlayer {
     el('update-install-btn')?.addEventListener('click',()=>this.api?.app.installUpdate());
     this.api?.app.onUpdater?.(s=>{const banner=el('update-banner'),msg=el('update-msg'),pw=el('update-progress-wrap'),pb=el('update-progress-bar'),ib=el('update-install-btn');if(!banner)return;if(s.state==='available'){banner.classList.remove('hidden');if(msg)msg.textContent='v'+s.ver+' available';if(ib)ib.style.display='none';if(pw)pw.classList.remove('hidden');}if(s.state==='progress'){if(pb)pb.style.width=s.pct+'%';if(msg)msg.textContent='Downloading... '+s.pct+'%';}if(s.state==='ready'){if(msg)msg.textContent='v'+s.ver+' ready to install';if(pw)pw.classList.add('hidden');if(ib)ib.style.display='';}if(s.state==='error')banner.classList.add('hidden');});
   }
+  // mpv crashed (v3.46.0). main.js starts it again, and the film or song it
+  // was playing carries on from where it was. It was left to you to find the
+  // file and the place again, and on Linux mpv did not even come back.
+  _noteCrash(){
+    const m=window.bmMusic, now=Date.now();
+    const song=m?._mpvSong&&m._mpvSong===m.currentPath?m._mpvSong:null;
+    const path=song||this._currentFilePath;
+    this._afterCrash=null;
+    if(!path||this.currentDash==='tv') return;   // the TV tab reconnects by itself
+    // The same file brought mpv down again straight after it carried on: it
+    // is the file. A song gives way to the next, a film stops.
+    const again=this._crashedOn&&this._crashedOn.path===path&&now-this._crashedOn.at<20000;
+    this._crashedOn={path,at:now};
+    if(again){
+      if(song){ this._afterCrash={path,song:true,skip:true}; return; }
+      this.showOSD(`mpv stopped twice on ${path.split(/[\\/]/).pop()}. The file may be damaged`,6000);
+      this.stop(); return;
+    }
+    this._afterCrash={path,song:!!song,t:this.currentTime||0,paused:!!this._lastPause};
+  }
+  _carryOn(){
+    const c=this._afterCrash; this._afterCrash=null; if(!c) return;
+    const m=window.bmMusic;
+    // Something else was opened, or playing stopped, while mpv was away.
+    if(c.song?m?.currentPath!==c.path:this._currentFilePath!==c.path) return;
+    if(c.skip){ m.skipBroken(); return; }
+    this._crashSeek=c;   // the place again once the file is loaded: 'duration' below
+    if(c.song) m._mpvOpen(c.path); else this.api?.mpv.open([c.path]);
+    this.showOSD(c.t>2?`mpv stopped and was started again. Carrying on from ${fmtSec(c.t)}`:'mpv stopped and was started again',4000);
+  }
+  // ── Sleep timer (v3.46.0, sleep-timer.js) ──────────────────────
+  wireSleep(){
+    const d=el('dlg-sleep');
+    el('sleep-close')?.addEventListener('click',()=>d?.classList.add('hidden'));
+    d?.addEventListener('mousedown',e=>{if(e.target===d)d.classList.add('hidden');});
+    el('sleep-badge')?.addEventListener('click',()=>this.openSleep());
+    setIcon(el('sleep-badge-ico'),'moon');
+  }
+  openSleep(){
+    const d=el('dlg-sleep');if(!d)return;
+    this._renderSleep();d.classList.remove('hidden');
+    d.querySelector('.eq-preset-btn.active')?.focus?.();
+  }
+  _renderSleep(){
+    const s=this.sleep,left=s.remaining();
+    const st=el('sleep-state');
+    if(st)st.textContent=s.mode==='time'?`Playing stops in ${sleepLabel(Math.max(1,Math.ceil(left/60000)))}.`:s.mode==='end'?'Playing stops at the end of this file.':'Off. Playing goes on until you stop it.';
+    const box=el('sleep-chips');if(!box)return;
+    if(!box.childElementCount){
+      for(const [v,name] of SLEEP_CHOICES){
+        const b=document.createElement('button');b.className='eq-preset-btn';b.type='button';b.dataset.sleep=String(v);b.textContent=name;
+        b.addEventListener('click',()=>{this.sleep.set(v);if(!v)el('dlg-sleep')?.classList.add('hidden');});
+        box.appendChild(b);
+      }
+    }
+    for(const b of box.children){
+      const v=b.dataset.sleep,on=v==='0'?!s.mode:v==='end'?s.mode==='end':s.mode==='time'&&String(s.minutes)===v;
+      b.classList.toggle('active',on);b.setAttribute('aria-pressed',String(on));
+    }
+  }
+  _sleepChanged(){
+    const s=this.sleep,badge=el('sleep-badge'),txt=el('sleep-badge-text');
+    clearInterval(this._sleepTick);this._sleepTick=0;
+    const paint=()=>{
+      const left=s.remaining();
+      if(txt)txt.textContent=s.mode==='time'?Math.max(1,Math.ceil(left/60000))+' min':s.mode==='end'?'end':'';
+      badge?.classList.toggle('hidden',!s.mode);
+      if(badge)badge.title=s.mode==='time'?`Sleep timer: playing stops in ${sleepLabel(Math.max(1,Math.ceil(left/60000)))}`:s.mode==='end'?'Sleep timer: playing stops at the end of this file':'';
+      if(!el('dlg-sleep')?.classList.contains('hidden'))this._renderSleep();
+    };
+    paint();
+    if(s.mode==='time')this._sleepTick=setInterval(paint,20000);
+    // At the end of this file: mpv stops at the end of a film even with more
+    // in its playlist, for as long as that is set, and once it has stopped
+    // there until the film is left (_holdAtEnd, at eof-reached).
+    if(s.mode==='end')this.api?.mpv.cmd('set_property','keep-open','always');
+    else if(!this._holdAtEnd)this.api?.mpv.cmd('set_property','keep-open','yes');
+  }
   async wireDefaultPrompt(){
     this.api?.app.onFirstRun?.(async()=>{if(localStorage.getItem('bm_default_asked'))return;const isD=await this.api?.app.isDefault?.().catch(()=>false);if(isD){localStorage.setItem('bm_default_asked','1');return;}el('default-player-prompt')?.classList.remove('hidden');});
     el('btn-set-default')?.addEventListener('click',async()=>{el('default-player-prompt')?.classList.add('hidden');localStorage.setItem('bm_default_asked','1');await this.api?.app.setDefault?.();this.showOSD('BM Player set as default media player',3000);});
@@ -1261,11 +1419,16 @@ class BMPlayer {
     this.api?.mpv.onStatus?.(s=>{
       const st=el('tb-status');
       if(s.state==='missing'){this.showOSD('mpv not found - install mpv first',5000);if(st)st.textContent='mpv missing';}
-      if(s.state==='crashed'){if(st)st.textContent='mpv crashed - restarting...';}
+      if(s.state==='crashed'){if(st)st.textContent='mpv stopped, starting it again';this._noteCrash();}
       if(s.state==='retrying-minimal'){if(st)st.textContent='mpv retrying with reduced options...';}
-      if(s.state==='crash-loop'){this.showOSD('mpv failed to start - check that mpv is installed correctly',6000);if(st)st.textContent='mpv failed to start';}
+      if(s.state==='crash-loop'){this.showOSD('mpv could not keep running. Check that mpv is installed correctly. It is tried again when you open a file',7000);if(st)st.textContent='mpv stopped';}
       // ── v1.7.0: apply persisted subtitle settings once mpv is ready ──
-      if(s.state==='ready'){ settings.applyToMpv(this.api?.mpv); applySubStyle(this.api); this._mpvReadyHook?.(); }   // the subtitle look from the start too (v3.39.0)
+      if(s.state==='ready'){
+        settings.applyToMpv(this.api?.mpv); applySubStyle(this.api); this._mpvReadyHook?.();   // the subtitle look from the start too (v3.39.0)
+        if(st)st.textContent='';   // "restarting" stayed in the title bar for good
+        this.picture?.applyAll(); this._applyEQ();   // the picture and the sound as set (v3.46.0)
+        this._carryOn();
+      }
     });
     this.api?.mpv.onProp?.(p=>{
       // Idle mpv (nothing loaded) reports pause=false as soon as it connects.
@@ -1311,13 +1474,20 @@ class BMPlayer {
         // ── v1.8.0: update mini player progress bar ──
         const mmpFill=el('mmp-progress-fill');if(mmpFill)mmpFill.style.width=(this.currentTime/this.duration*100)+'%';}}
         this.emitPlugin('time-update',{time:this.currentTime,duration:this.duration});}
-      if(p.name==='duration'){this.duration=p.data||0;this.setTime('time-total',this.duration);const tot=el('np-time-tot');if(tot)tot.textContent=fmtSec(this.duration);this._renderBookmarksOnSeekbar();}
+      // While the in-app engine plays a song, Now Playing is the music's. mpv
+      // tells its own (empty) title and length when it connects, and on a
+      // start soon after the app opened that came after the song had begun:
+      // "Nothing playing", 0:00 of 0:00, over a song that played (v3.46.0).
+      const musicOwns=!!window.bmMusic?.engineOwns?.();
+      if(p.name==='duration'){this.duration=p.data||0;this.setTime('time-total',this.duration);const tot=el('np-time-tot');if(tot&&!musicOwns)tot.textContent=fmtSec(this.duration);this._renderBookmarksOnSeekbar();
+        // Loaded again after mpv was restarted: back to the place (v3.46.0).
+        const c=this._crashSeek; if(c&&p.data>0){ this._crashSeek=null; if(c.t>2&&c.t<p.data-1)this.seekTo(c.t); if(c.paused)this.togglePlay(); }}   // opened playing: paused again
       if(p.name==='volume'){const sl=el('volume-slider');if(sl)sl.value=p.data;const l=el('vol-label');if(l)l.textContent=Math.round(p.data);}
       if(p.name==='mute'){this._muted=!!p.data;this.updateMuteIcon(p.data);}
       // mpv moved on to another file (a playlist, the end of the last one):
       // turning and mirroring were for the file before (v3.38.0).
       if(p.name==='filename'&&p.data&&p.data!==this._tfFile){this._tfFile=p.data;this.transform?.reset(true);}
-      if(p.name==='media-title'){const t=el('title-text');if(t)t.textContent=p.data||'';const np=el('np-title');if(np)np.textContent=p.data||'Nothing playing';
+      if(p.name==='media-title'&&!musicOwns){const t=el('title-text');if(t)t.textContent=p.data||'';const np=el('np-title');if(np)np.textContent=p.data||'Nothing playing';
         // ── v1.8.0: sync mini player title ──
         const mt=el('mmp-title');if(mt)mt.textContent=p.data||'Not Playing';
         this._updateVizMeta();
@@ -1329,8 +1499,15 @@ class BMPlayer {
       if(p.name==='demuxer-cache-state'&&p.data&&this.duration>0){const pct=(p.data['cache-end']||0)/this.duration*100;const buf=el('seek-buffer');if(buf)buf.style.width=pct+'%';}
     });
     // Files opened from outside (double-click, drag and drop) come through
-    // here: music in the in-app engine steps aside for them too.
-    this.api?.mpv.onOpened?.(()=>{ window.bmMusic?.yieldToPlayer?.(); });
+    // here: music in the in-app engine steps aside for them too. So does every
+    // song the music gives mpv, and that is not a film (v3.46.0): taken for
+    // one, it put the film's speed back over the song's, and lost track of
+    // the song, so a broken one stopped the music instead of being passed over.
+    this.api?.mpv.onOpened?.(files=>{
+      const m=window.bmMusic;
+      if(m?._mpvSong&&Array.isArray(files)&&files[0]===m._mpvSong) return;
+      m?.yieldToPlayer?.();
+    });
     this.api?.mpv.onMediaProps?.(props=>{this._mProps=props;});
   }
   updateVisualizerVisibility(tracks){
@@ -1382,11 +1559,33 @@ class BMPlayer {
   }
   renderTrackMenus(tracks){
     const audio=tracks.filter(t=>t.type==='audio'),video=tracks.filter(t=>t.type==='video'),subs=tracks.filter(t=>t.type==='sub');
-    this._fillTrack('audio-track-sub',audio,'aid');this._fillTrack('video-track-sub',video,'vid');this._fillSubMenu('sub-track-sub',subs);
+    this._fillTrack('audio-track-sub',audio,'aid');this._fillTrack('video-track-sub',video,'vid');this._fillSubMenu('sub-track-sub',subs);this._fillSub2Menu('sub2-track-sub',subs);
+  }
+  // A second subtitle at the top of the picture (v3.46.0), as KMPlayer and
+  // PotPlayer have: the film's own language with another underneath to learn
+  // from, or two people watching in two languages. mpv's secondary-sid. In
+  // mpv's track list a track chosen as the second has main-selection 1.
+  _fillSub2Menu(id,subs){
+    const c=el(id);if(!c)return;c.innerHTML='';
+    if(subs.length<2){c.classList.add('hidden');return;}
+    c.classList.remove('hidden');
+    const second=subs.find(t=>t.selected&&t['main-selection']===1)||subs.find(t=>t.id===this._sid2)||null;
+    const head=document.createElement('div');head.className='mr-head';head.textContent='Second subtitle, at the top';c.appendChild(head);
+    const row=(label,on,fn)=>{const r=document.createElement('div');r.className='mr'+(on?' active-opt':'');r.textContent=(on?'✓ ':'')+label;r.addEventListener('click',fn);c.appendChild(r);};
+    row('Off',!second,()=>this.setSecondSub(null));
+    subs.filter(t=>!(t.selected&&t['main-selection']!==1)).forEach(t=>row(this._trackLabel(t),second?.id===t.id,()=>this.setSecondSub(t.id)));
+  }
+  /** id: a subtitle track's, or null for none. */
+  setSecondSub(id){
+    this._sid2=id||null;
+    this.api?.mpv.cmd('set_property','secondary-sid',id||'no');
+    if(id) this.api?.mpv.cmd('set_property','secondary-sub-visibility',true);
+    const t=(this._lastTracks||[]).find(x=>x.type==='sub'&&x.id===id);
+    this.showOSD(id?'Second subtitle: '+(t?this._trackLabel(t):id):'Second subtitle off');
   }
   _trackLabel(t){return[t.lang?'['+t.lang.toUpperCase()+']':'',t.title||t.codec||'Track '+t.id].filter(Boolean).join(' ');}
   _fillTrack(id,list,prop){const c=el(id);if(!c)return;c.innerHTML='';list.forEach(t=>{const row=document.createElement('div');row.className='mr'+(t.selected?' active-opt':'');row.textContent=(t.selected?'✓ ':'')+this._trackLabel(t);row.addEventListener('click',()=>this.api?.mpv.cmd('set_property',prop,t.id));c.appendChild(row);});}
-  _fillSubMenu(id,subs){const c=el(id);if(!c)return;c.innerHTML='';const off=document.createElement('div');off.className='mr'+(!subs.some(t=>t.selected)?' active-opt':'');off.textContent=(!subs.some(t=>t.selected)?'✓ ':'')+'Off';off.addEventListener('click',()=>this.api?.mpv.cmd('set_property','sub-visibility',false));c.appendChild(off);subs.forEach(t=>{const row=document.createElement('div');row.className='mr'+(t.selected?' active-opt':'');row.textContent=(t.selected?'✓ ':'')+this._trackLabel(t);row.addEventListener('click',()=>{this.api?.mpv.cmd('set_property','sub-visibility',true);this.api?.mpv.cmd('set_property','sid',t.id);});c.appendChild(row);});}
+  _fillSubMenu(id,subs){const c=el(id);if(!c)return;c.innerHTML='';subs=subs.map(t=>t.selected&&t['main-selection']===1?{...t,selected:false}:t);const off=document.createElement('div');off.className='mr'+(!subs.some(t=>t.selected)?' active-opt':'');off.textContent=(!subs.some(t=>t.selected)?'✓ ':'')+'Off';off.addEventListener('click',()=>this.api?.mpv.cmd('set_property','sub-visibility',false));c.appendChild(off);subs.forEach(t=>{const row=document.createElement('div');row.className='mr'+(t.selected?' active-opt':'');row.textContent=(t.selected?'✓ ':'')+this._trackLabel(t);row.addEventListener('click',()=>{this.api?.mpv.cmd('set_property','sub-visibility',true);this.api?.mpv.cmd('set_property','sid',t.id);});c.appendChild(row);});}
   showOSD(msg,ms=1600){const e=el('osd');if(!e)return;e.textContent=msg;e.classList.add('show');clearTimeout(this.osdTimer);this.osdTimer=setTimeout(()=>e.classList.remove('show'),ms);}
   emitPlugin(event,data){(this._pluginListeners[event]||[]).forEach(cb=>{try{cb(data);}catch(err){console.error('Plugin listener error on "'+event+'":',err);}});}
   // ── Picture-in-Picture ────────────────────────────────────────
@@ -1823,75 +2022,23 @@ class BMPlayer {
   }
 
   // ── Online subtitle search ───────────────────────────────────────
+  // v3.46.0: OpenSubtitles shut the XML-RPC service this searched (early
+  // 2026), so every search ended in an error. Before that, it also read the
+  // whole film into the page to hash 128 KB of it: a 4 GB film, 4 GB in
+  // memory. Now the search opens on opensubtitles.com with the film's name,
+  // and the subtitle found is loaded from a file or dropped on the video.
   wireSubSearch(){
-    el('subs-search-btn')?.addEventListener('click',async()=>{
-      if(!this._currentFilePath){this.showOSD('Open a file first');return;}
-      // Try to fetch the file as a File object. Electron exposes files via
-      // the File API for file:// URLs only in some contexts; if that fails
-      // we fall back to keyword-only search using the filename.
-      const results = el('subs-results');
-      if(results){
-        results.innerHTML = '<div class="subs-loading">Searching</div>';
-      }
-      const lang = el('subs-lang')?.value || 'eng';
-      try{
-        // Try to read the file as a File object (works if Electron exposes it)
-        const file = await this._getFileObjectForCurrent();
-        const items = await this.subSearch.searchForFile(file, lang);
-        if(!items.length){
-          if(results) results.innerHTML = '<div class="subs-empty">No subtitles found.</div>';
-          return;
-        }
-        if(results){
-          results.innerHTML = items.map(it => `
-            <div class="subs-result" data-link="${escapeAttr(it.downloadLink)}">
-              <div class="subs-result-top">
-                <span class="subs-result-lang">${escapeHtml(it.lang)}</span>
-                <span class="subs-result-name">${escapeHtml(it.filename || 'Unknown')}</span>
-                ${it.rating ? `<span class="subs-result-rating">★ ${it.rating.toFixed(1)}</span>` : ''}
-              </div>
-              <div class="subs-result-actions">
-                <button class="subs-download ${it.fromHash ? 'subs-hash-match' : ''}">${it.fromHash ? '⬇ Download (hash match)' : '⬇ Download'}</button>
-              </div>
-            </div>`).join('');
-          results.querySelectorAll('.subs-result').forEach(r => {
-            r.querySelector('.subs-download').addEventListener('click',async()=>{
-              const link = r.dataset.link;
-              if(!link) return;
-              this.showOSD('Downloading subtitle…', 2000);
-              try{
-                const res = await fetch(link);
-                if(!res.ok) throw new Error('HTTP ' + res.status);
-                const blob = await res.blob();
-                const buf = new Uint8Array(await blob.arrayBuffer());
-                // The download is a ZIP containing the .srt; extract it.
-                const srtBytes = await extractSrtFromZip(buf);
-                if(!srtBytes) throw new Error('No .srt in ZIP');
-                // Save it next to the media file with the same base name.
-                const baseName = this._currentFilePath.replace(/\.[^.]+$/, '');
-                const subPath = baseName + '.' + (lang === 'all' ? 'srt' : lang) + '.srt';
-                const result = await this.api?.pdfFile?.write(subPath, srtBytes);
-                if(result?.error) throw new Error(result.error);
-                this.api?.mpv.cmd('sub-add', subPath, 'select');
-                this.showOSD('Subtitle downloaded and loaded', 2500);
-              }catch(err){ this.showOSD('Download failed: ' + err.message, 4000); }
-            });
-          });
-        }
-      }catch(err){
-        if(results) results.innerHTML = `<div class="subs-empty">Error: ${escapeHtml(err.message)}</div>`;
-      }
+    el('subs-search-btn')?.addEventListener('click',()=>{
+      const q=(el('subsearch-query')?.value||'').trim()||filmName(this._currentFilePath||'');
+      if(!q){this.showOSD('Open a film first, or type its name');return;}
+      this.api?.app?.external?.('https://www.opensubtitles.com/en/search-all/q-'+encodeURIComponent(q).replace(/%20/g,'+'));
     });
+    el('subs-load-btn')?.addEventListener('click',()=>this.api?.dialog.openSub().then(s=>{if(s){this.api?.mpv.cmd('sub-add',s,'select');this.showOSD('Subtitle loaded');}}));
   }
-  async _getFileObjectForCurrent(){
-    // Electron's renderer can fetch file:// URLs; wrap the bytes in a File
-    // object so the subtitle-search module's hashFile() can read it.
-    if(!this._currentFilePath) return null;
-    const url = fileURL(this._currentFilePath);
-    const res = await fetch(url);
-    const blob = await res.blob();
-    const name = (this._currentFilePath.split(/[\\/]/).pop()) || 'media';
-    return new File([blob], name, { type: blob.type || 'application/octet-stream' });
+  /** The film's name filled in when the panel opens. */
+  _fillSubSearch(){
+    const q=el('subsearch-query');
+    if(q&&!q.value) q.value=filmName(this._currentFilePath||'');
   }
 
   // ── Resume prompt ─────────────────────────────────────────────────
@@ -2426,6 +2573,7 @@ window.addEventListener('DOMContentLoaded',()=>{
   window.bmApp=new BMPlayer();
   window.bmGallery=new GalleryDash(window.api);
   window.bmMusic=new MusicDash(window.api);
+  window.bmApp._applyEQ?.();   // the sound's kept effects for the engine as well (v3.46.0)
   // Lyrics (v3.38.0), for the music: the Now Playing tab and the visual mode.
   try { window.bmLyrics=new Lyrics({ api: window.api, music: window.bmMusic, app: window.bmApp }); } catch (e) { console.warn('[BM Player] lyrics unavailable:', e); }
   window.bmPDF=new PDFViewer(window.api);

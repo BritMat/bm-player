@@ -28,12 +28,15 @@ import { MD, allVisualisers } from './visualizer.js';
 import { FluidFX } from './fluid.js';
 import { favs } from './m-favs.js';
 import { initUpdate, refreshUpdate } from './m-update.js';
+import { initSelect, endSelect } from './m-select.js';
+import { initDelete } from './m-delete.js';
 
 let tab = 'home';
 
 function showTab (t) {
   if (t === tab) return;
   tab = t;
+  endSelect();
   closeDetail();
   closeSub(true);
   for (const v of document.querySelectorAll('.m-view[data-tab]')) v.classList.toggle('hidden', v.dataset.tab !== t);
@@ -126,6 +129,8 @@ function boot () {
   MD.level = MD.start = perf.tier === 'low' ? 2 : perf.tier === 'medium' ? 1 : 0;
 
   player.init();
+  initSelect();
+  initDelete();
   initMusic();
   initPlayerUI();
   initVideos();
@@ -176,6 +181,7 @@ function boot () {
     if (pdfOpen()) { pdfBack(); return 'handled'; }
     if (videoBack()) return 'handled';
     if (playerBack()) return 'handled';
+    if (endSelect()) return 'handled';                    // v3.45.0: choosing several ends first
     if (closeSearch()) return 'handled';
     if (subOpen()) { closeSub(); return 'handled'; }
     if (detailOpen()) { closeDetail(); return 'handled'; }

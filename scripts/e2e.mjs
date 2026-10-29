@@ -17,6 +17,10 @@
  *   npm run test:e2e -- --part=b  part B: real playback, stop, PiP
  *   npm run test:e2e -- --part=c  part C: the normal two-window layout, Linux
  *                                 only, needs a compositor (xcompmgr)
+ *   npm run test:e2e -- --part=d  part D: under strain. Names in other scripts
+ *                                 and with symbols, broken and deleted songs,
+ *                                 mpv stopped by force, fast presses, and a
+ *                                 long session's memory (v3.46.0)
  *
  * Runs in the single-window Lite layout. The two-window mode needs a
  * compositor for its transparent window, which a virtual display lacks.
@@ -59,7 +63,7 @@ try { ({ _electron } = await import('playwright-core')); } catch { skip('playwri
 
 // Part C runs the full visuals and has grown past 100 s (v3.33.0), and to about 120 s with
 // the lost-picture checks (v3.36.0): 240 s for it.
-const hard = setTimeout(() => { console.log('\n  DEADLINE: e2e ran too long'); process.exit(1); }, PART === 'c' ? 240000 : 100000);
+const hard = setTimeout(() => { console.log('\n  DEADLINE: e2e ran too long'); process.exit(1); }, PART === 'c' ? 240000 : PART === 'd' ? 150000 : 100000);
 
 /* Fixtures, generated so nothing binary is committed. */
 const FIX = fs.mkdtempSync(path.join(os.tmpdir(), 'bm-e2e-'));
@@ -139,6 +143,10 @@ const app = await _electron.launch({
   args: [ROOT, '--no-sandbox', '--mpv-ao=null', `--user-data-dir=${PROFILE}`, ...(PART === 'c' ? [] : ['--lite'])],
   cwd: ROOT, timeout: PART === 'warmup' ? 150000 : 90000,
 });
+// mpv ending by itself is written to the main process's log (v3.46.0): shown
+// at the end, as a crash nobody asked for is news even when every check passed.
+const mpvEnded = [];
+app.process().stderr?.on('data', d => { for (const l of String(d).split('\n')) if (/mpv ended by itself/.test(l)) mpvEnded.push(l.replace(/^\[[^\]]+\]\s*/, '')); });
 let page;
 for (let i = 0; i < 400 && !page; i++) {
   page = app.windows().find(w => w.url().includes('index.html'));
@@ -1716,6 +1724,328 @@ if (PART === 'c') {
     });
   }
 }
+if (PART === 'd') {
+  // Part D (v3.46.0): hard going. Names in other scripts and with the symbols
+  // a Windows file name may carry, songs that are broken or gone from the
+  // disk, presses faster than anyone makes them, mpv stopped by force in the
+  // middle of a film, and what a long session leaves behind in memory.
+  const DIR = path.join(FIX, 'Stress ഗാനങ്ങൾ #1 & [x] 100%');
+  fs.mkdirSync(DIR);
+  const S = n => path.join(DIR, n);
+  // The long one stays under Windows' 260 characters in a temp folder.
+  const GOOD = ['ഒരു പാട്ട് #1 & [live].wav', 'गाना 100% {mix}; a=b+c.wav', "it's a 😀 song, vol. 2 (ft. Ü).wav", 'A long name ' + 'x'.repeat(90) + ' end.wav'].map(S);
+  const MARK = ['പാട്ട്', 'गाना', '😀', 'long name'];
+  GOOD.forEach((f, i) => wav(f, 8, 300 + i * 110));
+  const ZERO = S('zero bytes.mp3'), TEXT = S('not really a song.mp3'), CUT = S('cut short.wav'), GONE = S('gone soon.wav');
+  fs.writeFileSync(ZERO, '');
+  fs.writeFileSync(TEXT, 'A text file with a song\'s name.\n'.repeat(60));
+  wav(CUT, 30, 500); fs.writeFileSync(CUT, fs.readFileSync(CUT).subarray(0, 44 + 22050));   // says 30 s, has half a second
+  wav(GONE, 8, 700);
+  // Lyrics beside the first song: two invented lines in Malayalam.
+  fs.writeFileSync(GOOD[0].replace(/\.wav$/, '.lrc'), '[00:00.50]ഇന്ന് നല്ല മഴയാണ്\n[00:03.00]ഞാൻ നിന്നെ കാത്തിരിക്കുന്നു\n');
+  let VID = null;
+  if (VIDEO) { VID = S('വീഡിയോ #2 & [x] 100%' + path.extname(VIDEO)); fs.copyFileSync(VIDEO, VID); }
+  const base = f => path.basename(f).slice(0, 34);
+  // Every message the app shows, in order.
+  await page.evaluate(() => { const real = bmApp.showOSD.bind(bmApp); window.__osd = []; bmApp.showOSD = (m, ms) => { window.__osd.push(String(m)); return real(m, ms); }; });
+  await page.evaluate(() => { window.__mpvStatus = []; bmApp.api.mpv.onStatus(s => window.__mpvStatus.push(s.state)); });
+  const mpvGet = (name) => page.evaluate(async n => { const v = await bmApp.api.mpv.cmd('get_property', n); return v && typeof v === 'object' && 'error' in v ? null : v; }, name);
+
+  await step('a folder of songs named in other scripts and with symbols is read in full', async () => {
+    const r = await page.evaluate(async d => {
+      bmApp.switchDest('music'); await bmMusic._load(d);
+      await new Promise(z => setTimeout(z, 1500));
+      return { n: bmMusic.tracks.length, rows: [...document.querySelectorAll('#music-tracks .track-row')].map(r => r.dataset.path) };
+    }, DIR);
+    const missing = [...GOOD, ZERO, TEXT, CUT, GONE].filter(f => !r.rows.includes(f)).map(base);
+    if (r.n !== 8 || missing.length) throw new Error(`${r.n} songs, not listed: ${missing.join(', ')}`);
+  });
+
+  await step('each of them plays in the in-app engine, under its own name', async () => {
+    const bad = [];
+    for (const [i, f] of GOOD.entries()) {
+      const r = await page.evaluate(async f => {
+        bmMusic.play(f, 0); await new Promise(z => setTimeout(z, 1300));
+        const e = bmMusic.engine;
+        return { owns: bmMusic.engineOwns(), t: e.currentTime, err: e.el.error?.code || 0, title: document.getElementById('np-title').textContent };
+      }, f);
+      if (r.err || !r.owns || !(r.t > 0.3)) bad.push(`${base(f)}: ${JSON.stringify({ owns: r.owns, t: r.t, err: r.err })}`);
+      else if (!r.title.includes(MARK[i])) bad.push(`${base(f)} is called "${r.title}"`);
+    }
+    if (bad.length) throw new Error(bad.join(' | '));
+  });
+
+  // At the music's own speed: mpv's word that it had opened the song was
+  // taken for a film being opened, and the film's speed was put back.
+  await step('and in mpv, with the engine off, at the music\'s speed', async () => {
+    const bad = [];
+    await page.evaluate(() => bmMusic.speedAdapter().set(1.5));
+    for (const f of GOOD) {
+      await page.evaluate(f => { bmMusic.engineEnabled = false; bmMusic.play(f, 0); }, f);
+      let p = null, t = 0;
+      for (let k = 0; k < 30 && !(p === f && t > 0.3); k++) { await page.waitForTimeout(200); p = await mpvGet('path'); t = (await mpvGet('time-pos')) || 0; }
+      const sp = await mpvGet('speed');
+      if (p !== f || !(t > 0.3)) bad.push(`${base(f)}: mpv has ${p ? base(p) : 'nothing'} at ${t}`);
+      else if (sp !== 1.5) bad.push(`${base(f)} plays at ${sp}x, not 1.5x`);
+    }
+    await page.evaluate(() => { bmMusic.speedAdapter().set(1); bmMusic.engineEnabled = true; bmApp.stop({ stay: true }); });
+    if (bad.length) throw new Error(bad.join(' | '));
+  });
+
+  // Each in turn: the engine cannot read it, mpv is given it and cannot
+  // either, and the next one is played. The music stopped at the first.
+  await step('broken songs are passed over, each named once, to the next that plays', async () => {
+    const r = await page.evaluate(async ({ q, good }) => {
+      window.__osd.length = 0;
+      bmMusic.queue = q.map(p => ({ path: p, name: p.split(/[\\/]/).pop() })); bmMusic.repeat = 'off';
+      bmMusic.play(q[0], 0);
+      let ok = false;
+      for (let i = 0; i < 60 && !ok; i++) { await new Promise(z => setTimeout(z, 200)); ok = bmMusic.currentPath === good && bmMusic.engineOwns() && bmMusic.engine.currentTime > 0.3; }
+      return { ok, at: bmMusic.currentPath, osd: window.__osd.slice() };
+    }, { q: [ZERO, TEXT, CUT, GOOD[1]], good: GOOD[1] });
+    if (!r.ok) throw new Error(`stuck at ${r.at ? base(r.at) : 'nothing'}; messages: ${r.osd.join(' | ')}`);
+    const named = r.osd.filter(m => /Couldn't play/.test(m));
+    if (named.length !== 2 || !/zero bytes/i.test(named[0]) || !/not really/i.test(named[1])) throw new Error('messages: ' + r.osd.join(' | '));
+    if (r.osd.some(m => /codec|mpv/i.test(m))) throw new Error('a message about players: ' + r.osd.join(' | '));
+  });
+
+  await step('a song taken off the disk after the folder was read is passed over', async () => {
+    fs.rmSync(GONE);
+    const r = await page.evaluate(async ({ q, good }) => {
+      window.__osd.length = 0;
+      bmMusic.queue = q.map(p => ({ path: p, name: p.split(/[\\/]/).pop() }));
+      bmMusic.play(q[0], 0);
+      let ok = false;
+      for (let i = 0; i < 50 && !ok; i++) { await new Promise(z => setTimeout(z, 200)); ok = bmMusic.currentPath === good && bmMusic.engine.currentTime > 0.3; }
+      return { ok, at: bmMusic.currentPath, osd: window.__osd.slice() };
+    }, { q: [GONE, GOOD[2]], good: GOOD[2] });
+    if (!r.ok) throw new Error(`stuck at ${r.at ? base(r.at) : 'nothing'}; messages: ${r.osd.join(' | ')}`);
+    if (!r.osd.some(m => /Couldn't play gone soon/i.test(m))) throw new Error('messages: ' + r.osd.join(' | '));
+  });
+
+  await step('lyrics beside a song with a hard name are found, and read in English letters', async () => {
+    const r = await page.evaluate(async f => {
+      bmMusic.play(f, 0);
+      const L = window.bmLyrics;
+      for (let i = 0; i < 40 && !(L.path === f && L.lines.length); i++) await new Promise(z => setTimeout(z, 150));
+      L.setScript('latin');
+      const shown = [...document.querySelectorAll('.lyr-line, .lyr-l')].map(e => e.textContent).join(' / ');
+      const out = { n: L.lines.length, source: L.source, roman: L.lines.map(l => l.roman), shown };
+      L.setScript('original');
+      return out;
+    }, GOOD[0]);
+    if (r.n !== 2) throw new Error(`${r.n} lines (from ${r.source})`);
+    if (r.roman[0] !== 'Innu nalla mazhayaanu') throw new Error('in English letters: ' + JSON.stringify(r.roman));
+  });
+
+  if (VID) {
+    await step('a film with a hard name plays', async () => {
+      await page.evaluate(v => bmApp.playMedia([v]), VID);
+      let p = null, t = 0;
+      for (let k = 0; k < 30 && !(p === VID && t > 1); k++) { await page.waitForTimeout(200); p = await mpvGet('path'); t = (await mpvGet('time-pos')) || 0; }
+      if (p !== VID || !(t > 1)) throw new Error(`mpv has ${p ? base(p) : 'nothing'} at ${t}`);
+    });
+
+    // A crash on Linux ends mpv with a signal, which was read as a clean
+    // exit: mpv never came back. On Windows it came back, empty.
+    await step('mpv ended by force in the middle of a film starts again, and the film carries on', async () => {
+      await page.waitForTimeout(1500);
+      const pid = await mpvGet('pid'), t0 = (await mpvGet('time-pos')) || 0;
+      if (!pid) throw new Error('mpv did not give its process id');
+      await page.evaluate(() => { window.__osd.length = 0; window.__mpvStatus.length = 0; });
+      process.kill(pid, 'SIGKILL');
+      let now = null, p = null, t = 0;
+      for (let k = 0; k < 60; k++) {
+        await page.waitForTimeout(250);
+        now = await mpvGet('pid'); p = await mpvGet('path'); t = (await mpvGet('time-pos')) || 0;
+        if (now && now !== pid && p === VID && t > t0 - 1) break;
+      }
+      const osd = await page.evaluate(() => window.__osd.slice());
+      if (!now || now === pid) throw new Error('mpv was not started again');
+      if (p !== VID) throw new Error(`the film was not opened again: mpv has ${p ? base(p) : 'nothing'}`);
+      if (!(t > t0 - 1)) throw new Error(`it began again at ${t.toFixed(1)}s, not ${t0.toFixed(1)}s`);
+      if (!osd.some(m => /Carrying on from/.test(m))) throw new Error('messages: ' + osd.join(' | '));
+      console.log(`      (stopped at ${t0.toFixed(1)}s, carried on at ${t.toFixed(1)}s)`);
+      // and it stays connected: the connection was made again every 2.5 s for
+      // good after a restart, losing whatever was asked of mpv in between
+      await page.waitForTimeout(6000);
+      const st = await page.evaluate(() => window.__mpvStatus.slice());
+      if (st.filter(x => x === 'ready').length !== 1) throw new Error('mpv\'s connection: ' + st.join(', '));
+    });
+    await page.evaluate(() => bmApp.stop());
+  }
+
+  await step('next, back, pause and seek faster than anyone presses leave one song playing, the one shown', async () => {
+    const r = await page.evaluate(async q => {
+      bmApp.switchDest('music');
+      bmMusic.queue = q.map(p => ({ path: p, name: p.split(/[\\/]/).pop() }));
+      bmMusic.play(q[0], 0); await new Promise(z => setTimeout(z, 600));
+      let seed = 7; const rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
+      for (let i = 0; i < 80; i++) {
+        const a = rnd();
+        if (a < 0.3) bmApp.trackStep(1); else if (a < 0.5) bmApp.trackStep(-1);
+        else if (a < 0.7) bmApp.togglePlay(); else bmApp.seekTo(rnd() * 6);
+        await new Promise(z => setTimeout(z, rnd() * 40));
+      }
+      await new Promise(z => setTimeout(z, 1000));
+      if (bmMusic.engine.paused) bmApp.togglePlay();
+      await new Promise(z => setTimeout(z, 1200));
+      const e = bmMusic.engine, cur = bmMusic.currentPath;
+      const idle = await bmApp.api.mpv.cmd('get_property', 'idle-active');
+      return {
+        owns: bmMusic.engineOwns(), paused: e.paused, t: e.currentTime, idle, cur, inQueue: q.includes(cur),
+        title: document.getElementById('np-title').textContent, want: cur ? bmMusic._meta({ path: cur, name: cur.split(/[\\/]/).pop() }).title : null,
+        rows: document.querySelectorAll('#music-tracks .track-row.playing').length, playing: bmApp.isPlaying,
+      };
+    }, GOOD);
+    if (!r.inQueue || !r.owns || r.paused || !(r.t > 0.3)) throw new Error('not playing as it should: ' + JSON.stringify({ owns: r.owns, paused: r.paused, t: r.t, cur: r.cur && base(r.cur) }));
+    if (r.idle !== true) throw new Error('mpv is playing too');
+    if (r.title !== r.want) throw new Error(`"${r.title}" is shown for "${r.want}"`);
+    if (r.rows !== 1) throw new Error(r.rows + ' rows marked as playing');
+    if (!r.playing) throw new Error('the app does not think it is playing');
+  });
+
+  await step('a long session: memory, the page and its listeners settle', async () => {
+    const cdp = await page.context().newCDPSession(page);
+    const measure = async () => {
+      for (let k = 0; k < 2; k++) { await cdp.send('HeapProfiler.collectGarbage'); await page.waitForTimeout(200); }
+      const h = await cdp.send('Runtime.getHeapUsage'), d = await cdp.send('Memory.getDOMCounters');
+      const main = await app.evaluate(() => { global.gc?.(); return process.memoryUsage().heapUsed; });
+      return { heap: h.usedSize, nodes: d.nodes, listeners: d.jsEventListeners, main };
+    };
+    const round = () => page.evaluate(async q => {
+      for (const f of q) {
+        bmMusic.play(f, 0); await new Promise(z => setTimeout(z, 120));
+        for (const d of ['images', 'pdf', 'video', 'music']) { bmApp.switchDest(d); await new Promise(z => setTimeout(z, 50)); }
+        bmLyrics.setScript(bmLyrics.script === 'both' ? 'original' : 'both');
+      }
+    }, GOOD);
+    await round(); await round();
+    const a = await measure();
+    for (let k = 0; k < 10; k++) await round();
+    const b = await measure();
+    await page.evaluate(() => { bmLyrics.setScript('original'); bmApp.stop(); });
+    const mb = x => (x / 1048576).toFixed(1);
+    console.log(`      (page heap ${mb(a.heap)} → ${mb(b.heap)} MB, nodes ${a.nodes} → ${b.nodes}, listeners ${a.listeners} → ${b.listeners}, main ${mb(a.main)} → ${mb(b.main)} MB)`);
+    if (b.heap - a.heap > 6 * 1048576) throw new Error(`the page's memory grew by ${mb(b.heap - a.heap)} MB over 40 songs`);
+    if (b.nodes - a.nodes > 1500) throw new Error(`${b.nodes - a.nodes} more elements on the page`);
+    if (b.listeners - a.listeners > 200) throw new Error(`${b.listeners - a.listeners} more event listeners`);
+  });
+
+  // ── v3.46.0: what VLC and KMPlayer have, with the real mpv ──────────
+  if (VID) {
+    // Two subtitles of its own beside the film, so the second subtitle has
+    // something to show. Invented lines.
+    const SUB_EN = VID.replace(/\.[^.]+$/, '.en.srt'), SUB_ML = VID.replace(/\.[^.]+$/, '.ml.srt');
+    fs.writeFileSync(SUB_EN, '1\n00:00:00,000 --> 00:01:00,000\nThe first line of the test\n');
+    fs.writeFileSync(SUB_ML, '1\n00:00:00,000 --> 00:01:00,000\nപരീക്ഷണത്തിന്റെ ആദ്യ വരി\n');
+    const startFilm = async () => {
+      await page.evaluate(v => { bmApp.playMedia([v]); }, VID);
+      let t = 0; for (let k = 0; k < 30 && !(t > 0.5); k++) { await page.waitForTimeout(200); t = (await mpvGet('time-pos')) || 0; }
+      if (!(t > 0.5)) throw new Error('the film did not start');
+    };
+
+    await step('picture: colour, zoom and filling the screen reach the real mpv, and the next film is at its own size', async () => {
+      await startFilm();
+      await page.evaluate(() => { const p = bmApp.picture; p.set('brightness', 20); p.set('contrast', -10); p.setZoom(200); p.setPan(50, 0); p.setFill(true); });
+      await page.waitForTimeout(300);
+      const got = {}; for (const k of ['brightness', 'contrast', 'video-zoom', 'video-pan-x', 'panscan']) got[k] = await mpvGet(k);
+      if (got.brightness !== 20 || got.contrast !== -10 || Math.abs(got['video-zoom'] - 1) > 1e-3 || !(got['video-pan-x'] > 0) || got.panscan !== 1) throw new Error('mpv has ' + JSON.stringify(got));
+      await startFilm();
+      const z = await mpvGet('video-zoom'), b = await mpvGet('brightness');
+      await page.evaluate(() => bmApp.picture.reset());
+      if (z !== 0) throw new Error('the next film kept the zoom: ' + z);
+      if (b !== 20) throw new Error('the next film lost the brightness: ' + b);
+    });
+
+    await step('sound: night mode, mono and a boost are one filter the real mpv takes, and the film plays on', async () => {
+      await page.evaluate(() => { const s = bmApp.sound; s.setNight(true); s.setChannels('mono'); s.setBoost(150); });
+      await page.waitForTimeout(400);
+      const af = await page.evaluate(async () => JSON.stringify(await bmApp.api.mpv.cmd('get_property', 'af')));
+      const t0 = (await mpvGet('time-pos')) || 0; await page.waitForTimeout(800); const t1 = (await mpvGet('time-pos')) || 0;
+      await page.evaluate(() => bmApp.sound.reset()); await page.waitForTimeout(200);
+      const after = await page.evaluate(async () => JSON.stringify(await bmApp.api.mpv.cmd('get_property', 'af')));
+      for (const part of ['acompressor', 'pan=stereo', 'volume=1.5', 'alimiter']) if (!af.includes(part)) throw new Error(`mpv's filter lacks ${part}: ${af.slice(0, 300)}`);
+      if (!(t1 > t0 + 0.3)) throw new Error(`the film stood still with the filter: ${t0} then ${t1}`);
+      if (after !== '[]') throw new Error('turned off, mpv still has ' + after);
+    });
+
+    await step('a second subtitle at the top, from the menu, with the real mpv', async () => {
+      await page.evaluate(async ([a, b]) => { await bmApp.api.mpv.cmd('sub-add', a, 'select'); await bmApp.api.mpv.cmd('sub-add', b, 'auto'); }, [SUB_EN, SUB_ML]);
+      let rows = [];
+      for (let k = 0; k < 20 && rows.length < 3; k++) { await page.waitForTimeout(200); rows = await page.evaluate(() => [...document.querySelectorAll('#sub2-track-sub .mr')].map(r => r.textContent)); }
+      if (rows.length < 2) throw new Error('the second subtitle menu offers ' + JSON.stringify(rows));
+      await page.evaluate(() => { const r = [...document.querySelectorAll('#sub2-track-sub .mr')].find(x => /\.ml\.srt|ml/i.test(x.textContent) && !/Off/.test(x.textContent)) || [...document.querySelectorAll('#sub2-track-sub .mr')].at(-1); r.click(); });
+      await page.waitForTimeout(400);
+      const sid2 = await mpvGet('secondary-sid'), sid = await mpvGet('sid');
+      const marked = await page.evaluate(() => [...document.querySelectorAll('#sub-track-sub .mr.active-opt, #sub2-track-sub .mr.active-opt')].map(r => r.textContent));
+      if (!(sid2 > 0) || sid2 === sid) throw new Error(`secondary-sid ${sid2}, sid ${sid}`);
+      if (marked.length !== 2) throw new Error('marked in the menus: ' + JSON.stringify(marked));
+      await page.evaluate(() => bmApp.setSecondSub(null));
+    });
+
+    await step('the seek bar shows a picture of the film from a second mpv, and a drag leaves the film where it is let go', async () => {
+      await page.evaluate(() => { bmApp.api.mpv.cmd('set_property', 'pause', true); document.getElementById('controls-bar')?.classList.remove('faded'); });
+      const box = await page.evaluate(() => { const r = document.getElementById('seek-container').getBoundingClientRect(); return { x: r.x, y: r.y, w: r.width, h: r.height }; });
+      if (!(box.w > 50)) throw new Error('the seek bar is not on screen');
+      const y = box.y + box.h / 2;
+      await page.mouse.move(box.x + box.w * 0.4, y); await page.mouse.move(box.x + box.w * 0.5, y, { steps: 3 });
+      let pic = null;
+      for (let k = 0; k < 30 && !pic; k++) { await page.waitForTimeout(150); pic = await page.evaluate(() => { const i = document.getElementById('seek-preview-img'), b = document.getElementById('seek-preview'); return b.classList.contains('has-pic') && i.naturalWidth ? { w: i.naturalWidth, h: i.naturalHeight, shown: getComputedStyle(b).display !== 'none' } : null; }); }
+      if (!pic) throw new Error('no picture above the seek bar');
+      if (pic.w !== 256 || !(pic.h > 100)) throw new Error('the picture is ' + pic.w + 'x' + pic.h);
+      await shot('seek-picture');
+      const d = (await mpvGet('duration')) || 60;
+      await page.mouse.down(); await page.mouse.move(box.x + box.w * 0.7, y, { steps: 6 });
+      await page.mouse.move(box.x + box.w * 0.75, y + 60, { steps: 2 }); await page.mouse.up();
+      await page.waitForTimeout(700);
+      const t = (await mpvGet('time-pos')) || 0;
+      if (Math.abs(t / d - 0.75) > 0.04) throw new Error(`let go at 75%, the film is at ${(t / d * 100).toFixed(1)}%`);
+    });
+
+    // Lite: the picture's window lay over every side panel during a film.
+    await step('Lite: the picture makes room for a panel opened beside it, and takes it back', async () => {
+      const r = await page.evaluate(async () => {
+        const { videoRect } = await import('./js/lite-video.js');
+        const wait = ms => new Promise(z => setTimeout(z, ms));
+        const before = videoRect();
+        bmApp.openPanel('picture'); await wait(600);
+        const during = videoRect(), panel = document.getElementById('panel-picture').getBoundingClientRect();
+        document.getElementById('panel-picture').classList.remove('open'); await wait(600);
+        return { before, during, after: videoRect(), panelLeft: panel.left };
+      });
+      if (!r.before || !r.during) throw new Error('no picture: ' + JSON.stringify(r));
+      if (r.during.x + r.during.width > r.panelLeft) throw new Error(`the picture (to ${r.during.x + r.during.width}) lies over the panel (from ${r.panelLeft})`);
+      if (JSON.stringify(r.after) !== JSON.stringify(r.before)) throw new Error(`not back as it was: ${JSON.stringify(r.before)} then ${JSON.stringify(r.after)}`);
+    });
+
+    // A sleep timer for the end of the film: mpv stops there, with the next
+    // film waiting in its playlist.
+    await step('sleep timer at the end of a film: mpv stops there and does not go on to the next', async () => {
+      await page.evaluate(v => { bmApp.playMedia([v, v]); }, VID);
+      let t = 0; for (let k = 0; k < 30 && !(t > 0.3); k++) { await page.waitForTimeout(200); t = (await mpvGet('time-pos')) || 0; }
+      const d = (await mpvGet('duration')) || 0;
+      await page.evaluate(d => { bmApp.sleep.set('end'); bmApp.seekTo(d - 1.5); }, d);
+      let eof = false; for (let k = 0; k < 30 && !eof; k++) { await page.waitForTimeout(200); eof = await mpvGet('eof-reached'); }
+      await page.waitForTimeout(1500);
+      const pos = await mpvGet('playlist-pos'), mode = await page.evaluate(() => bmApp.sleep.mode);
+      await page.evaluate(() => bmApp.stop()); await page.waitForTimeout(300);
+      const ko = await mpvGet('keep-open');
+      if (!eof) throw new Error('the film did not reach its end');
+      if (pos !== 0) throw new Error('mpv went on to the next film: playlist position ' + pos);
+      if (mode) throw new Error('the timer is still set: ' + mode);
+      if (ko !== true && ko !== 'yes') throw new Error('keep-open left at ' + ko + ' after stop');   // mpv says yes as true
+    });
+  }
+
+  // Chromium's own line for the empty file and the one taken away, which
+  // are there to fail, is all that may show.
+  await step('no page errors through all of it', () => {
+    const meant = /Failed to load resource: the server responded with a status of (404|416)/;
+    const bad = consoleMsgs.filter(m => m.type === 'pageerror' || (m.type === 'error' && !NOISE.test(m.text) && !meant.test(m.text)));
+    if (bad.length) throw new Error(bad.map(m => m.text).join(' | ').slice(0, 400));
+  });
+}
 } finally {
   await app.close().catch(() => {});
   try { execFileSync('pkill', ['-9', '-x', 'mpv']); } catch {}
@@ -1725,5 +2055,6 @@ if (PART === 'c') {
 }
 
 const bad = results.filter(r => !r).length;
+if (mpvEnded.length) console.log(`\n  mpv ended by itself ${mpvEnded.length} time(s):\n` + mpvEnded.map(l => '    ' + l).join('\n'));
 console.log(`\n${results.length - bad}/${results.length} checks passed. Screenshots in ${SHOTS}\n`);
 process.exit(bad ? 1 : 0);

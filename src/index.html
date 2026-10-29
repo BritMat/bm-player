@@ -477,6 +477,7 @@
       <div class="mr" data-a="frame-fwd">Step Forward Frame <kbd>.</kbd></div>
       <div class="ms"></div>
       <div class="mr" data-a="loop-file">Loop File</div>
+      <div class="mr" data-a="sleep-timer">Sleep Timer…</div>
       <div class="mr" data-a="screenshot">Screenshot <kbd>Ctrl+T</kbd></div>
       <div class="mr" data-a="jump-to-time">Jump to Time… <kbd>Ctrl+J</kbd></div>
     </div>
@@ -495,6 +496,8 @@
       <div class="mr" data-a="audio-delay-p">Audio Delay + <kbd>Shift+K</kbd></div>
       <div class="mr" data-a="audio-delay-m">Audio Delay − <kbd>Shift+J</kbd></div>
       <div class="mr" data-a="audio-delay-r">Reset Audio Delay</div>
+      <div class="ms"></div>
+      <div class="mr" data-a="open-eq">Equalizer and Sound…</div>
     </div>
   </div>
   <!-- Video -->
@@ -509,6 +512,12 @@
       <div class="mr" data-a="aspect-16:9">Aspect: 16:9</div>
       <div class="mr" data-a="aspect-4:3">Aspect: 4:3</div>
       <div class="mr" data-a="aspect-21:9">Aspect: 21:9</div>
+      <div class="ms"></div>
+      <div class="mr" data-a="open-picture">Picture: Colour and Zoom…</div>
+      <div class="mr" data-a="fill-screen">Fill the Screen</div>
+      <div class="mr" data-a="zoom-in">Zoom In <kbd>Alt+=</kbd></div>
+      <div class="mr" data-a="zoom-out">Zoom Out <kbd>Alt+−</kbd></div>
+      <div class="mr" data-a="zoom-reset">Normal Size <kbd>Alt+Backspace</kbd></div>
       <div class="ms"></div>
       <div class="mr" data-a="rotate-right">Rotate Right <kbd>Ctrl+R</kbd></div>
       <div class="mr" data-a="rotate-left">Rotate Left <kbd>Ctrl+Shift+R</kbd></div>
@@ -528,6 +537,7 @@
       <div class="mr" data-a="search-subs">Search Online…</div>
       <div class="ms"></div>
       <div id="sub-track-sub"></div>
+      <div id="sub2-track-sub" class="hidden"></div>
       <div class="ms"></div>
       <div class="mr" data-a="sub-delay-p">Delay + <kbd>X</kbd></div>
       <div class="mr" data-a="sub-delay-m">Delay − <kbd>Z</kbd></div>
@@ -540,7 +550,8 @@
   <!-- Tools -->
   <div class="mi"><span class="mi-label">Tools</span>
     <div class="mi-drop">
-      <div class="mr" data-a="open-eq">Equalizer…</div>
+      <div class="mr" data-a="open-eq">Equalizer and Sound…</div>
+      <div class="mr" data-a="open-picture">Picture…</div>
       <div class="mr" data-a="open-info">Media Info… <kbd>Ctrl+I</kbd></div>
       <div class="mr" data-a="open-playlist">Playlist… <kbd>Ctrl+L</kbd></div>
       <div class="mr" data-a="open-bookmarks">Bookmarks… <kbd>Ctrl+B</kbd></div>
@@ -661,7 +672,7 @@
   <!-- Full-screen audio visualiser overlay (Video tab while a track plays) -->
   <div id="viz-overlay" class="viz-overlay">
     <div class="viz-art" id="viz-art"><span class="viz-art-ico" data-icon="music"></span></div>
-    <div class="viz-lyrics hidden vl-empty" id="viz-lyrics" aria-live="polite"><div class="vl-now" id="vl-now"></div><div class="vl-next" id="vl-next"></div></div>
+    <div class="viz-lyrics hidden vl-empty" id="viz-lyrics" aria-live="polite"><div class="vl-now" id="vl-now"></div><div class="vl-roman hidden" id="vl-roman"></div><div class="vl-next" id="vl-next"></div></div>
     <div class="viz-meta">
       <div class="viz-meta-title"  id="viz-meta-title">Not Playing</div>
       <div class="viz-meta-artist" id="viz-meta-artist"></div>
@@ -690,11 +701,13 @@
         </div>
         <div class="seek-thumb"   id="seek-thumb"></div>
         <div class="seek-preview" id="seek-preview">
+          <img class="seek-preview-img" id="seek-preview-img" alt="">
           <span class="seek-preview-time" id="seek-preview-time">0:00</span>
         </div>
       </div>
       <span class="time-display" id="time-total">0:00</span>
       <span class="speed-badge"  id="speed-badge">1×</span>
+      <button class="sleep-badge hidden" id="sleep-badge" type="button" aria-label="Sleep timer"><span class="ico" id="sleep-badge-ico"></span><span id="sleep-badge-text"></span></button>
     </div>
 
     <!-- Transport row -->
@@ -976,8 +989,8 @@
 
 <div class="side-panel" id="panel-eq">
   <div class="panel-hdr">
-    <span>Equalizer</span>
-    <button class="panel-close" data-panel="eq" aria-label="Close equalizer panel">✕</button>
+    <span>Equalizer and sound</span>
+    <button class="panel-close" data-panel="eq" aria-label="Close equalizer and sound panel">✕</button>
   </div>
   <div class="panel-body">
     <div class="eq-presets" id="eq-presets">
@@ -991,6 +1004,60 @@
     </div>
     <div class="eq-bands" id="eq-bands"></div>
     <button class="btn-reset-eq" id="btn-reset-eq">Reset EQ</button>
+    <!-- v3.46.0: sound.js -->
+    <div class="snd-section" id="snd-section">
+      <div class="ctx-section-label">Night mode</div>
+      <p class="snd-note">Quiet voices come up and loud bangs come down, for a film late at night.</p>
+      <div class="eq-presets snd-chips" role="group" aria-label="Night mode">
+        <button class="eq-preset-btn" data-snd-night="off">Off</button>
+        <button class="eq-preset-btn" data-snd-night="on">On</button>
+      </div>
+      <div class="ctx-section-label">Channels</div>
+      <p class="snd-note">Mono puts everything in both ears, for one earphone.</p>
+      <div class="eq-presets snd-chips" role="group" aria-label="Channels">
+        <button class="eq-preset-btn" data-snd-ch="stereo">Stereo</button>
+        <button class="eq-preset-btn" data-snd-ch="mono">Mono</button>
+        <button class="eq-preset-btn" data-snd-ch="left">Left only</button>
+        <button class="eq-preset-btn" data-snd-ch="right">Right only</button>
+        <button class="eq-preset-btn" data-snd-ch="swap">Swapped</button>
+      </div>
+      <div class="ctx-section-label">Volume boost</div>
+      <p class="snd-note">Louder than 100% for a quiet film. It goes back to 100% when BM Player starts.</p>
+      <div class="eq-presets snd-chips" role="group" aria-label="Volume boost">
+        <button class="eq-preset-btn" data-snd-boost="100" aria-label="Volume boost 100 per cent">100%</button>
+        <button class="eq-preset-btn" data-snd-boost="150" aria-label="Volume boost 150 per cent">150%</button>
+        <button class="eq-preset-btn" data-snd-boost="200" aria-label="Volume boost 200 per cent">200%</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- v3.46.0: picture.js -->
+<div class="side-panel" id="panel-picture">
+  <div class="panel-hdr">
+    <span>Picture</span>
+    <button class="panel-close" data-panel="picture" aria-label="Close picture panel">✕</button>
+  </div>
+  <div class="panel-body">
+    <div class="ctx-section-label">Colour</div>
+    <div class="ctx-row pic-row"><span class="ctx-row-label">Brightness</span><input type="range" class="ctx-slider" data-pic="brightness" min="-100" max="100" step="1" value="0" aria-label="Brightness"><span class="ctx-val" data-pic-val="brightness">0</span></div>
+    <div class="ctx-row pic-row"><span class="ctx-row-label">Contrast</span><input type="range" class="ctx-slider" data-pic="contrast" min="-100" max="100" step="1" value="0" aria-label="Contrast"><span class="ctx-val" data-pic-val="contrast">0</span></div>
+    <div class="ctx-row pic-row"><span class="ctx-row-label">Saturation</span><input type="range" class="ctx-slider" data-pic="saturation" min="-100" max="100" step="1" value="0" aria-label="Saturation"><span class="ctx-val" data-pic-val="saturation">0</span></div>
+    <div class="ctx-row pic-row"><span class="ctx-row-label">Gamma</span><input type="range" class="ctx-slider" data-pic="gamma" min="-100" max="100" step="1" value="0" aria-label="Gamma"><span class="ctx-val" data-pic-val="gamma">0</span></div>
+    <div class="ctx-row pic-row"><span class="ctx-row-label">Hue</span><input type="range" class="ctx-slider" data-pic="hue" min="-100" max="100" step="1" value="0" aria-label="Hue"><span class="ctx-val" data-pic-val="hue">0</span></div>
+    <p class="snd-note">These stay for every film. A double-click on a slider puts it back.</p>
+    <div class="ctx-section-label">Size</div>
+    <div class="ctx-row pic-row"><span class="ctx-row-label">Zoom</span><input type="range" class="ctx-slider" data-pic="zoom" min="50" max="400" step="5" value="100" aria-label="Zoom"><span class="ctx-val" data-pic-val="zoom">100%</span></div>
+    <div class="ctx-row pic-row"><span class="ctx-row-label">Across</span><input type="range" class="ctx-slider" data-pic="pan-x" min="-100" max="100" step="1" value="0" aria-label="Move the zoomed picture across"><span class="ctx-val" data-pic-val="pan-x">0%</span></div>
+    <div class="ctx-row pic-row"><span class="ctx-row-label">Up and down</span><input type="range" class="ctx-slider" data-pic="pan-y" min="-100" max="100" step="1" value="0" aria-label="Move the zoomed picture up and down"><span class="ctx-val" data-pic-val="pan-y">0%</span></div>
+    <p class="snd-note">Zoom with <kbd>Alt</kbd> <kbd>+</kbd> and <kbd>Alt</kbd> <kbd>−</kbd>, move with <kbd>Alt</kbd> and the arrows. Zoom is for the film that is open.</p>
+    <div class="ctx-section-label">Fill the screen</div>
+    <p class="snd-note">No black bars: the picture is enlarged to fill the screen and its edges are cut.</p>
+    <div class="eq-presets snd-chips" role="group" aria-label="Fill the screen">
+      <button class="eq-preset-btn" data-pic-fill="off">Whole picture</button>
+      <button class="eq-preset-btn" data-pic-fill="on">Fill the screen</button>
+    </div>
+    <button class="btn-reset-eq" data-pic="reset">Reset the picture</button>
   </div>
 </div>
 
@@ -1188,15 +1255,13 @@
     <button class="panel-close" data-panel="subsearch" aria-label="Close subtitle search panel">✕</button>
   </div>
   <div class="panel-body">
-    <p style="font-size:11px;color:var(--text-muted);margin-bottom:12px;">Search OpenSubtitles.org for subtitles.</p>
-    <select class="dash-select" id="subs-lang">
-      <option value="en">English</option><option value="es">Spanish</option>
-      <option value="fr">French</option><option value="de">German</option>
-      <option value="hi">Hindi</option><option value="ml">Malayalam</option>
-      <option value="ta">Tamil</option><option value="ar">Arabic</option>
-    </select>
-    <input type="text" class="dlg-input" id="subsearch-query" placeholder="Search by name or hash…" style="width:100%;box-sizing:border-box;margin-bottom:8px;">
-    <button class="dash-action-btn" id="subs-search-btn" style="width:100%">Search</button>
+    <!-- v3.46.0: OpenSubtitles closed the free search BM Player used (its
+         XML-RPC service, early 2026). The search now opens in the browser,
+         with the film's name, and the file found is loaded here. -->
+    <p class="subs-note" id="subs-note">OpenSubtitles closed the free search BM Player used in 2026. Search their site instead: the film's name is filled in below. Then drop the .srt on the video, or load it here.</p>
+    <input type="text" class="dlg-input" id="subsearch-query" placeholder="The film's name" aria-label="What to search for" style="width:100%;box-sizing:border-box;margin-bottom:8px;">
+    <button class="dash-action-btn" id="subs-search-btn" style="width:100%">Search opensubtitles.com</button>
+    <button class="dash-action-btn subs-load" id="subs-load-btn" style="width:100%;margin-top:8px;">Load a subtitle file…</button>
     <div id="subs-results" style="margin-top:12px;"></div>
   </div>
 </div>
@@ -1408,6 +1473,17 @@
   </div>
 </div>
 
+<!-- v3.46.0: the sleep timer (sleep-timer.js) -->
+<div class="dialog-overlay hidden" id="dlg-sleep">
+  <div class="dlg-box sleep-box" role="dialog" aria-label="Sleep timer">
+    <div class="dlg-title">Sleep Timer</div>
+    <p class="sleep-state" id="sleep-state">Off</p>
+    <div class="eq-presets sleep-chips" id="sleep-chips"></div>
+    <p class="snd-note">The sound fades out over ten seconds, then playing pauses.</p>
+    <div class="sleep-foot"><button class="btn-ghost" id="sleep-close">Close</button></div>
+  </div>
+</div>
+
 <!-- v3.39.0: how subtitles look (sub-style.js): every installed font, the
      edge round the letters, bold and colour, with a sample. -->
 <div class="dialog-overlay hidden" id="dlg-substyle">
@@ -1506,7 +1582,7 @@
       <div class="kb-grid">
       <section class="kb-group"><h3>Playback</h3><div class="kb-row"><span class="kb-keys"><kbd>Space</kbd></span><span class="kb-what">Play or pause</span></div><div class="kb-row"><span class="kb-keys"><kbd>S</kbd></span><span class="kb-what">Stop</span></div><div class="kb-row"><span class="kb-keys"><kbd>←</kbd><kbd>→</kbd></span><span class="kb-what">Back or forward 5 s, with Shift 30 s</span></div><div class="kb-row"><span class="kb-keys"><kbd>1</kbd> to <kbd>9</kbd></span><span class="kb-what">Jump to 10% to 90%</span></div><div class="kb-row"><span class="kb-keys"><kbd>,</kbd><kbd>.</kbd></span><span class="kb-what">One frame back or forward</span></div><div class="kb-row"><span class="kb-keys"><kbd>[</kbd><kbd>]</kbd></span><span class="kb-what">Slower or faster</span></div><div class="kb-row"><span class="kb-keys"><kbd>Backspace</kbd></span><span class="kb-what">Normal speed</span></div><div class="kb-row"><span class="kb-keys"><kbd>P</kbd><kbd>N</kbd></span><span class="kb-what">Previous or next track</span></div><div class="kb-row"><span class="kb-keys"><kbd>Ctrl</kbd><kbd>J</kbd></span><span class="kb-what">Go to a time</span></div></section>
       <section class="kb-group"><h3>Sound and subtitles</h3><div class="kb-row"><span class="kb-keys"><kbd>↑</kbd><kbd>↓</kbd></span><span class="kb-what">Volume up or down</span></div><div class="kb-row"><span class="kb-keys"><kbd>M</kbd></span><span class="kb-what">Mute</span></div><div class="kb-row"><span class="kb-keys"><kbd>A</kbd></span><span class="kb-what">Next audio track</span></div><div class="kb-row"><span class="kb-keys"><kbd>V</kbd></span><span class="kb-what">Next subtitle track</span></div><div class="kb-row"><span class="kb-keys"><kbd>Z</kbd><kbd>X</kbd></span><span class="kb-what">Subtitles 0.5 s earlier or later</span></div><div class="kb-row"><span class="kb-keys"><kbd>Shift</kbd><kbd>J</kbd> <kbd>Shift</kbd><kbd>K</kbd></span><span class="kb-what">Sound 0.5 s earlier or later</span></div></section>
-      <section class="kb-group"><h3>View</h3><div class="kb-row"><span class="kb-keys"><kbd>F</kbd>, <kbd>F11</kbd> or a double-click</span><span class="kb-what">Full screen</span></div><div class="kb-row"><span class="kb-keys"><kbd>Ctrl</kbd>+<kbd>R</kbd> / <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>R</kbd></span><span class="kb-what">Rotate right / left</span></div><div class="kb-row"><span class="kb-keys"><kbd>Ctrl</kbd>+<kbd>M</kbd></span><span class="kb-what">Mirror</span></div><div class="kb-row"><span class="kb-keys"><kbd>T</kbd></span><span class="kb-what">Theatre mode</span></div><div class="kb-row"><span class="kb-keys"><kbd>Alt</kbd><kbd>P</kbd></span><span class="kb-what">Picture-in-picture</span></div><div class="kb-row"><span class="kb-keys"><kbd>Esc</kbd></span><span class="kb-what">Leave fullscreen, or stop</span></div><div class="kb-row"><span class="kb-keys"><span class="kb-click">Click</span></span><span class="kb-what">Next visualiser style, on the visualiser</span></div></section>
+      <section class="kb-group"><h3>View</h3><div class="kb-row"><span class="kb-keys"><kbd>F</kbd>, <kbd>F11</kbd> or a double-click</span><span class="kb-what">Full screen</span></div><div class="kb-row"><span class="kb-keys"><kbd>Ctrl</kbd>+<kbd>R</kbd> / <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>R</kbd></span><span class="kb-what">Rotate right / left</span></div><div class="kb-row"><span class="kb-keys"><kbd>Ctrl</kbd>+<kbd>M</kbd></span><span class="kb-what">Mirror</span></div><div class="kb-row"><span class="kb-keys"><kbd>Alt</kbd><kbd>=</kbd> <kbd>Alt</kbd><kbd>−</kbd></span><span class="kb-what">Zoom in or out</span></div><div class="kb-row"><span class="kb-keys"><kbd>Alt</kbd> and arrows</span><span class="kb-what">Move the zoomed picture</span></div><div class="kb-row"><span class="kb-keys"><kbd>Alt</kbd><kbd>Backspace</kbd></span><span class="kb-what">Normal size</span></div><div class="kb-row"><span class="kb-keys"><kbd>T</kbd></span><span class="kb-what">Theatre mode</span></div><div class="kb-row"><span class="kb-keys"><kbd>Alt</kbd><kbd>P</kbd></span><span class="kb-what">Picture-in-picture</span></div><div class="kb-row"><span class="kb-keys"><kbd>Esc</kbd></span><span class="kb-what">Leave fullscreen, or stop</span></div><div class="kb-row"><span class="kb-keys"><span class="kb-click">Click</span></span><span class="kb-what">Next visualiser style, on the visualiser</span></div></section>
       <section class="kb-group"><h3>Loops and bookmarks</h3><div class="kb-row"><span class="kb-keys"><kbd>B</kbd></span><span class="kb-what">Loop start</span></div><div class="kb-row"><span class="kb-keys"><kbd>Shift</kbd><kbd>B</kbd></span><span class="kb-what">Loop end</span></div><div class="kb-row"><span class="kb-keys"><kbd>C</kbd></span><span class="kb-what">Clear the loop</span></div><div class="kb-row"><span class="kb-keys"><kbd>G</kbd></span><span class="kb-what">Pause or resume the loop</span></div><div class="kb-row"><span class="kb-keys"><kbd>Ctrl</kbd><kbd>B</kbd></span><span class="kb-what">Add a bookmark</span></div><div class="kb-row"><span class="kb-keys"><kbd>Alt</kbd><kbd>B</kbd></span><span class="kb-what">Quick bookmark</span></div></section>
       <section class="kb-group"><h3>Files and panels</h3><div class="kb-row"><span class="kb-keys"><kbd>Ctrl</kbd><kbd>O</kbd></span><span class="kb-what">Open a file</span></div><div class="kb-row"><span class="kb-keys"><kbd>Ctrl</kbd><kbd>I</kbd></span><span class="kb-what">Media info</span></div><div class="kb-row"><span class="kb-keys"><kbd>Ctrl</kbd><kbd>L</kbd></span><span class="kb-what">Playlist</span></div><div class="kb-row"><span class="kb-keys"><kbd>Ctrl</kbd><kbd>H</kbd></span><span class="kb-what">History</span></div><div class="kb-row"><span class="kb-keys"><kbd>Ctrl</kbd><kbd>T</kbd></span><span class="kb-what">Screenshot</span></div><div class="kb-row"><span class="kb-keys"><kbd>Ctrl</kbd><kbd>Q</kbd></span><span class="kb-what">Quit</span></div><div class="kb-row"><span class="kb-keys"><kbd>?</kbd> or <kbd>F1</kbd></span><span class="kb-what">This list</span></div></section>
       </div>

@@ -61,6 +61,7 @@ export const ICONS = {
   heart:     S(`<path d="M12 21C12 21 3 14.5 3 8.5C3 5.5 5.5 3 8 3C9.5 3 11 3.8 12 5C13 3.8 14.5 3 16 3C18.5 3 21 5.5 21 8.5C21 14.5 12 21 12 21Z" stroke="currentColor" stroke-width="1.8" fill="none"/>`),
   clock:     S(`<circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="1.8" fill="none"/><path d="M12 7v5l3 3" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" fill="none"/>`),
   bookmark:  S(`<path d="M6 2h12a2 2 0 0 1 2 2v16l-8-4-8 4V4a2 2 0 0 1 2-2z" stroke="currentColor" stroke-width="1.8" fill="none" stroke-linejoin="round"/>`),
+  moon:      S(`<path d="M20.5 13.2A8.6 8.6 0 1 1 10.8 3.5a6.8 6.8 0 0 0 9.7 9.7z" stroke="currentColor" stroke-width="1.8" fill="none" stroke-linejoin="round"/>`),   // the sleep timer (v3.46.0)
   search:    S(`<circle cx="10.5" cy="10.5" r="6" stroke="currentColor" stroke-width="2" fill="none"/><line x1="15.5" y1="15.5" x2="21" y2="21" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>`),
   sort:      S(`<path d="M3 6h7M3 12h5M3 18h3M14 6h7M16 12h5M18 18h3" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>`),
   filter:    S(`<path d="M3 4h18l-7 8.5V18l-4 2V12.5L3 4z" stroke="currentColor" stroke-width="1.8" fill="none" stroke-linejoin="round"/>`),

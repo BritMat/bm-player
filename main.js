@@ -40,6 +40,7 @@ function writePluginState(state) {
 const PS = require('./plugin-safety');
 const { makeLyrics } = require('./lyrics');   // v3.38.0
 const { makeYtdlp } = require('./ytdlp');     // v3.39.0: YouTube captions as lyrics
+const { makeThumbs } = require('./thumbs');   // v3.46.0: pictures for the seek bar
 /* Plugins: see plugin-safety.js for the rules. Bundled plugins ship with the
    app and are trusted. Plugins you add are checked: files must stay inside
    their folder, script plugins start switched off and need a native
@@ -786,6 +787,8 @@ function registerIpc(){
   ipcMain.handle('mpv:append',async(_,f)=>mpvCmd('loadfile',f,'append').catch(()=>{}));
   ipcMain.handle('mpv:status',()=>({ready:ipcOk}));
   ipcMain.handle('mpv:getPlaylist',async()=>{try{return await mpvCmd('get_property','playlist');}catch(_){return[];}});
+  // A picture of the film where the pointer is on the seek bar (v3.46.0).
+  ipcMain.handle('media:thumbAt',(_,f,t)=>thumbs.thumbAt(f,t));
   ipcMain.handle('show-context-menu',async()=>{
     if(ipcOk){try{const t=await mpvCmd('get_property','track-list');if(Array.isArray(t))trackList=t;}catch(_){}}
     send('mpv:trackList',trackList);
@@ -1358,17 +1361,33 @@ function startMpv(exe, minimalArgs){
     // mpv (0.41 on the laptop), where the shadow is 70% black.
     '--sub-font-size=44', '--sub-shadow-offset=0', '--sub-border-size=2.2',
     '--sub-color=1.0/1.0/1.0/1.0',
+    // What mpv keeps of a stream in memory (v3.45.0): 64 MB ahead and 32
+    // behind, against its own 150 and 50. A minute or more of a 1080p stream
+    // either way; a file on the disk is read as it plays and keeps none.
+    '--demuxer-max-bytes=64MiB', '--demuxer-max-back-bytes=32MiB',
   ];
   const args = minimalArgs ? coreArgs : [...coreArgs, ...extraArgs];
 
   const spawnedAt = Date.now();
-  mpvProc = spawn(exe, args, { stdio: 'ignore', windowsHide: true });
-  mpvProc.on('exit', code => {
+  const proc = mpvProc = spawn(exe, args, { stdio: 'ignore', windowsHide: true });
+  proc.on('exit', (code, signal) => {
+    // Stopped on purpose: killMpv() lets go of the process before it ends,
+    // for a restart or as the app closes. Nothing to report.
+    if (proc !== mpvProc) return;
     ipcOk = false;
+    mpvProc = null;
     const aliveMs = Date.now() - spawnedAt;
-    const cleanExit = (code === 0 || code === null);
-
-    if (cleanExit) { send('mpv:status', { state: 'crashed' }); return; }
+    // Any other end is a crash. A crash on Linux or macOS ends mpv with a
+    // signal and no exit code, which was read as a clean exit, so mpv was
+    // never started again and nothing played until BM Player was restarted
+    // (v3.46.0). Found by killing mpv in the middle of a film. Each crash is
+    // written to main-errors.log, which Diagnostics shows.
+    logFatal('mpv ended by itself', `exit code ${code}, signal ${signal || 'none'}, after ${Math.round(aliveMs / 1000)} s`);
+    // Crashing again and again, a minute after start each time, is a loop
+    // too: after four in two minutes it waits for the next file opened.
+    const now = Date.now();
+    crashTimes = crashTimes.filter(t => now - t < 120000).concat(now);
+    if (crashTimes.length > 4) { send('mpv:status', { state: 'crash-loop' }); return; }
 
     // A launch that dies almost immediately (under 2.5s) means mpv rejected
     // something about how it was started — a bad CLI flag, a missing codec
@@ -1392,28 +1411,48 @@ function startMpv(exe, minimalArgs){
       // Ran for a while first, then genuinely crashed — the previous
       // simple auto-restart behavior is the right response here.
       send('mpv:status', { state: 'crashed' });
-      setTimeout(() => initMpv(), 2000);
+      setTimeout(() => { if (!mpvProc) initMpv(); }, 1000);
     }
   });
-  setTimeout(()=>connectIpc(),1500);
+  scheduleIpc(1500,0);
 }
+// One connection to mpv at a time, and one try at it waiting (v3.46.0). Every
+// socket closed on purpose, the old one for a new one or mpv's after a crash,
+// asked for a new connection 2.5 s on, and that one closed the connection in
+// use to make its own: after mpv was started again it was torn down and made
+// again every 2.5 s for good, and what was asked of mpv in between was lost.
+// Found by killing mpv in the middle of a film in e2e part D.
+let ipcRetryT=null;
+function scheduleIpc(ms,retry){clearTimeout(ipcRetryT);ipcRetryT=setTimeout(()=>{ipcRetryT=null;connectIpc(retry);},ms);}
 function connectIpc(retry=0){
+  clearTimeout(ipcRetryT);ipcRetryT=null;
   if(!mpvProc||mpvProc.killed)return;
-  try{mpvSock?.destroy();}catch(_){}
-  mpvSock=net.createConnection(PIPE);
-  mpvSock.on('connect',()=>{
+  const old=mpvSock;mpvSock=null;
+  try{old?.destroy();}catch(_){}
+  mpvBuf='';
+  const sock=mpvSock=net.createConnection(PIPE);
+  sock.on('connect',()=>{
+    if(sock!==mpvSock)return;
     ipcOk=true;voLocked=false;send('mpv:status',{state:'ready'});
     if(pendingOpenFile){const f=pendingOpenFile;pendingOpenFile=null;openFiles([f]);}
     if(pendingOpenFiles){const f=pendingOpenFiles;pendingOpenFiles=null;openFiles(f);}
     [[1,'pause'],[2,'time-pos'],[3,'duration'],[4,'volume'],[5,'mute'],[6,'media-title'],[7,'filename'],[8,'track-list'],[9,'playlist-pos'],[10,'playlist-count'],[11,'sub-delay'],[12,'audio-delay'],[13,'speed'],[14,'video-params'],[15,'audio-params'],[16,'video-codec'],[17,'audio-codec'],[18,'file-size'],[19,'container-format'],[20,'video-bitrate'],[21,'audio-bitrate'],[22,'chapter-list'],[23,'chapter'],[24,'loop-file'],[25,'loop-playlist'],[26,'demuxer-cache-state'],[27,'eof-reached'],[28,'idle-active'],[29,'current-vo']]
-    .forEach(([id,name])=>{try{mpvSock.write(JSON.stringify({command:['observe_property',id,name]})+'\n');}catch(_){}});
+    .forEach(([id,name])=>{try{sock.write(JSON.stringify({command:['observe_property',id,name]})+'\n');}catch(_){}});
   });
-  mpvSock.on('data',chunk=>{
+  sock.on('data',chunk=>{
+    if(sock!==mpvSock)return;
     mpvBuf+=chunk.toString();let nl;
     while((nl=mpvBuf.indexOf('\n'))!==-1){const line=mpvBuf.slice(0,nl).trim();mpvBuf=mpvBuf.slice(nl+1);if(line){try{handleMsg(JSON.parse(line));}catch(_){}}}
   });
-  mpvSock.on('error',e=>{if((e.code==='ENOENT'||e.code==='ECONNREFUSED')&&retry<20)setTimeout(()=>connectIpc(retry+1),500);});
-  mpvSock.on('close',()=>{ipcOk=false;if(mpvProc&&!mpvProc.killed)setTimeout(()=>connectIpc(),2500);});
+  sock.on('error',e=>{if(sock!==mpvSock)return;if((e.code==='ENOENT'||e.code==='ECONNREFUSED')&&retry<20)scheduleIpc(500,retry+1);});
+  sock.on('close',()=>{
+    if(sock!==mpvSock)return;   // replaced or let go on purpose
+    ipcOk=false;mpvSock=null;
+    // What was asked and not yet answered never will be: say so now rather
+    // than after the ten seconds each request waits.
+    for(const [id,cb] of cbs){cbs.delete(id);try{cb.rej(new Error('mpv went away'));}catch(_){}}
+    if(mpvProc&&!mpvProc.killed&&!ipcRetryT)scheduleIpc(2500,0);
+  });
 }
 // Lock in the video output that worked. With a list such as gpu,xv,x11, mpv
 // tries each output again for every file. Where gpu fails (Linux without
@@ -1463,6 +1502,11 @@ const saveDialog = opts => withoutTopmost(() => { const p = dialogParent(); retu
 // after launch (a recent file, a quick double-click) silently never played.
 // Reproduced every time in the real app; held here and opened on connect.
 let pendingOpenFiles=null;
-function openFiles(files){if(!files?.length)return;const valid=files.filter(f=>f.startsWith('http')||isMedia(f));if(!valid.length)return;if(!ipcOk){pendingOpenFiles=valid;return;}mpvCmd('loadfile',valid[0],'replace').catch(()=>{});mpvCmd('set_property','pause',false).catch(()=>{});valid.slice(1).forEach(f=>mpvCmd('loadfile',f,'append').catch(()=>{}));send('mpv:opened',valid);valid.forEach(f=>{try{app.addRecentDocument(f);}catch(_){}});}
-function killMpv(){ipcOk=false;try{mpvSock?.destroy();}catch(_){}mpvSock=null;try{mpvProc?.kill();}catch(_){}mpvProc=null;if(!IS_WIN){try{fs.unlinkSync(PIPE);}catch(_){}}}
+// The seek bar's pictures (v3.46.0), each made by an mpv of its own.
+const thumbs=makeThumbs({getMpv});
+// mpv's crashes in the last two minutes (v3.46.0). After too many, mpv is
+// started again only when a file is opened.
+let crashTimes=[];
+function openFiles(files){if(!files?.length)return;const valid=files.filter(f=>f.startsWith('http')||isMedia(f));if(!valid.length)return;if(!ipcOk){pendingOpenFiles=valid;if(!mpvProc&&crashTimes.length){crashTimes=[];initMpv();}return;}mpvCmd('loadfile',valid[0],'replace').catch(()=>{});mpvCmd('set_property','pause',false).catch(()=>{});valid.slice(1).forEach(f=>mpvCmd('loadfile',f,'append').catch(()=>{}));send('mpv:opened',valid);valid.forEach(f=>{try{app.addRecentDocument(f);}catch(_){}});}
+function killMpv(){ipcOk=false;clearTimeout(ipcRetryT);ipcRetryT=null;const sock=mpvSock;mpvSock=null;try{sock?.destroy();}catch(_){}try{mpvProc?.kill();}catch(_){}mpvProc=null;if(!IS_WIN){try{fs.unlinkSync(PIPE);}catch(_){}}}
 function isMedia(f){return MEDIA.has(path.extname(f).slice(1).toLowerCase());}

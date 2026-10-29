@@ -52,8 +52,8 @@ export const player = {
     this.engine = new AudioEngine();
     if (!this.engine.available) toast('This phone\'s web engine has no Web Audio: no visualiser or equaliser.');
     const e = this.engine;
-    e.on('play', () => { this.failed = 0; this.emit('state'); this.tell(); this._wake(); });
-    e.on('pause', () => { this.emit('state'); this.tell(); this.save(); this._sleepLater(); });
+    e.on('play', () => { this.failed = 0; this.emit('state'); this.tell(); });
+    e.on('pause', () => { this.emit('state'); this.tell(); this.save(); });
     e.on('loaded', () => { this.emit('time'); this.tell(); });
     e.on('time', () => this.emit('time'));
     e.on('ended', () => this.ended());
@@ -105,7 +105,7 @@ export const player = {
   },
 
   // ── controls ──────────────────────────────────────────────────────
-  play () { if (!this.current) return; this._meant = true; this._wake(); this.engine.play(); },
+  play () { if (!this.current) return; this._meant = true; this.engine.play(); },
   pause () { this.engine?.pause(); },
   toggle () { if (this.paused) this.play(); else this.pause(); },
 
@@ -118,7 +118,6 @@ export const player = {
     try { localStorage.removeItem(KEEP); } catch (_) {}
     this.tell();                                             // nothing playing: Android takes its notification away
     this.emit('track', null); this.emit('queue'); this.emit('state'); this.emit('time');
-    this._sleepLater();
   },
   seek (t) { this.engine?.seek(t); this.emit('time'); this.tell(); },
   seekBy (d) { this.seek(this.time + d); },
@@ -189,6 +188,34 @@ export const player = {
     this.emit('queue'); this.save();
   },
 
+  /**
+   * Songs deleted from the phone taken out of the queue (v3.45.0, a Set of
+   * ids). If the one playing went, the next one left takes its place:
+   * playing if it was playing, waiting if it was paused.
+   */
+  forget (ids) {
+    if (!ids?.size || !this.queue.length) return;
+    const queue = [], to = new Map();
+    this.queue.forEach((s, i) => { if (!ids.has(s.id)) { to.set(i, queue.length); queue.push(s); } });
+    if (queue.length === this.queue.length) return;
+    if (!queue.length) { this.close(); return; }
+    const cur = this.current, gone = !!cur && ids.has(cur.id), playing = !this.paused;
+    let at = -1, after = -1;
+    const order = [];
+    this.order.forEach((qi, k) => {
+      const ni = to.get(qi); if (ni === undefined) return;
+      if (k <= this.at) at = order.length;                 // the last one left up to where it is
+      else if (after < 0) after = order.length;            // the first one left after it
+      order.push(ni);
+    });
+    this.queue = queue; this.order = order;
+    if (!gone) { this.at = at; this.emit('queue'); this.save(); return; }
+    this.at = after >= 0 ? after : Math.max(0, at);
+    try { this.engine?.stop(); } catch (_) {}
+    this.start(playing && after >= 0);
+    this.emit('queue');
+  },
+
   /** Takes the song n places on in Up Next out of the queue. */
   removeNext (n) {
     const k = this.at + 1 + n;
@@ -250,16 +277,9 @@ export const player = {
     call('playback', JSON.stringify(o));
   },
 
-  // Paused for a while: Web Audio is put to sleep, so the phone's sound
-  // hardware can rest. Playing wakes it.
-  _sleepLater () {
-    clearTimeout(this._sleepT);
-    this._sleepT = setTimeout(() => { if (this.paused && this.engine?.ctx?.state === 'running') this.engine.ctx.suspend().catch(() => {}); }, 8000);
-  },
-  _wake () {
-    clearTimeout(this._sleepT);
-    if (this.engine?.ctx?.state === 'suspended') this.engine.ctx.resume().catch(() => {});
-  },
+  // Paused for a while, Web Audio rests so the phone's sound hardware can:
+  // the engine does that itself now (audio-engine.js, v3.45.0), here as on
+  // the desktop.
 
   // ── kept between runs ─────────────────────────────────────────────
   save () {

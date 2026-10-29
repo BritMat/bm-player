@@ -324,6 +324,10 @@ body:has(.np.on) .m-toast, body:has(.vp.on) .m-toast { bottom: 96px; }
 .np .lyr-r-sub { font-size: 12.5px; }
 .np .lyr-online { min-height: 36px; font-size: 13.5px; }
 .np .lyr-online input { width: 20px; height: 20px; accent-color: var(--accent); }
+/* v3.46.0: Original, English letters or Both, on the drawer's own colour, big enough for a thumb */
+.np .lyr-script { gap: 6px; padding: 6px 0 10px; background: linear-gradient(color-mix(in srgb, var(--bg2) 97%, transparent) 72%, transparent); }
+.np .lyr-sbtn { min-height: 34px; padding: 6px 14px; font-size: 13.5px; }
+.np .lyr-rom { font-size: .8em; margin-top: 2px; }
 
 /* the line being sung, over the visualiser */
 .np .viz-lyrics { z-index: 2; left: 5%; right: 5%; top: 30%; bottom: auto; pointer-events: none; }
@@ -656,3 +660,32 @@ body.home-full .m-home { bottom: 0; z-index: 20; }
 
 /* ── v3.43.0: the stars ─────────────────────────────────────────────── */
 .iv-fav.on, .pv-fav.on { color: #ffcf40; }
+
+/* ── v3.45.0: several chosen at once (m-select.js) ──────────────────────
+   A bar over the top of the screen while pictures, videos or songs are
+   chosen, and a round mark on each, filled when it is chosen. */
+.sel-bar { position: absolute; z-index: 8; left: 0; right: 0; top: 0; height: 58px; display: flex; align-items: center; gap: 2px; padding: 0 6px 0 4px;
+  background: color-mix(in srgb, var(--accent) 18%, var(--bg)); border-bottom: 1px solid color-mix(in srgb, var(--accent) 40%, var(--border));
+  box-shadow: 0 6px 18px rgba(0, 0, 0, .22); transform: translateY(-105%); transition: transform .18s var(--ease); }
+.sel-bar.on { transform: none; }
+.sel-n { flex: 1; min-width: 0; padding-left: 4px; font-weight: 700; font-size: 17px; font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sel-acts { flex: none; display: flex; }
+#sel-all.on { color: var(--accent); }
+.sel-mark { position: absolute; z-index: 2; top: 6px; left: 6px; width: 22px; height: 22px; border-radius: 50%; border: 2px solid rgba(255, 255, 255, .92); background: rgba(0, 0, 0, .28);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, .45); pointer-events: none; transition: background .12s, border-color .12s; }
+.sel .sel-mark { background: var(--accent); border-color: var(--accent); }
+.sel .sel-mark::after { content: ''; position: absolute; inset: 2px; background: var(--on-accent);
+  -webkit-mask: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><path d='M5 12.5l4.5 4.5L19 7.5' fill='none' stroke='black' stroke-width='3.4' stroke-linecap='round' stroke-linejoin='round'/></svg>") center / contain no-repeat;
+  mask: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><path d='M5 12.5l4.5 4.5L19 7.5' fill='none' stroke='black' stroke-width='3.4' stroke-linecap='round' stroke-linejoin='round'/></svg>") center / contain no-repeat; }
+.selecting .more { visibility: hidden; }
+.selecting .vrow.sel { background: color-mix(in srgb, var(--accent) 14%, transparent); }
+.selecting .ptile { position: relative; transition: transform .14s var(--ease), border-radius .14s; }
+.selecting .ptile.sel { transform: scale(.86); border-radius: 10px; }
+.selecting .vcard.sel .vcthumb { transform: scale(.93); box-shadow: 0 0 0 3px var(--accent); }
+.selecting .vrow.song .art, .selecting .vrow.song .num { position: relative; }
+.selecting .vrow.song .num { color: transparent; }
+.vrow.song .sel-mark { top: 50%; left: 50%; margin: -12px 0 0 -12px; width: 24px; height: 24px; }
+/* a choice that deletes, in the theme's warning colour */
+.sh-item.danger, .sh-item.danger .sh-ico { color: var(--danger, #ef4444); }
+/* the picture viewer's Delete, between the count and Details */
+.iv-count { flex: 1; text-align: center; }

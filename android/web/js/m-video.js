@@ -21,11 +21,15 @@
  * the next, the decoder (HW, HW+, SW), speed, repeating a part (A-B), a
  * sleep timer, subtitle and sound timing, and carrying on where each video
  * was left. The clock and the battery show with the controls.
+ *
+ * v3.45.0: a long press on a video starts choosing several (m-select.js),
+ * to share them or delete them from the phone (m-delete.js); a long press on
+ * a folder offers to delete it; a video's ⋮ has Share and Delete too.
  */
 import { lib, loadVideos } from './m-library.js';
 import { player } from './m-player.js';
 import { VList } from './m-list.js';
-import { $, esc, fmtTime, fmtSize, sheet, toast, pickFile, artBg, fillRange } from './m-ui.js';
+import { $, esc, fmtTime, fmtSize, sheet, toast, pickFile, artBg, fillRange, onLongPress } from './m-ui.js';
 import { ICONS, setIcon } from './icons.js';
 import { call, on, has, permission } from './m-android.js';
 import { awakeOn } from './m-nowplaying.js';
@@ -34,6 +38,8 @@ import { openSub, setAct, closeSub } from './m-sub.js';
 import { remember, touch, videoKey, position, savePosition, clearPosition, progress } from './m-recent.js';
 import { wireGestures, hud, hudOff } from './m-vgest.js';
 import { favItem, videoFav } from './m-favs.js';
+import { startSelect, selecting, toggle, mark, ring, endSelect, shareItems } from './m-select.js';
+import { deleteItems, onDeleted, canDelete, howMany } from './m-delete.js';
 
 /** The seek bar's steps: ten thousand along the film (v3.43.2). */
 const RANGE = 10000;
@@ -124,7 +130,7 @@ const mp = {
 let eng = web;
 
 export function initVideos () {
-  $('vd-chips').addEventListener('click', e => { const b = e.target.closest('.chip'); if (!b) return; st.show = b.dataset.k; try { localStorage.setItem('bm_m_vshow', st.show); } catch (_) {} render(); });
+  $('vd-chips').addEventListener('click', e => { const b = e.target.closest('.chip'); if (!b) return; endSelect('videos'); st.show = b.dataset.k; try { localStorage.setItem('bm_m_vshow', st.show); } catch (_) {} render(); });
   $('vd-sort-btn').addEventListener('click', () => sheet({ title: 'Sort videos', items: SORTS.map(([k, label]) => ({ label, on: st.sort === k, action: () => { st.sort = k; try { localStorage.setItem('bm_m_vsort', k); } catch (_) {} render(); refreshSub(); } })) }));
   $('vd-view-btn').addEventListener('click', () => setView(st.view === 'grid' ? 'list' : 'grid'));
   setIcon($('vd-view-btn'), st.view === 'grid' ? 'list' : 'grid');
@@ -145,8 +151,28 @@ export function initVideos () {
     if (f) { const folder = st.list[+f.dataset.fi]; if (folder) openFolder(folder); return; }
     const row = e.target.closest('[data-vi]'); if (!row) return;
     const item = st.list[+row.dataset.vi]; if (!item) return;
+    if (selecting('videos')) { toggle(item); return; }
     if (e.target.closest('.more')) { details(item); return; }
     openVideo(item, { list: st.list, index: +row.dataset.vi });
+  });
+  // A long press: a video starts choosing (or is added), a folder offers to go.
+  onLongPress(list, '[data-vi], [data-fi]', t => {
+    if (t.dataset.fi !== undefined) { const folder = st.list[+t.dataset.fi]; if (folder) folderMenu(folder); return; }
+    const item = st.list[+t.dataset.vi]; if (!item?.id) return;
+    if (selecting('videos')) toggle(item); else startSelect(chooser('videos'), item);
+  });
+  onLongPress($('sub-list'), '[data-vi]', t => {
+    const item = st.sub?.items[+t.dataset.vi]; if (!item?.id) return;
+    if (selecting('vfolder')) toggle(item); else startSelect(chooser('vfolder'), item);
+  });
+  onDeleted((kind, gone) => {
+    if (kind !== 'video') return;
+    if (st.state === 'ready') render();
+    const sub = st.sub;
+    if (!sub || !st.folder) return;
+    sub.items = sub.items.filter(x => !gone.has(x.id));
+    if (!sub.items.length) closeSub();
+    else sub.vl.setCount(sub.grid ? Math.ceil(sub.items.length / sub.n) : sub.items.length, true);
   });
   $('vd-empty').addEventListener('click', e => {
     const b = e.target.closest('[data-perm], [data-settings], [data-retry]'); if (!b) return;
@@ -156,6 +182,7 @@ export function initVideos () {
 }
 
 function setView (view) {
+  endSelect('videos'); endSelect('vfolder');
   st.view = view;
   try { localStorage.setItem('bm_m_vview', view); } catch (_) {}
   setIcon($('vd-view-btn'), view === 'grid' ? 'list' : 'grid');
@@ -210,11 +237,33 @@ function render () {
   st.vl.setCount(grid ? Math.ceil(st.list.length / n) : st.list.length, true);
 }
 
+/** Choosing several videos: in the tab's list ('videos') or in a folder open over it ('vfolder'). */
+function chooser (key) {
+  const inFolder = key === 'vfolder';
+  return {
+    key, kind: 'video',
+    scroller: inFolder ? $('sub-list') : $('vd-list'),
+    items: () => (inFolder ? st.sub?.items || [] : st.show === 'folders' ? [] : st.list),
+    refresh: () => (inFolder ? st.sub?.vl : st.vl)?.refresh(),
+    actions: [
+      { icon: 'share', label: 'Share', run: list => { shareItems('video', list); endSelect(); } },
+      ...(canDelete() ? [{ icon: 'trash', label: 'Delete', run: list => deleteItems('video', list) }] : []),
+    ],
+  };
+}
+
+/** A folder's long press: open it, or delete every video in it. */
+function folderMenu (f) {
+  const items = [{ icon: 'folder', label: 'Open', action: () => openFolder(f) }];
+  if (canDelete()) items.push({ icon: 'trash', label: 'Delete the folder', danger: true, note: howMany('video', f.count), action: () => deleteItems('video', lib.videos.filter(x => x.folder === f.name), { folder: f.name }) });
+  sheet({ title: f.name, sub: `${howMany('video', f.count)}${f.size ? ' · ' + fmtSize(f.size) : ''}`, art: f.thumb, items });
+}
+
 const gridRowH = (n, folder) => Math.round((window.innerWidth - 32 - (n - 1) * 10) / n * 9 / 16 + (folder ? 58 : 62));
-function gridRow (row, i, n, card) {
+function gridRow (row, i, n, card, list = st.list) {
   row.className = 'vrow agrid vgrid'; row.style.setProperty('--cols', n);
   let html = '';
-  for (let k = i * n; k < Math.min(st.list.length, (i + 1) * n); k++) html += card(k);
+  for (let k = i * n; k < Math.min(list.length, (i + 1) * n); k++) html += card(k);
   row.innerHTML = html;
 }
 
@@ -231,14 +280,16 @@ function thumbMarks (x) {
   return `<span class="vdur">${fmtTime(x.duration)}</span>` + (p ? `<span class="vbar"><span style="width:${Math.round(p * 100)}%"></span></span>` : '') + (fresh ? '<span class="vnew">NEW</span>' : '');
 }
 
-function videoRow (x, row, i) {
-  row.className = 'vrow video';
+/** A video in a list. key: the list's, for choosing several ('videos' or 'vfolder'). */
+function videoRow (x, row, i, key = 'videos') {
+  row.className = 'vrow video' + mark(key, x.id);
   row.dataset.vi = String(i);
-  row.innerHTML = `<span class="vthumb art" style="background-image:${artBg(x.thumb)}">${thumbMarks(x)}</span><span class="txt"><span class="t1 two">${esc(x.title)}</span><span class="t2">${esc([quality(x), x.size ? fmtSize(x.size) : '', st.show === 'all' || st.show === 'continue' ? x.folder : ''].filter(Boolean).join(' · '))}</span></span><button class="more" type="button" aria-label="About ${esc(x.title)}">${ICONS.more}</button>`;
+  row.dataset.id = String(x.id || '');
+  row.innerHTML = `<span class="vthumb art" style="background-image:${artBg(x.thumb)}">${thumbMarks(x)}${ring(key)}</span><span class="txt"><span class="t1 two">${esc(x.title)}</span><span class="t2">${esc([quality(x), x.size ? fmtSize(x.size) : '', st.show === 'all' || st.show === 'continue' ? x.folder : ''].filter(Boolean).join(' · '))}</span></span><button class="more" type="button" aria-label="About ${esc(x.title)}">${ICONS.more}</button>`;
 }
 
-function videoCard (x, k) {
-  return `<div class="vcard" data-vi="${k}"><span class="vcthumb art" style="background-image:${artBg(x.thumb)}">${thumbMarks(x)}</span><span class="vct">${esc(x.title)}</span><span class="vcs">${esc([quality(x), x.size ? fmtSize(x.size) : ''].filter(Boolean).join(' · '))}</span></div>`;
+function videoCard (x, k, key = 'videos') {
+  return `<div class="vcard${mark(key, x.id)}" data-vi="${k}" data-id="${x.id || ''}"><span class="vcthumb art" style="background-image:${artBg(x.thumb)}">${thumbMarks(x)}${ring(key)}</span><span class="vct">${esc(x.title)}</span><span class="vcs">${esc([quality(x), x.size ? fmtSize(x.size) : ''].filter(Boolean).join(' · '))}</span></div>`;
 }
 
 function folderRow (f, row, i) {
@@ -258,23 +309,25 @@ function openFolder (f) {
     title: f.name, owner: 'videos',
     act: { icon: st.view === 'grid' ? 'list' : 'grid', label: 'View', run: () => setView(st.view === 'grid' ? 'list' : 'grid') },
     fill: sc => fillFolder(sc),
-    onClose: () => { st.folder = null; st.sub = null; },
+    onClose: () => { endSelect('vfolder'); st.folder = null; st.sub = null; },
   });
 }
 function fillFolder (sc) {
   const f = st.folder; if (!f) return;
-  const items = sorted(lib.videos.filter(x => x.folder === f.name)), grid = st.view === 'grid', n = cols();
+  const grid = st.view === 'grid', n = cols();
   st.sub?.vl?.destroy();
-  const vl = grid ? new VList(sc, { rowHeight: gridRowH(n), render: (i, row) => { row.className = 'vrow agrid vgrid'; row.style.setProperty('--cols', n); let html = ''; for (let k = i * n; k < Math.min(items.length, (i + 1) * n); k++) html += videoCard(items[k], k); row.innerHTML = html; } })
-    : new VList(sc, { rowHeight: 84, render: (i, row) => videoRow(items[i], row, i) });
-  vl.setCount(grid ? Math.ceil(items.length / n) : items.length);
-  st.sub = { vl, items };
+  // The rows read sub.items, so a delete can take videos out without building the list again.
+  const sub = st.sub = { vl: null, items: sorted(lib.videos.filter(x => x.folder === f.name)), grid, n };
+  sub.vl = grid ? new VList(sc, { rowHeight: gridRowH(n), render: (i, row) => gridRow(row, i, n, k => videoCard(sub.items[k], k, 'vfolder'), sub.items) })
+    : new VList(sc, { rowHeight: 84, render: (i, row) => videoRow(sub.items[i], row, i, 'vfolder') });
+  sub.vl.setCount(grid ? Math.ceil(sub.items.length / n) : sub.items.length);
   if (!sc._wired) {
     sc._wired = true;
     sc.addEventListener('click', e => {
-      if (!st.sub) return;
+      if (!st.sub || !st.folder) return;
       const row = e.target.closest('[data-vi]'); if (!row) return;
       const item = st.sub.items[+row.dataset.vi]; if (!item) return;
+      if (selecting('vfolder')) { toggle(item); return; }
       if (e.target.closest('.more')) { details(item); return; }
       openVideo(item, { list: st.sub.items, index: +row.dataset.vi });
     });
@@ -302,6 +355,9 @@ function details (x) {
   if (!playing && p) items.push({ icon: 'rew', label: 'Play from the start', action: () => { clearPosition(videoKey(x)); openVideo(x); } });
   const star = favItem(videoFav(x));                     // v3.43.0: for Home's Favourites row
   if (star && !playing) items.push(star);
+  // v3.45.0: the file itself to another app, or deleted from the phone
+  if (!playing && hasAddress(x)) items.push({ icon: 'share', label: 'Share', action: () => shareItems('video', [x]) });
+  if (!playing && x.id && canDelete()) items.push({ icon: 'trash', label: 'Delete', danger: true, action: () => deleteItems('video', [x]) });
   sheet({ title: x.title, items, body });
 }
 

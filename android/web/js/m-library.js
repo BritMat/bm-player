@@ -171,3 +171,20 @@ export async function loadImages () {
   lib.imagesLoaded = true;
   return lib.images;
 }
+
+// ── deleted from the phone (v3.45.0, m-delete.js) ────────────────────
+/** What was deleted taken out of the lists: kind 'image', 'video' or 'audio', ids a Set. */
+export function forgetMedia (kind, ids) {
+  if (!ids?.size) return;
+  if (kind === 'image') {
+    lib.images = lib.images.filter(x => !ids.has(x.id));
+    lib.imageAlbums = groups(lib.images);
+  } else if (kind === 'video') {
+    lib.videos = lib.videos.filter(x => !ids.has(x.id));
+    lib.videoFolders = groups(lib.videos);
+  } else if (kind === 'audio') {
+    lib.all = lib.all.filter(s => !ids.has(s.id));
+    for (const id of ids) lib.byId.delete(id);
+    build();
+  }
+}

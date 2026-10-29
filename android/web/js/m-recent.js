@@ -66,6 +66,10 @@ export function savePosition (key, t, d) {
   savePosition._t = setTimeout(() => write(POS, pos), 300);
 }
 export function clearPosition (key) { delete pos[key]; write(POS, pos); }
+/** Several at once (videos deleted from the phone, v3.45.0): one write. */
+export function clearPositions (keys) { let n = 0; for (const k of keys) if (k in pos) { delete pos[k]; n++; } if (n) write(POS, pos); }
+/** Several entries at once, one write: those for which drop(entry) is true. */
+export function forgetWhere (drop) { const n = list.length; list = list.filter(e => !drop(e)); if (list.length !== n) changed(); }
 /** How far into a video, 0 to 1, for the bar under its picture. */
 export const progress = key => { const p = pos[key]; return p && p.d ? Math.min(1, p.t / p.d) : 0; };
 

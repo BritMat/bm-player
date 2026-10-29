@@ -47,6 +47,7 @@ contextBridge.exposeInMainWorld('api',{
     append:      f=>inv('mpv:append',f),
     status:      ()=>inv('mpv:status'),
     getPlaylist: ()=>inv('mpv:getPlaylist'),
+    thumbAt:     (f,t)=>inv('media:thumbAt',f,t),   // a picture for the seek bar (v3.46.0)
     onStatus:    cb=>on('mpv:status',cb),
     onEvent:     cb=>on('mpv:event',cb),
     onProp:      cb=>on('mpv:prop',cb),

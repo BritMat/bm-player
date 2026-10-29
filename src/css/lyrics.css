@@ -47,3 +47,17 @@
 .viz-lyrics .vl-next { margin-top: 8px; font-size: clamp(13px, 1.5vw, 19px); color: rgba(255,255,255,.62); text-shadow: 0 2px 8px rgba(0,0,0,.6); }
 .viz-lyrics.vl-empty { visibility: hidden; }
 #viz-btn-lyrics.active-opt { color: var(--accent); }
+/* v3.46.0: lyrics in English letters. Original, English letters or Both,
+   kept at the top while the lines scroll; with Both, the English letters
+   under each line, smaller. */
+.lyr-script { position: sticky; top: 0; z-index: 1; display: flex; gap: 4px; padding: 2px 0 8px; margin-bottom: 4px;
+  background: linear-gradient(var(--bg, #0b0d14) 70%, transparent); }
+.lyr-sbtn { flex: 0 1 auto; padding: 3px 10px; border-radius: 999px; border: 1px solid var(--border, rgba(255,255,255,.12)); background: transparent;
+  color: var(--text-muted); font: inherit; font-size: 11px; font-weight: 600; cursor: pointer; white-space: nowrap; }
+.lyr-sbtn:hover, .lyr-sbtn:focus-visible { color: var(--text); border-color: var(--accent); outline: none; }
+.lyr-sbtn.on { color: var(--text); border-color: var(--accent); background: color-mix(in srgb, var(--accent) 20%, transparent); }
+.lyr-rom { display: block; font-size: .82em; font-weight: 500; opacity: .78; margin-top: 1px; }
+.lyr-line.on .lyr-rom { opacity: .9; }
+.lyr-pl { margin-bottom: 4px; }
+.viz-lyrics .vl-roman { margin-top: 4px; font-size: clamp(14px, 1.8vw, 24px); font-weight: 600; color: rgba(255,255,255,.88); text-shadow: 0 2px 8px rgba(0,0,0,.65); }
+.viz-lyrics .vl-roman.hidden { display: none; }

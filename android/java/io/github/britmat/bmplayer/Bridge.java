@@ -207,6 +207,24 @@ final class Bridge {
     @JavascriptInterface
     public int batteryLevel() { return a.batteryLevel(); }
 
+    // ── deleting and sharing what is selected (v3.45.0) ──────────────
+    /**
+     * Deletes pictures, videos or songs: JSON { kind: 'image' | 'video' |
+     * 'audio', ids: [...], folder }. Android 11 and later ask the person
+     * themselves; before that the page asks first. The answer comes as a
+     * 'deleted' event (MediaDelete).
+     */
+    @JavascriptInterface
+    public void deleteMedia(final String json) {
+        onUi(new Runnable() { public void run() { a.deleter.start(json); } });
+    }
+
+    /** Several files to another app at once: JSON { srcs: ['/media/image/12', ...], type }. */
+    @JavascriptInterface
+    public void shareFiles(final String json) {
+        onUi(new Runnable() { public void run() { a.shareFiles(json); } });
+    }
+
     // ── updates from GitHub (v3.44.0, Updater) ───────────────────────
     /** Where an update stands, JSON: { state, current, latest, version, size, got, total, error, canInstall, metered, ... }. Changes come as 'update' events. */
     @JavascriptInterface

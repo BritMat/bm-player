@@ -45,15 +45,30 @@ export class AudioShadow {
     this.el.src = fileURL(path);
     const go = () => { try { this.el.currentTime = at || 0; } catch {} if (!paused) this.el.play().catch(() => {}); };
     this.el.addEventListener('loadedmetadata', go, { once: true });
-    this.ctx.resume?.().catch?.(() => {});
+    this._rest(false);
     return this.analyser;
+  }
+
+  /**
+   * At rest (v3.45.0): ten seconds after the song mpv plays was paused or
+   * stopped, the context is suspended, so nothing mixes silence in the
+   * background. Following it again wakes it.
+   */
+  _rest (on) {
+    clearTimeout(this._restT); this._restT = 0;
+    if (!this.ctx) return;
+    if (!on) { if (this.ctx.state === 'suspended') this.ctx.resume().catch(() => {}); return; }
+    this._restT = setTimeout(() => {
+      this._restT = 0;
+      if (this.ctx.state === 'running' && (!this.el || this.el.paused)) this.ctx.suspend().catch(() => {});
+    }, 10000);
   }
 
   follow ({ time, paused, speed } = {}) {
     const el = this.el; if (!el || !this.path) return;
     if (typeof speed === 'number' && speed > 0 && el.playbackRate !== speed) el.playbackRate = speed;
-    if (paused === true && !el.paused) el.pause();
-    if (paused === false && el.paused) el.play().catch(() => {});
+    if (paused === true && !el.paused) { el.pause(); this._rest(true); }
+    if (paused === false && el.paused) { this._rest(false); el.play().catch(() => {}); }
     if (typeof time === 'number' && isFinite(time) && el.readyState >= 1 && Math.abs(el.currentTime - time) > RESYNC) {
       try { el.currentTime = time; } catch {}
     }
@@ -65,5 +80,6 @@ export class AudioShadow {
     if (!this.el) return;
     this.path = null;
     try { this.el.pause(); this.el.removeAttribute('src'); this.el.load(); } catch {}
+    this._rest(true);
   }
 }

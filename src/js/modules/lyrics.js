@@ -23,8 +23,17 @@
  *
  * The page is updated ten times a second while lyrics are on screen, and
  * not at all otherwise.
+ *
+ * v3.46.0, lyrics in another alphabet (Hindi, Malayalam, Tamil, Korean and
+ * more) can be shown in English letters, spelled as they sound
+ * (translit.js), or both, the English letters under each line. The choice
+ * is kept, and offered only where the lyrics are in a script it can spell.
  */
 import { setIcon } from '../icons.js';
+import { romanize, canRomanize } from '../translit.js';
+
+const SCRIPT = 'bm_lyrics_script';
+const SCRIPTS = [['original', 'Original'], ['latin', 'English letters'], ['both', 'Both']];
 
 const TIME = /^\[(\d{1,3}):(\d{1,2}(?:[.:]\d{1,3})?)\]/;
 
@@ -66,6 +75,8 @@ export class Lyrics {
     this.youtube = localStorage.getItem('bm_lyrics_youtube') === '1';
     this.overlay = localStorage.getItem('bm_viz_lyrics') === '1';
     this.tab = localStorage.getItem('bm_np_tab') === 'lyrics' ? 'lyrics' : 'queue';
+    this.script = SCRIPTS.some(s => s[0] === localStorage.getItem(SCRIPT)) ? localStorage.getItem(SCRIPT) : 'original';
+    this.spellable = false; this.plainRoman = null;
     try { this.offsets = JSON.parse(localStorage.getItem(OFFSETS) || '{}') || {}; } catch (_) { this.offsets = {}; }
     this.path = null; this.lines = []; this.plain = null; this.status = 'idle'; this.source = null;
     this.pinned = false; this.auto = false; this.video = null; this.note = '';
@@ -108,6 +119,7 @@ export class Lyrics {
     if (res) { this._pick(res.dataset.id); return; }
     if (!act) return;
     e.preventDefault();
+    if (act === 'script') { this.setScript(t.closest('[data-v]')?.dataset.v); return; }
     if (act === 'search') this._openSearch();
     else if (act === 'search-close') { this.searching = false; this.results = null; this._render(); }
     else if (act === 'load') this._load();
@@ -129,6 +141,33 @@ export class Lyrics {
     this._cur = -2; this._render(); this._run();
   }
 
+  /** 'original', 'latin' (English letters) or 'both'. Kept for every song. */
+  setScript (v) {
+    if (!SCRIPTS.some(s => s[0] === v)) return;
+    this.script = v;
+    try { localStorage.setItem(SCRIPT, v); } catch (_) {}
+    const pane = el('np-lyrics'), top = pane ? pane.scrollTop : 0;
+    this._render();
+    if (pane) pane.scrollTop = top;
+  }
+
+  /** Each line's English letters, made once when the lyrics come (lines and plain words alike). */
+  _spell () {
+    this.plainRoman = null;
+    const text = this.lines.length ? this.lines.map(l => l.text).join('\n') : (this.plain || '');
+    this.spellable = canRomanize(text);
+    if (!this.spellable) return;
+    for (const l of this.lines) l.roman = l.text ? romanize(l.text) : '';
+    if (this.plain) this.plainRoman = this.plain.split('\n').map(x => romanize(x));
+  }
+
+  /** A line's text as the letters chosen show it: { main, under }. */
+  _shown (text, roman) {
+    if (!this.spellable || this.script === 'original' || roman === undefined || roman === text) return { main: text, under: '' };
+    if (this.script === 'latin') return { main: roman, under: '' };
+    return { main: text, under: roman };
+  }
+
   setOverlay (on, quiet) {
     this.overlay = !!on;
     if (!quiet) localStorage.setItem('bm_viz_lyrics', this.overlay ? '1' : '0');
@@ -144,6 +183,7 @@ export class Lyrics {
     if (r?.instrumental) { this.status = 'instrumental'; return true; }
     if (r?.synced) { this.lines = parseLRC(r.synced); if (!this.lines.length && r.plain) this.plain = r.plain; }
     else if (r?.plain) this.plain = r.plain;
+    this._spell();
     if (this.lines.length || this.plain) { this.status = 'ready'; return true; }
     this.status = r?.offline ? 'offline' : 'none';
     return false;
@@ -277,16 +317,48 @@ export class Lyrics {
       else if (this.status === 'instrumental') note('Instrumental: no words.');
       else if (this.status === 'none') { note(this.online ? 'No lyrics found for this song.' : 'No lyrics found beside this song or inside it.'); add('div', 'lyr-hint', 'Search for them, or load a .lrc, .srt or .vtt file' + (TOUCH ? '.' : ' (or drop one here).')); }
       else if (this.status === 'offline') note('No lyrics here, and the lyrics site could not be reached.');
-      else if (this.lines.length) {
-        for (const [i, l] of this.lines.entries()) {
-          const d = add('div', 'lyr-line' + (l.text ? '' : ' lyr-gap'), l.text || '♪');
-          d.dataset.t = String(l.t); d.dataset.i = String(i);
+      else if (this.lines.length || this.plain) {
+        if (this.spellable) this._renderScript(pane);
+        if (this.lines.length) {
+          for (const [i, l] of this.lines.entries()) {
+            const s = this._shown(l.text, l.roman);
+            const d = add('div', 'lyr-line' + (l.text ? '' : ' lyr-gap'), s.main || '♪');
+            if (s.under) { const u = document.createElement('span'); u.className = 'lyr-rom'; u.textContent = s.under; d.appendChild(u); }
+            d.dataset.t = String(l.t); d.dataset.i = String(i);
+          }
+        } else {
+          const box = add('div', 'lyr-plain');
+          if (!this.spellable || this.script === 'original') box.textContent = this.plain;
+          else if (this.script === 'latin') box.textContent = this.plainRoman.join('\n');
+          else {
+            // each line, and its English letters under it
+            this.plain.split('\n').forEach((x, k) => {
+              const d = document.createElement('div'); d.className = 'lyr-pl'; d.textContent = x || '\u00a0';
+              const r = this.plainRoman[k];
+              if (r && r !== x) { const u = document.createElement('span'); u.className = 'lyr-rom'; u.textContent = r; d.appendChild(u); }
+              box.appendChild(d);
+            });
+          }
         }
-      } else if (this.plain) add('div', 'lyr-plain', this.plain);
+      }
       if (this.note && this.status !== 'youtube' && !this.searching) { const h = add('div', 'lyr-hint', this.note); if (this.noteTitle) h.title = this.noteTitle; }
       if (!this.searching) this._renderFoot(pane);
     }
     this._cur = -2; this._tick(true);
+  }
+
+  /** Original, English letters or Both: kept at the top of the lyrics while they scroll. */
+  _renderScript (pane) {
+    const g = document.createElement('div');
+    g.className = 'lyr-script'; g.setAttribute('role', 'group'); g.setAttribute('aria-label', 'Letters the lyrics are shown in');
+    for (const [v, label] of SCRIPTS) {
+      const b = document.createElement('button');
+      b.type = 'button'; b.className = 'lyr-sbtn' + (this.script === v ? ' on' : ''); b.dataset.lyr = 'script'; b.dataset.v = v;
+      b.setAttribute('aria-pressed', String(this.script === v)); b.textContent = label;
+      if (v === 'latin') b.title = 'The words spelled in English letters, as they sound';
+      g.appendChild(b);
+    }
+    pane.appendChild(g);
   }
 
   _renderSearch (add) {
@@ -378,14 +450,19 @@ export class Lyrics {
         }
       }
     }
-    const now = el('vl-now'), next = el('vl-next');
+    const now = el('vl-now'), next = el('vl-next'), rom = el('vl-roman');
     if (now && next) {
       const on = this.status === 'ready' && this.lines.length > 0;
       const line = i >= 0 ? this.lines[i] : null, after = this.lines[i + 1];
       // A gap in the words (an empty line, or before the first) shows a
-      // note, with the line that comes next under it.
-      now.textContent = on ? (line?.text || (after ? '♪' : '')) : '';
-      next.textContent = on ? (after?.text || '') : '';
+      // note, with the line that comes next under it. v3.46.0: in the
+      // letters chosen; with Both, the English letters under the line sung.
+      const s = line?.text ? this._shown(line.text, line.roman) : { main: '', under: '' };
+      const n = after?.text ? this._shown(after.text, after.roman) : { main: '' };
+      now.textContent = on ? (s.main || (after ? '♪' : '')) : '';
+      next.textContent = on ? (n.main || '') : '';
+      if (rom) { rom.textContent = on ? s.under : ''; rom.classList.toggle('hidden', !rom.textContent); }
+      else if (on && s.under) now.textContent += ' · ' + s.under;
       el('viz-lyrics')?.classList.toggle('vl-empty', !now.textContent && !next.textContent);
     }
   }

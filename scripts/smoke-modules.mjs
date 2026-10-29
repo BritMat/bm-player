@@ -246,8 +246,12 @@ async function main() {
     if (!liteMode) throw new Error('no export');
   });
 
-  await step('subtitle-search module loads', async () => {
-    await load('src/js/modules/subtitle-search.js');
+  // v3.46.0: the subtitle search opens opensubtitles.com with the film's name (its old service closed).
+  await step('filmName: a film\'s name from its file, the release words taken off', async () => {
+    const { filmName } = await load('src/js/util.js');
+    const cases = [['C:\\Films\\12. The.Film.Name.2019.1080p.BluRay.x264-GRP.mkv', 'The Film Name 2019'], ['/m/Battle of Assassin [WEB-DL 720p].mp4', 'Battle of Assassin'],
+      ['/m/Some_Show_S01E02_HDTV.avi', 'Some Show S01E02'], ['plain.mkv', 'plain'], ['', '']];
+    for (const [p, want] of cases) { const got = filmName(p); if (got !== want) throw new Error(`${p}: ${got}`); }
   });
 
   // A stream's unknown length (Infinity) showed as "Infinity:NaN" (v3.25.0).

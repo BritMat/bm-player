@@ -223,6 +223,14 @@
     </div></div>
   </section>
 
+  <!-- v3.45.0: several pictures, videos or songs chosen at once, over the top of the screen (m-select.js) -->
+  <div class="sel-bar hidden" id="sel-bar" role="toolbar" aria-label="Selected">
+    <button class="m-ib" id="sel-x" type="button" data-icon="x" aria-label="Stop selecting"></button>
+    <span class="sel-n" id="sel-n" aria-live="polite"></span>
+    <button class="m-ib" id="sel-all" type="button" data-icon="selectAll" aria-label="Select all"></button>
+    <span class="sel-acts" id="sel-acts"></span>
+  </div>
+
   <!-- The song playing, above the tabs. -->
   <div class="m-mini hidden" id="mini">
     <button class="mini-open" id="mini-open" type="button" aria-label="Open Now Playing">
@@ -248,7 +256,7 @@
 <div class="np hidden" id="np" role="dialog" aria-label="Now playing" data-mode="art">
   <div class="np-bg" id="np-bg"></div>
   <div class="np-vizlayer" id="np-vizlayer"><canvas class="np-viz" id="np-viz"></canvas></div>
-  <div class="viz-lyrics hidden" id="viz-lyrics" aria-live="off"><div class="vl-now" id="vl-now"></div><div class="vl-next" id="vl-next"></div></div>
+  <div class="viz-lyrics hidden" id="viz-lyrics" aria-live="off"><div class="vl-now" id="vl-now"></div><div class="vl-roman hidden" id="vl-roman"></div><div class="vl-next" id="vl-next"></div></div>
   <div class="np-ui" id="np-ui">
     <header class="np-head" id="np-head">
       <button class="m-ib" id="np-close" type="button" data-icon="chevDown" aria-label="Close"></button>
@@ -353,7 +361,7 @@
       <button class="m-ib" id="iv-share" type="button" data-icon="share" aria-label="Share"></button>
       <button class="m-ib" id="iv-more" type="button" data-icon="more" aria-label="More"></button>
     </header>
-    <footer class="iv-bottom"><button class="m-ib" id="iv-show" type="button" data-icon="slides" aria-label="Slideshow"></button><span class="iv-count" id="iv-count"></span><button class="m-ib" id="iv-info" type="button" data-icon="info" aria-label="Details"></button></footer>
+    <footer class="iv-bottom"><button class="m-ib" id="iv-show" type="button" data-icon="slides" aria-label="Slideshow"></button><span class="iv-count" id="iv-count"></span><button class="m-ib" id="iv-del" type="button" data-icon="trash" aria-label="Delete"></button><button class="m-ib" id="iv-info" type="button" data-icon="info" aria-label="Details"></button></footer>
   </div>
 </div>
 

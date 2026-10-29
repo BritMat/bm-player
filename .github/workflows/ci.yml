@@ -65,6 +65,10 @@ jobs:
       - name: Modules
         run: npm run test:modules
 
+      # v3.46.0: lyrics in English letters, word by word in each language.
+      - name: Lyrics in English letters
+        run: npm run test:translit
+
       - name: Renderer
         run: npm run test:smoke
 
