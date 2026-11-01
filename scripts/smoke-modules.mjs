@@ -261,6 +261,44 @@ async function main() {
     for (const [v, want] of cases) if (fmtSec(v) !== want) throw new Error(`fmtSec(${v}) is ${fmtSec(v)}, expected ${want}`);
   });
 
+  // The sound chain (v3.47.0): each effect written once, for mpv and for the
+  // in-app engine. What mpv is given must be what 3.46.0 gave it, exactly,
+  // for each of these settings (the strings below were taken from that
+  // version's sound.js), so films sound as they did.
+  await step('sound chain: mpv gets the filters 3.46.0 gave it, and none when every effect is off', async () => {
+    const { lavfi } = await load('src/js/sound-chain.js');
+    const cases = [
+      ["nothing", {"eq": [0, 0, 0, 0, 0, 0, 0, 0, 0, 0]}, ""],
+      ["one band", {"eq": [0, 6, 0, 0, 0, 0, 0, 0, 0, 0]}, "lavfi=[equalizer=f=62:width_type=o:width=2:g=6]"],
+      ["rock", {"eq": [5, 4, -2, -4, -2, 2, 5, 6, 6, 5]}, "lavfi=[equalizer=f=31:width_type=o:width=2:g=5,equalizer=f=62:width_type=o:width=2:g=4,equalizer=f=125:width_type=o:width=2:g=-2,equalizer=f=250:width_type=o:width=2:g=-4,equalizer=f=500:width_type=o:width=2:g=-2,equalizer=f=1000:width_type=o:width=2:g=2,equalizer=f=2000:width_type=o:width=2:g=5,equalizer=f=4000:width_type=o:width=2:g=6,equalizer=f=8000:width_type=o:width=2:g=6,equalizer=f=16000:width_type=o:width=2:g=5]"],
+      ["half dB", {"eq": [0, 0, 0, 0, 0, 0, 0, 0, 0, -3.5]}, "lavfi=[equalizer=f=16000:width_type=o:width=2:g=-3.5]"],
+      ["mono", {"eq": [0, 0, 0, 0, 0, 0, 0, 0, 0, 0], "channels": "mono"}, "lavfi=[aformat=channel_layouts=stereo,pan=stereo|c0=0.5*c0+0.5*c1|c1=0.5*c0+0.5*c1]"],
+      ["left", {"eq": [0, 0, 0, 0, 0, 0, 0, 0, 0, 0], "channels": "left"}, "lavfi=[aformat=channel_layouts=stereo,pan=stereo|c0=c0|c1=c0]"],
+      ["right", {"eq": [0, 0, 0, 0, 0, 0, 0, 0, 0, 0], "channels": "right"}, "lavfi=[aformat=channel_layouts=stereo,pan=stereo|c0=c1|c1=c1]"],
+      ["swap", {"eq": [0, 0, 0, 0, 0, 0, 0, 0, 0, 0], "channels": "swap"}, "lavfi=[aformat=channel_layouts=stereo,pan=stereo|c0=c1|c1=c0]"],
+      ["stereo named", {"eq": [0, 0, 0, 0, 0, 0, 0, 0, 0, 0], "channels": "stereo"}, ""],
+      ["night", {"eq": [0, 0, 0, 0, 0, 0, 0, 0, 0, 0], "night": true}, "lavfi=[acompressor=threshold=0.05:ratio=4:attack=8:release=250:makeup=2,alimiter=limit=0.95]"],
+      ["boost 150", {"eq": [0, 0, 0, 0, 0, 0, 0, 0, 0, 0], "boost": 1.5}, "lavfi=[volume=1.5,alimiter=limit=0.95]"],
+      ["boost 200", {"eq": [0, 0, 0, 0, 0, 0, 0, 0, 0, 0], "boost": 2.0}, "lavfi=[volume=2,alimiter=limit=0.95]"],
+      ["boost 100", {"eq": [0, 0, 0, 0, 0, 0, 0, 0, 0, 0], "boost": 1.0}, ""],
+      ["all", {"eq": [3, 0, 0, 0, 0, 0, 0, 0, 0, 0], "channels": "mono", "night": true, "boost": 1.5}, "lavfi=[equalizer=f=31:width_type=o:width=2:g=3,aformat=channel_layouts=stereo,pan=stereo|c0=0.5*c0+0.5*c1|c1=0.5*c0+0.5*c1,acompressor=threshold=0.05:ratio=4:attack=8:release=250:makeup=2,volume=1.5,alimiter=limit=0.95]"],
+    ];
+    for (const [name, s, want] of cases) { const got = lavfi(s); if (got !== want) throw new Error(`${name}: ${got}\n      expected ${want}`); }
+  });
+
+  await step('sound chain: settings come out complete and in range, whatever is given', async () => {
+    const { settings, EQ_FREQUENCIES, CHANNELS, EFFECTS } = await load('src/js/sound-chain.js');
+    const s = settings({ eq: [40, -40, 'x', null, 3.5], channels: 'sideways', boost: 9, night: 1 });
+    if (s.eq.length !== EQ_FREQUENCIES.length || s.eq.slice(0, 5).join(',') !== '12,-12,0,0,3.5' || s.eq.slice(5).some(g => g !== 0)) throw new Error('eq: ' + s.eq);
+    if (s.channels !== 'stereo' || s.boost !== 2 || s.night !== true) throw new Error(JSON.stringify(s));
+    const d = settings();
+    if (d.eq.some(g => g) || d.channels !== 'stereo' || d.boost !== 1 || d.night) throw new Error('the defaults are not all off: ' + JSON.stringify(d));
+    if (EFFECTS.some(e => e.on(d))) throw new Error('an effect is on with every setting off: ' + EFFECTS.filter(e => e.on(d)).map(e => e.id));
+    if (settings({ boost: 0.5 }).boost !== 1 || settings({ boost: 'loud' }).boost !== 1) throw new Error('a boost under 100% or unreadable was not 100%');
+    if (CHANNELS.map(c => c[0]).join() !== 'stereo,mono,left,right,swap') throw new Error('the channels are ' + CHANNELS.map(c => c[0]));
+    for (const e of EFFECTS) if (typeof e.on !== 'function' || typeof e.mpv !== 'function' || typeof e.web !== 'function') throw new Error(e.id + ' is missing a form');
+  });
+
   const bad = results.filter(r => !r).length;
   console.log(`\n${results.length - bad}/${results.length} checks passed.\n`);
   process.exit(bad ? 1 : 0);

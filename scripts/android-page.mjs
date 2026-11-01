@@ -144,21 +144,47 @@ try {
     return hits.length ? hits[Math.floor(hits.length / 2)] : null; }, part);
   const nose = await spot('nose'), ear = await spot('ear'), chin = await spot('chin');
   ok(!!nose && !!ear && !!chin, 'the fox knows where its nose, ears and chin are');
-  if (nose) { await page.touchscreen.tap(nose[0], nose[1]); ok(await until(() => ['boop', 'sneeze'].includes(window.__bmHome.fox._state.react?.name)), 'a tap on the nose: a boop (or a sneeze)'); }
+  // The fox moves all the time: a spot found a moment before can be its head
+  // by the time of the tap (v3.47.0: one start in two met it turning). Each
+  // tap looks for the part again first, and taps again if the fox had moved.
+  const touch = async (part, reacted) => {
+    for (let k = 0; k < 4; k++) {
+      const at = await spot(part); if (!at) return false;
+      await page.touchscreen.tap(at[0], at[1]);
+      if (await until(reacted, null, 1200)) return true;
+      await sleep(400);
+    }
+    return false;
+  };
+  if (nose) ok(await touch('nose', () => ['boop', 'sneeze'].includes(window.__bmHome.fox._state.react?.name)), 'a tap on the nose: a boop (or a sneeze)');
   await sleep(1300);
-  if (ear) { await page.touchscreen.tap(ear[0], ear[1]); ok(await until(() => window.__bmHome.fox._state.react?.name === 'ear'), 'a tap on an ear flicks it'); }
+  if (ear) ok(await touch('ear', () => window.__bmHome.fox._state.react?.name === 'ear'), 'a tap on an ear flicks it');
   await sleep(1300);
-  if (chin) { for (let i = 0; i < 3; i++) { await page.touchscreen.tap(chin[0], chin[1]); await sleep(110); } ok(await until(() => window.__bmHome.fox._state.react?.name === 'laugh'), 'three quick taps: it laughs'); }
+  if (chin) {
+    let laughed = false;
+    for (let k = 0; k < 3 && !laughed; k++) {
+      const at = await spot('chin'); if (!at) break;
+      for (let i = 0; i < 3; i++) { await page.touchscreen.tap(at[0], at[1]); await sleep(110); }
+      laughed = await until(() => window.__bmHome.fox._state.react?.name === 'laugh', null, 1500);
+      if (!laughed) await sleep(900);
+    }
+    ok(laughed, 'three quick taps: it laughs');
+  }
   ok(await until(() => document.querySelectorAll('#fox-fx .fp-spark').length > 0), 'with little stars or hearts');
   await sleep(1800);
-  // a stroke across the head
-  const head = await spot('head');
+  // a stroke across the head (found again before each try, as the taps above)
+  let head = await spot('head');
   if (head) {
     const c = await page.context().newCDPSession(page);
     const t = (type, x, y) => c.send('Input.dispatchTouchEvent', { type, touchPoints: type === 'touchEnd' ? [] : [{ x, y }] });
-    await t('touchStart', head[0] - 40, head[1]);
-    for (let i = 0; i <= 16; i++) { await t('touchMove', head[0] - 40 + i * 5, head[1] + (i % 2)); await sleep(30); }
-    ok(await ev(() => window.__bmHome.fox._state.pet > 0.3), 'stroking it: it leans into the hand, eyes half shut');
+    let leaned = false;
+    for (let k = 0; k < 3 && !leaned && head; k++) {
+      if (k) { await t('touchEnd'); await sleep(500); head = await spot('head'); if (!head) break; }
+      await t('touchStart', head[0] - 40, head[1]);
+      for (let i = 0; i <= 16; i++) { await t('touchMove', head[0] - 40 + i * 5, head[1] + (i % 2)); await sleep(30); }
+      leaned = await ev(() => window.__bmHome.fox._state.pet > 0.3);
+    }
+    ok(leaned, 'stroking it: it leans into the hand, eyes half shut');
     await t('touchEnd');
   }
   ok(await ev(() => { window.__bmHome.fox.react('yawn'); return true; }) && await until(() => window.__bmHome.fox._state.mouth > 0.5), 'it can open its mouth (a yawn)');
@@ -558,6 +584,7 @@ try {
     await page.tap('#vd-list .vrow[data-i="0"] .txt');
     ok(await until(() => (window.__bmMpv?.start || 0) > 5 && !document.getElementById('vp-chip').classList.contains('hidden')), `opened again, it carries on from there (${await ev(() => window.__bmMpv?.start)} s), with "Start over"`);
     await ev(() => window.BMNative.back());
+    // drawn again when the player closes (v3.47.0: m-vplayer.js tells m-video.js)
     ok(await until(() => !!document.querySelector('#vd-list .vbar')), 'the list shows how far it was watched');
     await ev(() => localStorage.removeItem('mock_mpv'));
     // v3.43.2: the view chosen is kept when Android closes the app in the background (it came back on All)

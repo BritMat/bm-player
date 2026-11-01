@@ -1,6 +1,8 @@
 /**
  * Sound (v3.46.0), beside the equalizer: night mode, which ear hears what,
- * and a boost past 100%, as VLC and KMPlayer have them.
+ * and a boost past 100%, as VLC and KMPlayer have them. This file is the
+ * panel and what is kept; how each sounds, in mpv and in the in-app engine,
+ * is sound-chain.js (v3.47.0).
  *
  *   Night mode   quiet voices come up and loud bangs come down, for a film
  *                late at night. A compressor and a limiter.
@@ -10,41 +12,16 @@
  *   Boost        150% or 200%, for a quiet film on quiet speakers, with a
  *                limiter so the loud parts do not crackle.
  *
- * The same settings reach both players: mpv as one audio filter with the
- * equalizer (audioFilter, below), and the in-app engine as Web Audio nodes
- * (AudioEngine.setFx). Night mode and the channels are kept. The boost goes
- * back to 100% with each start, so a loud setting does not wait for the next
- * film at full volume.
+ * The same settings reach both players, with the equalizer (app/panels.js,
+ * _applyEQ): mpv as one audio filter, the in-app engine as Web Audio nodes.
+ * Night mode and the channels are kept. The boost goes back to 100% with
+ * each start, so a loud setting does not wait for the next film at full
+ * volume.
  */
+import { CHANNELS } from '../sound-chain.js';
+export { CHANNELS };
 const KEY = 'bm_sound';
-export const CHANNELS = [['stereo', 'Stereo'], ['mono', 'Mono'], ['left', 'Left only'], ['right', 'Right only'], ['swap', 'Swapped']];
 export const BOOSTS = [100, 150, 200];
-// Two channels first, mixed as speakers would: a 5.1 film's centre (its
-// voices) is in both, where pan's c0 and c1 alone would be the front left
-// and right only.
-const TWO = 'aformat=channel_layouts=stereo';
-const PAN = {
-  mono: 'pan=stereo|c0=0.5*c0+0.5*c1|c1=0.5*c0+0.5*c1',
-  left: 'pan=stereo|c0=c0|c1=c0',
-  right: 'pan=stereo|c0=c1|c1=c1',
-  swap: 'pan=stereo|c0=c1|c1=c0',
-};
-const NIGHT = 'acompressor=threshold=0.05:ratio=4:attack=8:release=250:makeup=2';
-// No level= here: FFmpeg before 5.1 has no such option, and an option it
-// does not know fails the whole filter, equalizer and all.
-const LIMIT = 'alimiter=limit=0.95';
-
-/** mpv's `af` for the equalizer and these together, or '' for none. */
-export function audioFilter(eq, bands, fx = {}) {
-  const parts = [];
-  (eq || []).forEach((g, i) => { if (g && bands?.[i]) parts.push(`equalizer=f=${bands[i].freq}:width_type=o:width=2:g=${g}`); });
-  if (PAN[fx.channels]) parts.push(TWO, PAN[fx.channels]);
-  if (fx.night) parts.push(NIGHT);
-  const boost = Math.max(1, Math.min(2, (+fx.boost || 100) / 100));
-  if (boost > 1) parts.push(`volume=${boost}`);
-  if (fx.night || boost > 1) parts.push(LIMIT);
-  return parts.length ? `lavfi=[${parts.join(',')}]` : '';
-}
 
 export class Sound {
   /** apply(): the app sends the equalizer and these to both players. */

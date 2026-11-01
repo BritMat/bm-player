@@ -289,6 +289,14 @@ npm run start:lite     # the one-window Lite layout
 npm test               # the automated checks
 ```
 
+To see whether a change made the app slower or heavier, compare it with
+another version's folder on the same machine. It starts both in turn and
+compares start-up time, memory, idle CPU and smoothness:
+
+```bash
+npm run test:speed -- --ref=../BM-Player-v3.46.0 --runs=3
+```
+
 To build installers, generate the icons first, then build for your platform:
 
 ```bash

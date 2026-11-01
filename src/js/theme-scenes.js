@@ -12,42 +12,13 @@
  * than per frame, and with reduced motion everything moves at a third of the
  * speed. Nothing here touches the page until a scene is created.
  */
+// The helpers every scene draws with are the scene kit's (v3.47.0): the same
+// functions that were here, shared with the scenes to come.
+import { TIER, TAU, rnd, pick, count, canvas, glow, glint, reducedMotion } from './scenes/kit.js';
+
 // Northern is the Flow theme: the fluid it had before v3.27.0, with its own
 // controls (flow-settings.js), so it is not a scene (v3.28.0).
 export const SCENE_THEMES = ['ocean', 'forest', 'cyberpunk', 'midnight', 'sakura', 'sunset', 'golden', 'lavender', 'glass', 'light'];
-
-const TIER = { low: 0.5, medium: 1, high: 1.5 };
-const TAU = Math.PI * 2;
-const rnd = (a, b) => a + Math.random() * (b - a);
-const pick = a => a[(Math.random() * a.length) | 0];
-const count = (n, q) => Math.max(1, Math.round(n * q));
-
-function canvas(w, h = w) { const c = document.createElement('canvas'); c.width = Math.ceil(w); c.height = Math.ceil(h); return c; }
-
-// A soft round glow: full colour at the centre fading to nothing.
-function glow(r, rgb, core = 0) {
-  const c = canvas(r * 2), g = c.getContext('2d'), gr = g.createRadialGradient(r, r, 0, r, r, r);
-  gr.addColorStop(0, `rgba(${rgb},1)`);
-  if (core) gr.addColorStop(core, `rgba(${rgb},0.55)`);
-  gr.addColorStop(1, `rgba(${rgb},0)`);
-  g.fillStyle = gr; g.fillRect(0, 0, r * 2, r * 2);
-  return c;
-}
-
-// A four-pointed glint with a soft centre.
-function glint(r, rgb) {
-  const c = canvas(r * 2), g = c.getContext('2d');
-  g.drawImage(glow(r * 0.45, rgb), r * 0.55, r * 0.55);
-  g.globalCompositeOperation = 'lighter';
-  for (const [w, h] of [[r * 2, r * 0.16], [r * 0.16, r * 2]]) {
-    const gr = w > h ? g.createLinearGradient(0, r, r * 2, r) : g.createLinearGradient(r, 0, r, r * 2);
-    gr.addColorStop(0, `rgba(${rgb},0)`); gr.addColorStop(0.5, `rgba(${rgb},0.9)`); gr.addColorStop(1, `rgba(${rgb},0)`);
-    g.fillStyle = gr; g.fillRect(r - w / 2, r - h / 2, w, h);
-  }
-  return c;
-}
-
-const reducedMotion = () => { try { return matchMedia('(prefers-reduced-motion: reduce)').matches; } catch { return false; } };
 
 /* ── Ocean: light from the surface, rising bubbles, drifting plankton ── */
 function ocean(w, h, q, sp) {
@@ -511,4 +482,26 @@ export function createScene(name, w, h, tier = 'medium') {
   const make = SCENES[name]; if (!make) return null;
   const sp = reducedMotion() ? 0.33 : 1;
   return make(w, h, (TIER[tier] || 1) * (sp < 1 ? 0.6 : 1), sp);
+}
+
+/**
+ * A theme's background as a scene for the scene kit's runner (v3.47.0,
+ * scenes/runner.js), so the theme backgrounds and the scenes to come can run
+ * the same way. ThemeFX still draws them itself; this is how the scene
+ * picker (3.48) will. One canvas pixel to a CSS pixel, as ThemeFX has them,
+ * and what is drawn is the same, frame for frame. Null for a theme without one.
+ */
+export function themeScene (name) {
+  if (!SCENES[name]) return null;
+  return {
+    id: 'theme:' + name, name, maxDpr: 1,
+    start ({ canvas: cv, ctx, tier }) {
+      let s = createScene(name, cv.width, cv.height, tier);
+      return {
+        resize: () => s?.resize(cv.width, cv.height),
+        frame: (dt, t) => { ctx.clearRect(0, 0, cv.width, cv.height); s?.frame(ctx, cv.width, cv.height, dt, t); },
+        stop: () => { s = null; },
+      };
+    },
+  };
 }

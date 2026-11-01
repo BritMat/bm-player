@@ -181,6 +181,8 @@ body.playing #player-view{top:0;left:0;}
 /* ── DASHBOARD VIEWS ─────────────────────────────────────────── */
 .dashboard-view{position:fixed;top:64px;left:52px;right:0;bottom:0;background:var(--bg);display:none;flex-direction:column;z-index:20;overflow:hidden;}
 .dashboard-view.active{display:flex;}
+/* v3.47.0: a tab whose part is still loading (app/parts.js), for the few milliseconds it takes */
+.dashboard-view[data-loading]>*{visibility:hidden;}
 .dash-header{display:flex;align-items:center;gap:14px;padding:16px 22px 12px;border-bottom:1px solid var(--border);flex-shrink:0;}
 .dash-title{font-size:17px;font-weight:800;background:linear-gradient(135deg,var(--accent),var(--accent2));-webkit-background-clip:text;-webkit-text-fill-color:transparent;}
 .dash-action-btn{padding:8px 16px;border-radius:8px;font-size:12.5px;font-weight:700;color:var(--on-accent);background:linear-gradient(135deg,var(--accent),var(--accent2));box-shadow:0 3px 12px var(--accent-glow);cursor:pointer;transition:.15s;flex-shrink:0;}

@@ -10,6 +10,26 @@
  */
 
 import { el, fileURL } from '../util.js';
+import { loadScript } from '../lazy.js';
+
+// The two PDF libraries (v3.47.0). They were <script> tags the page read at
+// every start, 845 KB of them, for a tab most starts never open. pdf.js
+// loads when a PDF is first opened, and pdf-lib (which writes PDFs) the
+// first time one is saved or merged. Both are in the app (vendor/), so a
+// first use waits a few milliseconds for them, never the network.
+const pdfjs = () => window.pdfjsLib ? Promise.resolve(window.pdfjsLib)
+  : loadScript('vendor/pdf.min.js').then(() => {
+    const lib = window.pdfjsLib;
+    if (!lib) throw new Error('vendor/pdf.min.js loaded without pdfjsLib');
+    lib.GlobalWorkerOptions.workerSrc = 'vendor/pdf.worker.min.js';
+    return lib;
+  });
+const pdflib = () => window.PDFLib ? Promise.resolve(window.PDFLib)
+  : loadScript('vendor/pdf-lib.min.js').then(() => {
+    if (!window.PDFLib) throw new Error('vendor/pdf-lib.min.js loaded without PDFLib');
+    return window.PDFLib;
+  });
+const libFailed = (what, e) => { console.error('[PDFViewer]', e); alert(`The ${what} could not be loaded: ${e?.message || e}`); };
 
 export class PDFViewer{constructor(api){this.api=api;this.pdfDoc=null;this.pageNum=1;this.scale=1.4;this.fitScale=1.4;this.rendering=false;this._sr=[];this._si=-1;
     console.log('[PDFViewer] Initialized, API:', !!api);
@@ -54,11 +74,11 @@ _wire(){el('btn-pdf-open')?.addEventListener('click',()=>this._open());el('pdf-p
     this._render();this._buildThumbs();
   }
   async _mergeWith(){
-    if(!window.PDFLib){alert('pdf-lib not loaded — check your internet connection');return;}
+    let PDFLib;try{PDFLib=await pdflib();}catch(e){libFailed('PDF editor',e);return;}
     const otherPath=await this.api?.dialog?.openPDF?.();
     if(!otherPath)return;
     try{
-      const { PDFDocument }=window.PDFLib;
+      const { PDFDocument }=PDFLib;
       const curBytes=this._sourceBytes||await(await fetch(fileURL(this.filePath))).arrayBuffer();
       const otherBytes=await(await fetch(fileURL(otherPath))).arrayBuffer();
       const curDoc=await PDFDocument.load(curBytes);
@@ -97,9 +117,9 @@ _wire(){el('btn-pdf-open')?.addEventListener('click',()=>this._open());el('pdf-p
   _cancelStamp(){this._pendingStamp=null;el('pdf-stamp-input')?.classList.add('hidden');}
   async _saveAs(){
     if(!this.pdfDoc)return;
-    if(!window.PDFLib){alert('pdf-lib not loaded — check your internet connection');return;}
+    let PDFLib;try{PDFLib=await pdflib();}catch(e){libFailed('PDF editor',e);return;}
     try{
-      const { PDFDocument, rgb, degrees }=window.PDFLib;
+      const { PDFDocument, rgb, degrees }=PDFLib;
       const srcBytes=this._sourceBytes||await(await fetch(fileURL(this.filePath))).arrayBuffer();
       const srcDoc=await PDFDocument.load(srcBytes);
       const outDoc=await PDFDocument.create();
@@ -141,7 +161,7 @@ _wire(){el('btn-pdf-open')?.addEventListener('click',()=>this._open());el('pdf-p
     catch(e){ console.error('[PDFViewer] open failed',e); alert('Could not open the PDF dialog:\n'+(e?.message||e)); return; }
     if(f) await this.load(f);
   }
-  async load(fp,bytesOverride){const lib=window.pdfjsLib;if(!lib){alert('PDF.js not loaded — check your internet connection');return;}
+  async load(fp,bytesOverride){let lib;try{lib=await pdfjs();}catch(e){libFailed('PDF reader',e);return;}
     el('pdf-filename').textContent='Loading...';el('pdf-thumbs-list').innerHTML='';el('pdf-canvas').style.display='none';el('pdf-empty').style.display='flex';
     this.pageRotations={};this.annotations={};this.deletedPages=new Set();this._sourceBytes=null;this._dirty=false;
     try{
@@ -307,7 +327,7 @@ async _buildTextLayer(page, viewport){
   const needle=this._searchTerm;
   for(const item of tc.items){
     if(!item.str || !item.str.trim()) continue;
-    const tx=pdfjsLib.Util.transform(viewport.transform, item.transform);
+    const tx=window.pdfjsLib.Util.transform(viewport.transform, item.transform);
     const span=document.createElement('span');
     span.textContent=item.str;
     span.style.left=tx[4]+'px';

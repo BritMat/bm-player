@@ -53,7 +53,9 @@ function walk(dir, acc = []) {
 }
 const rendererFiles = walk('src/js');
 const rendererSrc = rendererFiles.map(f => ({ file: f, text: read(f) }));
-const mainSrc    = read('main.js');
+// The main process: main.js and its parts in main/ (v3.47.0), read as one.
+const mainFiles  = ['main.js', ...(fs.existsSync(path.join(ROOT, 'main')) ? fs.readdirSync(path.join(ROOT, 'main')).filter(f => f.endsWith('.js')).sort().map(f => 'main/' + f) : [])];
+const mainSrc    = mainFiles.map(read).join('\n');
 const preloadSrc = read('preload.js');
 
 /* Strip comments so commented-out code doesn't register as a real reference.
@@ -239,6 +241,42 @@ for (const m of html.matchAll(/(?:src|href)="((?!https?:|data:)[^"]+)"/g)) {
   if (!fs.existsSync(target)) err('missing-file', `index.html references ${m[1]} — not on disk`);
 }
 
+/* Code with what is inside its strings taken out: quoted strings keep their
+ * quotes and lose their text, a template literal keeps what is inside its
+ * ${...}. A quoted string ends at its line's end, so a quote in a regular
+ * expression costs at most that line. */
+function blankStrings (src) {
+  let out = '', i = 0, depth = 0;
+  const n = src.length, open = [];
+  const tpl = j => {
+    while (j < n) {
+      if (src[j] === '\\') { j += 2; continue; }
+      if (src[j] === '`') { out += '`'; return j + 1; }
+      if (src[j] === '$' && src[j + 1] === '{') { out += '${'; open.push(depth); return j + 2; }
+      if (src[j] === '\n') out += '\n';
+      j++;
+    }
+    return j;
+  };
+  while (i < n) {
+    const c = src[i];
+    if (c === "'" || c === '"') {
+      out += c; i++;
+      while (i < n && src[i] !== c && src[i] !== '\n') i += src[i] === '\\' ? 2 : 1;
+      if (src[i] === c) { out += c; i++; }
+      continue;
+    }
+    if (c === '`') { out += '`'; i = tpl(i + 1); continue; }
+    if (c === '{') depth++;
+    else if (c === '}') {
+      if (open.length && open[open.length - 1] === depth) { open.pop(); out += '}'; i = tpl(i + 1); continue; }
+      depth--;
+    }
+    out += c; i++;
+  }
+  return out;
+}
+
 /* ── 9. ES module import hygiene ────────────────────────────────
  * New failure mode since app.js was split: a class moves into its own file
  * and quietly loses access to a helper that used to be module-scope beside
@@ -261,7 +299,9 @@ for (const m of html.matchAll(/(?:src|href)="((?!https?:|data:)[^"]+)"/g)) {
     }
     for (const m of text.matchAll(/import\s+(\w+)\s+from/g)) imported.add(m[1]);
 
-    const body = strip(text).replace(/^import[^;]*;/gm, '');
+    // What is inside strings left out too (v3.47.0): el('perf-info-mode') is
+    // not a use of perf, and once preferences.js left app.js it read as one.
+    const body = blankStrings(strip(text).replace(/^import[^;]*;/gm, ''));
     for (const h of SHARED) {
       // Must be a bare reference, not a property: `this.el` is the <audio>
       // element in audio-engine.js, not a call to the el() helper.
@@ -285,6 +325,98 @@ for (const m of html.matchAll(/(?:src|href)="((?!https?:|data:)[^"]+)"/g)) {
   }
 }
 
+/* ── 9b. Every module a file loads is there (v3.47.0) ───────────
+ * A static import of a missing file stops the page at once, and the checks
+ * see it. An import() is only looked for when it runs: when app.js was split,
+ * _switchFx kept import('./modules/lite-mode.js'), which from app/ names a
+ * file that is not there, and Tools > Lite did nothing while every check but
+ * one passed. Files are loaded on first use from now on, so each relative
+ * path a file loads, static or not, is looked for here, the phone's too. */
+{
+  const phone = fs.existsSync(path.join(ROOT, 'android/web/js')) ? walk('android/web/js').map(f => ({ file: f, text: read(f) })) : [];
+  const SPEC = [
+    /\bimport\s*\(\s*(['"])(\.{1,2}\/[^'"]+)\1\s*\)/g,                        // import('./x.js')
+    /(?:^|[\s;])(?:import|export)\b[^'"`;]*?\bfrom\s*(['"])(\.{1,2}\/[^'"]+)\1/g, // import a from './x.js'
+    /(?:^|[\s;])import\s*(['"])(\.{1,2}\/[^'"]+)\1/g,                              // import './x.js'
+  ];
+  let seen = 0;
+  for (const { file, text } of rendererSrc) {
+    const code = strip(text);
+    for (const re of SPEC) for (const m of code.matchAll(re)) {
+      seen++;
+      if (!fs.existsSync(path.join(ROOT, path.dirname(file), m[2]))) err('import', `${file}: loads ${m[2]}, and there is no such file`);
+    }
+  }
+  // Scripts loaded on first use (lazy.js, v3.47.0) and pdf.js's worker are
+  // named from the page, src/index.html, not from the file that names them.
+  for (const { file, text } of rendererSrc) {
+    for (const m of strip(text).matchAll(/\b(?:loadScript\s*\(|workerSrc\s*=)\s*(['"])([^'"]+)\1/g)) {
+      seen++;
+      if (!fs.existsSync(path.join(ROOT, 'src', m[2]))) err('import', `${file}: loads ${m[2]} (from the page, src/), and there is no such file`);
+    }
+  }
+  // The phone's page is put together when the APK is built (android/build-apk.mjs):
+  // the desktop files FROM_DESKTOP lists, lyrics-core.js, and android/web over
+  // them. A path there is looked for where it will come from, and what the
+  // desktop files it holds load is followed too: one missing from the list
+  // builds without a word and fails on the phone.
+  if (phone.length && fs.existsSync(path.join(ROOT, 'android/build-apk.mjs'))) {
+    const list = (read('android/build-apk.mjs').match(/const FROM_DESKTOP\s*=\s*\[([\s\S]*?)\];/) || [])[1];
+    if (!list) err('import', 'android/build-apk.mjs: the FROM_DESKTOP list was not found');
+    else {
+      // its comments out first: "the home screen's fox" opens a quote
+      const desk = new Set([...list.replace(/\/\/.*$/gm, '').matchAll(/'([^']+)'/g)].map(m => m[1]));
+      if (!desk.has('js/visualizer.js')) err('import', `android/build-apk.mjs: FROM_DESKTOP misread (${[...desk].slice(0, 3).join(', ')}...)`);
+      const origin = rel => fs.existsSync(path.join(ROOT, 'android/web', rel)) ? 'android/web/' + rel
+        : rel === 'js/lyrics-core.js' ? 'lyrics-core.js' : desk.has(rel) ? 'src/' + rel : null;
+      const queue = phone.map(({ file }) => path.posix.relative('android/web', file.split(path.sep).join('/')));
+      const done = new Set();
+      while (queue.length) {
+        const rel = queue.shift(); if (done.has(rel)) continue; done.add(rel);
+        const from = origin(rel); if (!from) continue;
+        const code = strip(read(from));
+        for (const re of SPEC) for (const m of code.matchAll(re)) {
+          seen++;
+          const dep = path.posix.normalize(path.posix.join(path.posix.dirname(rel), m[2]));
+          if (origin(dep)) queue.push(dep);
+          else err('import', `the phone's ${rel} (from ${from}) loads ${m[2]}, which the APK will not have: ${fs.existsSync(path.join(ROOT, 'src', dep)) ? 'add ' + dep + ' to FROM_DESKTOP in android/build-apk.mjs' : 'there is no such file'}`);
+        }
+      }
+    }
+  }
+  // the patterns themselves, on the line that went wrong and its neighbours
+  const probe = "const { liteMode } = await import('./modules/lite-mode.js');\nimport {\n a,\n b } from '../util.js';\nimport './side.js';\nexport { c } from \"./c.js\";";
+  const got = SPEC.flatMap(re => [...probe.matchAll(re)].map(m => m[2])).sort().join(' ');
+  if (got !== '../util.js ./c.js ./modules/lite-mode.js ./side.js') err('import', `the module path patterns misread: ${got}`);
+  if (!seen) err('import', 'no module paths found at all: the patterns no longer match the code');
+}
+
+/* ── 9c. The page names the modules app.js loads at start (v3.47.0) ──
+ * index.html has a <link rel="modulepreload"> for each, so the browser fetches
+ * them all, and app.js itself, at once instead of one level of imports at a time: the split of
+ * app.js into app/*.js made that chain a level deeper, and the start slower,
+ * until they were named. The list must be exactly what app.js loads: one
+ * missing goes back to waiting for its level, and one too many (a part now
+ * loaded on first use) is fetched and compiled at every start for nothing. */
+{
+  const closure = new Set(), queue = ['src/js/app.js'];
+  const STATIC = [/(?:^|[\s;])(?:import|export)\b[^'"`;]*?\bfrom\s*(['"])(\.{1,2}\/[^'"]+)\1/g, /(?:^|[\s;])import\s*(['"])(\.{1,2}\/[^'"]+)\1/g];
+  while (queue.length) {
+    const f = queue.shift(); if (closure.has(f)) continue; closure.add(f);
+    if (!fs.existsSync(path.join(ROOT, f))) continue;
+    const code = strip(read(f));
+    for (const re of STATIC) for (const m of code.matchAll(re)) queue.push(path.posix.normalize(path.posix.join(path.posix.dirname(f), m[2])));
+  }
+  // app.js itself is named too: its <script type="module"> is at the end of
+  // the page, and named in the head it is fetched while the page is parsed.
+  const want = new Set([...closure].map(f => f.replace(/^src\//, '')));
+  const have = new Set([...html.matchAll(/<link\s+rel="modulepreload"\s+href="([^"]+)"/g)].map(m => m[1]));
+  const missing = [...want].filter(f => !have.has(f)).sort(), extra = [...have].filter(f => !want.has(f)).sort();
+  if (want.size < 20) err('preload', `app.js seems to load only ${want.size} modules: this check no longer reads its imports`);
+  for (const f of missing) err('preload', `index.html: app.js loads ${f} at start, and the page does not name it: add <link rel="modulepreload" href="${f}">`);
+  for (const f of extra) err('preload', `index.html names ${f} for start-up, and app.js does not load it then: take its modulepreload out`);
+}
+
 /* ── 10. CSP must not re-admit eval ────────────────────────────
  * 'unsafe-eval' was in both CSPs on the claim that Three.js needed it.
  * It doesn't, and nothing here calls eval() or new Function(). This keeps
@@ -306,28 +438,38 @@ for (const m of html.matchAll(/(?:src|href)="((?!https?:|data:)[^"]+)"/g)) {
 }
 
 /* ── 11. EQ band alignment ─────────────────────────────────────
- * app.js builds the slider UI from EQ_BANDS; audio-engine.js addresses its
- * BiquadFilter chain by the same index via EQ_FREQUENCIES. If the two lists
- * drift, every slider silently controls the wrong frequency — audible, but
- * very hard to attribute. */
+ * The sliders are addressed by index: slider i is band i in mpv's filter,
+ * in the engine's filters and on the phone. If the lists drift, every slider
+ * silently controls the wrong frequency, audible but very hard to attribute.
+ * Since v3.47.0 there is one list, sound-chain.js's EQ_FREQUENCIES: the
+ * desktop's sliders are made from it, and the engine and mpv's filter use
+ * it. The phone writes its slider labels out, so those are compared. */
 {
-  const appSrc = rendererSrc.find(f => f.file.endsWith('app.js'));
-  const engSrc = rendererSrc.find(f => f.file.endsWith('audio-engine.js'));
-  if (appSrc && engSrc) {
-    // EQ_BANDS is built by mapping over a flat array literal, so there is no
-    // `freq: 31` in the source to match — read the literal that feeds it.
-    const bandsM = appSrc.text.match(/EQ_BANDS\s*=\s*\[([^\]]+)\]/);
-    const bands = bandsM ? bandsM[1].split(',').map(n => +n.trim()).filter(n => !isNaN(n)) : [];
-    const freqM = engSrc.text.match(/EQ_FREQUENCIES\s*=\s*\[([^\]]+)\]/);
-    const freqs = freqM ? freqM[1].split(',').map(n => +n.trim()).filter(n => !isNaN(n)) : [];
-    if (!bands.length || !freqs.length) {
-      err('eq', 'could not read the EQ band lists — this check is not actually verifying anything');
-    } else {
-      if (bands.length !== freqs.length) {
-        err('eq', `EQ_BANDS has ${bands.length} bands, EQ_FREQUENCIES has ${freqs.length}`);
-      } else if (bands.join(',') !== freqs.join(',')) {
-        err('eq', `EQ band frequencies disagree:\n        app.js:          ${bands.join(', ')}\n        audio-engine.js: ${freqs.join(', ')}`);
-      }
+  const chainSrc = rendererSrc.find(f => /(^|[\\/])sound-chain\.js$/.test(f.file));
+  const nums = m => m ? m[1].split(',').map(n => +n.trim()).filter(n => !isNaN(n)) : [];
+  const freqs = nums(chainSrc?.text.match(/EQ_FREQUENCIES\s*=\s*\[([^\]]+)\]/));
+  if (!freqs.length) err('eq', 'could not read EQ_FREQUENCIES in src/js/sound-chain.js: this check is not verifying anything');
+  else {
+    // the desktop's sliders: made from that list, or a list written out equal to it
+    const bandsSrc = rendererSrc.find(f => /\bEQ_BANDS\s*=/.test(f.text));
+    if (!bandsSrc) err('eq', 'EQ_BANDS (the sliders) was not found');
+    else if (!(/\bEQ_BANDS\s*=\s*EQ_FREQUENCIES\.map\(/.test(bandsSrc.text) && /import\s*\{[^}]*\bEQ_FREQUENCIES\b[^}]*\}\s*from\s*['"][./]*sound-chain\.js['"]/.test(bandsSrc.text))) {
+      const own = nums(bandsSrc.text.match(/EQ_BANDS\s*=\s*\[([^\]]+)\]/));
+      if (own.join(',') !== freqs.join(',')) err('eq', `${bandsSrc.file}: EQ_BANDS (${own.join(', ') || 'unread'}) is not sound-chain.js's EQ_FREQUENCIES (${freqs.join(', ')})`);
+    }
+    // no second list anywhere else on the desktop
+    for (const { file, text } of rendererSrc) {
+      if (file === chainSrc.file) continue;
+      if (/\bEQ_FREQUENCIES\s*=\s*\[/.test(text)) err('eq', `${file} has its own EQ_FREQUENCIES: there is one, in sound-chain.js`);
+    }
+    // the phone's sliders, written as labels: '1k' is 1000
+    const phoneFile = 'android/web/js/m-nowplaying.js';
+    if (fs.existsSync(path.join(ROOT, phoneFile))) {
+      const m = read(phoneFile).match(/EQ_BANDS\s*=\s*\[([^\]]+)\]/);
+      const labels = m ? [...m[1].matchAll(/['"]([^'"]+)['"]/g)].map(x => x[1]) : [];
+      const hz = labels.map(l => /k$/i.test(l) ? parseFloat(l) * 1000 : parseFloat(l));
+      if (!labels.length) err('eq', `${phoneFile}: the phone's EQ_BANDS was not found`);
+      else if (hz.join(',') !== freqs.join(',')) err('eq', `${phoneFile}: the phone's sliders (${labels.join(', ')}) are not the bands (${freqs.join(', ')})`);
     }
   }
 }
@@ -651,7 +793,8 @@ for (const m of html.matchAll(/(?:src|href)="((?!https?:|data:)[^"]+)"/g)) {
   const TRANSPORT = /\bcmd\(\s*(?:'seek'|'stop'|'playlist-(?:prev|next)'|'cycle'\s*,\s*'(?:pause|mute)'|'set_property'\s*,\s*'(?:time-pos|volume|mute|pause)')/;
   const ALSO = /\bcmd\(\s*dir\s*>\s*0\s*\?\s*'playlist-next'/;          // trackStep's ternary
   for (const { file, text } of rendererSrc) {
-    if (!/app\.js$|music\.js$/.test(file)) continue;
+    // app.js, its feature files in app/ (v3.47.0), and the music tab.
+    if (!/app\.js$|music\.js$|[\\/]app[\\/]/.test(file)) continue;
     const lines = strip(text).split('\n');
     let fn = '?';
     lines.forEach((line, i) => {
@@ -767,7 +910,8 @@ function filesList(text) {
   // an extraResource (mpv), not from inside the package.
   const firstFile = dir => { const e = fs.readdirSync(path.join(ROOT, dir), { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name));
     for (const x of e) { if (x.isFile()) return `${dir}/${x.name}`; if (x.isDirectory()) { const r = firstFile(`${dir}/${x.name}`); if (r) return r; } } return null; };
-  const runtimeDirs = [...new Set([...fs.readFileSync(path.join(ROOT, 'main.js'), 'utf8').matchAll(/path\.join\(\s*__dirname\s*,\s*'([a-z][\w-]*)'/g)].map(m => m[1]))]
+  // Read from main.js's folder: __dirname there, ROOT in its parts (v3.47.0).
+  const runtimeDirs = [...new Set([...loaded].flatMap(f => [...fs.readFileSync(path.join(ROOT, f), 'utf8').matchAll(/path\.join\(\s*(?:__dirname|ROOT)\s*,\s*'([a-z][\w-]*)'/g)].map(m => m[1])))]
     // buildResources is only read for lite.flag, checked on its own below.
     .filter(d => !['vendor', 'buildResources'].includes(d) && fs.existsSync(path.join(ROOT, d)) && fs.statSync(path.join(ROOT, d)).isDirectory());
   for (const cfg of ['electron-builder.yml', 'electron-builder.lite.yml']) {
@@ -839,7 +983,6 @@ for (const cfg of ['electron-builder.yml', 'electron-builder.lite.yml']) {
    transparent controls window stopped it being transparent there (no picture
    in the default layout, v3.26.1): it must not have one. */
 {
-  const mainSrc = fs.readFileSync(path.join(ROOT, 'main.js'), 'utf8');
   const bgNew = (mainSrc.match(/bgWin\s*=\s*new BaseWindow\(\{[\s\S]*?\}\);/) || [])[0] || '';
   if (!bgNew) err('windows', 'main.js: the picture window (bgWin = new BaseWindow) was not found');
   else {

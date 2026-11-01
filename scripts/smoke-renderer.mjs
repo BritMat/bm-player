@@ -149,10 +149,12 @@ function installAudioStubs(win) {
     setTargetAtTime(v) { this.value = v; this.glides++; }
     cancelScheduledValues() { this.cancels++; }
   }
+  // outs: what a node is connected to now, so a test can follow the sound
+  // through the graph (v3.47.0: effects come and go with the settings).
   class Node {
-    constructor(kind) { this.kind = kind; }
-    connect(dest) { connections.push([this.kind, dest && dest.kind]); return dest; }
-    disconnect() {}
+    constructor(kind) { this.kind = kind; this.outs = new Set(); }
+    connect(dest) { connections.push([this.kind, dest && dest.kind]); this.outs.add(dest); return dest; }
+    disconnect(dest) { if (dest === undefined) this.outs.clear(); else this.outs.delete(dest); }
   }
   class Analyser extends Node {
     constructor() { super('analyser'); this.fftSize = 2048; this.smoothingTimeConstant = 0.8; }
@@ -302,6 +304,27 @@ async function main() {
     ? pass('window.bmMusic is constructed')
     : fail('window.bmMusic is constructed');
 
+  /* ── 4b. the tabs most starts never open are not loaded at start (v3.47.0) ── */
+  if (app) {
+    const doc = window.document;
+    const early = { gallery: !!window.bmGallery, pdf: !!window.bmPDF, tv: !!app.tvModule,
+      pdfTags: [...doc.querySelectorAll('script[src]')].map(x => x.getAttribute('src')).filter(x => /pdf/.test(x)) };
+    if (early.gallery || early.pdf || early.tv || early.pdfTags.length) fail('the Gallery, PDF tools, TV and the PDF libraries wait until they are opened', new Error(JSON.stringify(early)));
+    else pass('the Gallery, PDF tools, TV and the PDF libraries wait until they are opened');
+    await step('a tab is set up the first time it opens, once, and its contents wait for it', async () => {
+      const view = doc.getElementById('gallery-view');
+      app.switchDest('images');
+      if (!('loading' in view.dataset)) throw new Error('the Gallery showed its contents before its part was there');
+      const g1 = await app.part('gallery');
+      if (!g1 || g1 !== window.bmGallery) throw new Error('part("gallery") did not give window.bmGallery');
+      if ('loading' in view.dataset) throw new Error('the Gallery kept its contents hidden after loading');
+      app.switchDest('music'); app.switchDest('images');
+      if ((await app.part('images')) !== g1) throw new Error('opening the Gallery again made a second one');
+      let refused = false; try { await app.part('nothing'); } catch (_) { refused = true; }
+      if (!refused) throw new Error('a part that does not exist was not refused');
+    });
+  }
+
   /* ── 5. exercise the paths that have been broken before ──────── */
   if (app) {
     for (const [name, fn] of [
@@ -329,7 +352,7 @@ async function main() {
 
 
   /* ── 6. Gallery: browse -> render -> lightbox -> filmstrip ───── */
-  const gallery = window.bmGallery;
+  const gallery = app ? await app.part('gallery').catch(() => null) : null;
   if (!gallery) fail('window.bmGallery is constructed');
   else {
     pass('window.bmGallery is constructed');
@@ -447,7 +470,7 @@ async function main() {
   }
 
   /* ── 8. PDF: search debounce and cancellation ─────────────────── */
-  const pdf = window.bmPDF;
+  const pdf = app ? await app.part('pdf').catch(e => { fail('the PDF tools are set up when their tab opens', e); return null; }) : null;
   if (pdf) {
     pass('window.bmPDF is constructed');
     await step('search with no document degrades quietly', async () => {
@@ -486,13 +509,16 @@ async function main() {
     await eng.load('file:///a/y.mp3', '/a/y.mp3', false);
     if (window.__audioContexts.n !== made + 1) throw new Error('a second song made a second AudioContext');
     if (eng.filters.length !== 10) throw new Error('expected 10 EQ bands, got ' + eng.filters.length);
-    // source -> 10 filters -> gain -> destination, and the analyser listening
-    // BEFORE the gain (v3.36.0): the visualiser must not depend on the volume.
+    // source -> the equalizer -> heard -> gain -> destination, and the
+    // analyser listening at heard, BEFORE the gain (v3.36.0): the visualiser
+    // must not depend on the volume. Followed by the nodes themselves: since
+    // v3.47.0 the point it listens at is a gain node of its own.
     const chain = window.__audioConnections.slice(n0).map(c => c.join('>'));
-    if (!chain.includes('gain>destination')) throw new Error('the gain is not reaching the output: ' + chain.join(', '));
-    if (!chain.includes('biquad>analyser')) throw new Error('the analyser is not fed from before the volume: ' + chain.join(', '));
-    if (chain.includes('gain>analyser')) throw new Error('the analyser listens after the volume again');
-    if (!chain.includes('analyser>gain')) throw new Error('the analyser has no silent tap to keep it fed');
+    if (!eng.gain.outs.has(eng.ctx.destination)) throw new Error('the gain is not reaching the output: ' + chain.join(', '));
+    if (!eng._heard.outs.has(eng.analyser) || eng._heard === eng.gain) throw new Error('the analyser is not fed from before the volume: ' + chain.join(', '));
+    if (eng.gain.outs.has(eng.analyser)) throw new Error('the analyser listens after the volume again');
+    if (![...eng.filters[9].outs].includes(eng._heard)) throw new Error('the analyser does not hear the equalizer: it is not before the point it listens at');
+    if (!eng.analyser.outs.has(eng.tap)) throw new Error('the analyser has no silent tap to keep it fed');
     // volume and mute are the gain's, and the audio element stays at full
     eng.setVolume(50);
     if (Math.abs(eng.gain.gain.value - 0.5) > 1e-6) throw new Error('volume 50 gave a gain of ' + eng.gain.gain.value);
@@ -562,6 +588,60 @@ async function main() {
     eng.resetEQ();
     if (eng.getEQ().some(g => g !== 0)) throw new Error('resetEQ left gain behind');
     eng.destroy();
+  });
+
+  // The sound chain (v3.47.0, sound-chain.js): an effect is in the graph
+  // only while it is on. With everything off the song goes from the file to
+  // the volume through nothing else; each effect goes in at its place and
+  // comes out again, and a flat equalizer settles before it leaves.
+  await step('the engine puts in only the effects that are on, in order, and takes them out again', async () => {
+    const { EFFECTS, settings } = await import(pathToFileURL(path.join(ROOT, 'src/js/sound-chain.js')).href);
+    const eng = new AudioEngine();
+    await eng.load('file:///a/x.mp3', '/a/x.mp3', false);
+    const c = eng.chain, live = () => c.live.join(',');
+    // what the chain counts is what is connected, from the song to the volume, and nothing besides
+    const wired = when => {
+      const L = c.links;
+      if (L[0][0] !== eng.source || L[L.length - 1][1] !== eng.gain) throw new Error(when + ': the chain does not run from the song to the volume');
+      for (const [a, b] of L) if (!a.outs.has(b)) throw new Error(when + ': a link the chain counts is not connected');
+      if (eng.source.outs.size !== 1) throw new Error(when + ': the song feeds ' + eng.source.outs.size + ' nodes');
+      if (eng._heard.outs.size !== 2 || !eng._heard.outs.has(eng.analyser)) throw new Error(when + ': the point the visualiser hears feeds ' + [...eng._heard.outs].map(n => n.kind));
+      for (const [id, n] of c.made) if (!c.live.includes(id) && n.output.outs.size) throw new Error(when + ': ' + id + ' is out of the chain and still connected');
+    };
+    eng.ctx.state = 'suspended';
+    if (live() !== '' || eng.filters !== null) throw new Error('with everything off there is something in the chain: ' + live());
+    if (!eng.source.outs.has(eng._heard) || !eng._heard.outs.has(eng.gain)) throw new Error('with everything off the song does not go straight to the volume');
+    wired('everything off');
+    eng.setEQBand(3, 4);
+    if (live() !== 'eq' || eng.filters[3].gain.value !== 4) throw new Error('one band: ' + live()); wired('one band');
+    eng.setFx({ night: true });
+    if (live() !== 'eq,night,limit') throw new Error('night mode: ' + live()); wired('night mode');
+    eng.setFx({ channels: 'mono', boost: 1.5 });
+    if (live() !== 'eq,channels,night,boost,limit') throw new Error('everything: ' + live()); wired('everything');
+    if (c.made.get('boost').output.gain.value !== 1.5) throw new Error('the boost is ' + c.made.get('boost').output.gain.value);
+    eng.setFx({ night: false, channels: 'stereo', boost: 1 });
+    if (live() !== 'eq') throw new Error('the effects off again: ' + live()); wired('effects off again');
+    eng.setEQBand(3, 0);
+    if (live() !== '' ) throw new Error('a flat equalizer at rest stayed in: ' + live()); wired('flat at rest');
+    // playing: a flat equalizer glides to nothing, then leaves; turned up again in time, it stays
+    eng.ctx.state = 'running';
+    eng.setEQBand(1, 3); eng.setEQ(new Array(10).fill(0));
+    if (live() !== 'eq' || eng.filters[1].gain.value !== 0) throw new Error('playing, a flat equalizer left at once or did not settle: ' + live());
+    await tick(320);
+    if (live() !== '') throw new Error('the settled equalizer stayed in: ' + live()); wired('settled');
+    eng.setEQBand(2, 3); eng.setEQBand(2, 0); eng.setEQBand(2, 5); await tick(320);
+    if (live() !== 'eq' || eng.filters[2].gain.value !== 5) throw new Error('turned up while settling, the equalizer left anyway: ' + live()); wired('turned up again');
+    // the engine and mpv agree on what is on, for any settings
+    eng.ctx.state = 'suspended';
+    for (const s of [{ eq: [1] }, { night: true }, { channels: 'swap' }, { boost: 2 }, { eq: [0, 0, 2], channels: 'left', boost: 1.5 }, {}]) {
+      eng.setSound({ eq: new Array(10).fill(0), night: false, channels: 'stereo', boost: 1, ...s });
+      const want = EFFECTS.filter(e => e.on(settings(eng._sound))).map(e => e.id).join(',');
+      if (live() !== want) throw new Error(`${JSON.stringify(s)}: the engine has ${live()}, mpv would have ${want}`);
+      wired(JSON.stringify(s));
+    }
+    eng.ctx.state = 'running'; eng.setEQBand(4, 2); eng.setEQBand(4, 0);
+    eng.destroy();
+    if (c._fading.size) throw new Error('taken down, the engine left a timer running');
   });
 
   // Since v3.36.0 all of the volume is the gain node's, and the audio element
@@ -2662,6 +2742,123 @@ async function main() {
       v.beat.punch = 1; const hit = sizes(); v.beat.punch = 0;
       if (!(Math.max(...hit) > 1.12) || Math.max(...hit) > 1.2) throw new Error('on a hard beat the largest is drawn at ' + Math.max(...hit).toFixed(2) + ' of its size, expected about 1.16');
     } finally { v.ctx = real; if (realNow) Object.defineProperty(performance, 'now', realNow); else delete performance.now; v.analyser = null; c.remove(); }
+  });
+
+  /* ── v3.47.0: the scene kit (scenes/runner.js, kit.js) with a test scene ── */
+  await step('the scene runner runs any scene the same way: frames, the frame gap, rest, pointer, beat, size, errors', async () => {
+    const { SceneRunner } = await import(pathToFileURL(path.join(ROOT, 'src/js/scenes/runner.js')).href);
+    // a clock turned by hand
+    let clock = 1000, gap = 12, next = 1; const queue = new Map();
+    const opts = { raf: f => { queue.set(next, f); return next++; }, caf: id => queue.delete(id), now: () => clock, gap: () => gap };
+    const turn = ms => { clock += ms; const fs = [...queue.values()]; queue.clear(); fs.forEach(f => f()); };
+    let rect = { left: 10, top: 20, width: 300, height: 200 };
+    const cv = window.document.createElement('canvas'); cv.getBoundingClientRect = () => rect;
+    const calls = [], of = k => calls.filter(c => c[0] === k);
+    const scene = (id, extra = {}) => ({ id, start (host) {
+      calls.push(['start', host.w, host.h, host.dpr, typeof host.kit?.fbm, host.ctx === cv.getContext('2d') || !!host.ctx]);
+      return { frame: (dt, t) => { calls.push(['frame', dt, t]); extra.frame?.(); }, resize: (w, h, d) => calls.push(['resize', w, h, d]),
+        pointer: (k, x, y) => calls.push(['pointer', k, x, y]), beat: l => calls.push(['beat', l]), rest: on => calls.push(['rest', on]), stop: () => calls.push(['stop', id]) };
+    } });
+    const r = new SceneRunner(cv, opts);
+    if (!r.run(scene('one'))) throw new Error('the test scene did not start');
+    const st = of('start')[0];
+    if (st[1] !== 300 || st[2] !== 200 || st[3] !== 1 || st[4] !== 'function') throw new Error('start was given ' + JSON.stringify(st));
+    if (cv.width !== 300 || cv.height !== 200) throw new Error(`the canvas is ${cv.width} x ${cv.height}`);
+    turn(16); turn(16); turn(5); turn(10);
+    const f = of('frame');
+    if (f.length !== 3) throw new Error(`${f.length} frames where the gap allows 3: ` + JSON.stringify(f));
+    if (Math.abs(f[0][1] - 1 / 60) > 1e-9 || Math.abs(f[1][1] - 0.016) > 1e-9 || Math.abs(f[2][1] - 0.015) > 1e-9) throw new Error('the steps are ' + f.map(x => x[1]));
+    if (f[2][2] !== clock / 1000) throw new Error('the clock given is ' + f[2][2]);
+    turn(500);
+    if (of('frame').at(-1)[1] !== 0.05) throw new Error('a stall was not capped: ' + of('frame').at(-1)[1]);
+    gap = 31; const n0 = of('frame').length; turn(20); turn(20);
+    if (of('frame').length !== n0 + 1) throw new Error('with the battery saver the frames were not kept to one in 31 ms');
+    gap = 12;
+    r.rest(true); const n1 = of('frame').length; turn(100); turn(100);
+    if (of('frame').length !== n1 || of('rest').at(-1)?.[1] !== true) throw new Error('resting, it went on drawing, or the scene was not told');
+    r.rest(false); turn(16);
+    if (of('rest').at(-1)?.[1] !== false || Math.abs(of('frame').at(-1)[1] - 1 / 60) > 1e-9) throw new Error('after a rest the first step was ' + of('frame').at(-1)[1]);
+    r.pointer('down', 110, 70); r.beat(1.7); r.beat('x');
+    if (JSON.stringify(of('pointer')[0]) !== '["pointer","down",100,50]') throw new Error('the pointer was given as ' + JSON.stringify(of('pointer')[0]));
+    if (of('beat').map(b => b[1]).join() !== '1,0') throw new Error('the beat was given as ' + of('beat').map(b => b[1]));
+    rect = { left: 10, top: 20, width: 400, height: 300 }; r.resize(); r.resize();
+    if (of('resize').length !== 1 || JSON.stringify(of('resize')[0]) !== '["resize",400,300,1]' || cv.width !== 400) throw new Error('resize: ' + JSON.stringify(of('resize')));
+    const c1 = r.cost(); if (!(c1.frames >= 6) || c1.errors || !(c1.msPerFrame >= 0)) throw new Error('cost: ' + JSON.stringify(c1));
+    // a second scene puts the first away
+    let k = 0;
+    r.run(scene('two', { frame: () => { if (++k === 3) throw new Error('the test scene breaks on purpose'); } }));
+    if (!of('stop').some(s => s[1] === 'one')) throw new Error('the first scene was not put away');
+    const warn = console.warn; console.warn = () => {};
+    try { for (let i = 0; i < 6; i++) turn(16); } finally { console.warn = warn; }
+    if (k !== 3 || !of('stop').some(s => s[1] === 'two') || r.cost().errors !== 1 || r.running) throw new Error(`a scene that throws was not stopped: ${k} frames, ${JSON.stringify(r.cost())}`);
+    console.warn = () => {};
+    try { if (r.run({ id: 'bad', start () { throw new Error('on purpose'); } }) !== false || r.running) throw new Error('a scene that fails to start was not refused'); } finally { console.warn = warn; }
+    r.run(scene('three')); r.destroy(); turn(16); turn(16);
+    if (!of('stop').some(s => s[1] === 'three') || queue.size) throw new Error('put away, the runner kept a frame waiting');
+  });
+
+  await step('every theme background runs under the scene runner, through its adapter', async () => {
+    const { SceneRunner } = await import(pathToFileURL(path.join(ROOT, 'src/js/scenes/runner.js')).href);
+    const { themeScene, SCENE_THEMES } = await import(pathToFileURL(path.join(ROOT, 'src/js/theme-scenes.js')).href);
+    if (themeScene('dark') !== null) throw new Error('a theme without a scene got one');
+    let clock = 0; const queue = []; const opts = { raf: f => queue.push(f), caf: () => {}, now: () => clock, gap: () => 12 };
+    const cv = window.document.createElement('canvas'); cv.getBoundingClientRect = () => ({ left: 0, top: 0, width: 640, height: 360 });
+    for (const name of SCENE_THEMES) {
+      const def = themeScene(name); if (!def || def.maxDpr !== 1) throw new Error(name + ': no adapter, or not at one pixel to a CSS pixel');
+      const r = new SceneRunner(cv, opts);
+      if (!r.run(def)) throw new Error(name + ' did not start');
+      for (let i = 0; i < 20; i++) { clock += 16; queue.splice(0).forEach(f => f()); }
+      const c = r.cost(); r.destroy();
+      if (c.errors || c.frames < 19) throw new Error(`${name}: ${JSON.stringify(c)}`);
+    }
+  });
+
+  /* ── v3.47.0: what a feature adds from its own file (app/registry.js) ── */
+  await step('a feature adds a menu action, a key and a setting from its own file', async () => {
+    const R = await import(pathToFileURL(path.join(ROOT, 'src/js/app/registry.js')).href);
+    const doc = window.document, ran = [];
+    // a menu action, put in the Tools menu before Preferences, run by a click and by handleAction
+    R.defineAction('smoke-feature', a => ran.push(['action', a === app]), { menu: 'Tools', label: 'Smoke feature…', before: 'preferences' });
+    R.placeActions(doc);
+    const row = doc.querySelector('.mr[data-a="smoke-feature"]');
+    if (!row) throw new Error('the menu row was not added');
+    if (row.nextElementSibling?.dataset?.a !== 'preferences') throw new Error('the menu row is not before Preferences');
+    row.addEventListener('click', () => app.handleAction(row.dataset.a));
+    row.click(); app.handleAction('smoke-feature');
+    if (ran.filter(r => r[0] === 'action' && r[1]).length !== 2) throw new Error('the action did not run for the click and handleAction: ' + JSON.stringify(ran));
+    let twice = false; try { R.defineAction('smoke-feature', () => {}); } catch (_) { twice = true; }
+    if (!twice) throw new Error('an action defined twice was not refused');
+    // a key the player has no use for runs it; a key the player uses stays the player's
+    R.defineShortcut({ code: 'F9', ctrl: true, label: 'Smoke feature', group: 'Smoke', run: () => ran.push(['key']) });
+    let k = new window.KeyboardEvent('keydown', { code: 'F9', key: 'F9', ctrlKey: true, bubbles: true, cancelable: true });
+    doc.body.dispatchEvent(k);
+    if (!ran.some(r => r[0] === 'key')) throw new Error('the feature\'s key did not run');
+    if (!k.defaultPrevented) throw new Error('the feature\'s key was not marked as handled');
+    R.defineShortcut({ code: 'KeyS', label: 'Never', run: () => ran.push(['stolen']) });
+    doc.body.dispatchEvent(new window.KeyboardEvent('keydown', { code: 'KeyS', key: 's', bubbles: true, cancelable: true }));
+    if (ran.some(r => r[0] === 'stolen')) throw new Error('a feature took S, a key the player uses (stop)');
+    app.toggleShortcuts(true);
+    const sec = [...doc.querySelectorAll('#kb-overlay .kb-group[data-features]')].find(g => g.querySelector('h3')?.textContent === 'Smoke');
+    if (!sec || !/Ctrl/.test(sec.textContent) || !/F9/.test(sec.textContent) || !/Smoke feature/.test(sec.textContent)) throw new Error('the shortcuts list does not show the feature\'s key');
+    app.toggleShortcuts(true);
+    const smokeGroups = [...doc.querySelectorAll('#kb-overlay .kb-group[data-features]')].filter(g => g.querySelector('h3')?.textContent === 'Smoke');
+    if (smokeGroups.length !== 1) throw new Error('opening the list again drew the feature\'s group ' + smokeGroups.length + ' times');
+    app.toggleShortcuts(false);
+    // a setting: hidden until there is one, then drawn in Preferences, kept, and applied
+    const box = doc.getElementById('set-features');
+    if (!box) throw new Error('#set-features is missing from Preferences');
+    let applied = null;
+    R.defineSetting({ id: 'smoke.calm', label: 'Calm smoke', type: 'toggle', default: false, onChange: v => { applied = v; } });
+    R.defineSetting({ id: 'smoke.level', label: 'Smoke level', type: 'range', default: 3, min: 1, max: 9, unit: ' x' });
+    app._syncSettingsPanel();
+    if (box.hidden) throw new Error('the Features section stayed hidden with settings in it');
+    const cb = doc.getElementById('set-f-smoke-calm'), rg = doc.getElementById('set-f-smoke-level');
+    if (!cb || !rg) throw new Error('the settings were not drawn');
+    if (cb.checked || rg.value !== '3') throw new Error('the settings do not start at their defaults');
+    cb.checked = true; cb.dispatchEvent(new window.Event('change'));
+    if (applied !== true || R.settingValue('smoke.calm') !== true) throw new Error('the toggle was not kept and applied');
+    const saved = JSON.parse(window.localStorage.getItem('bm_settings_v1') || '{}');
+    if (saved?.features?.smoke?.calm !== true) throw new Error('the setting was not saved with the others');
   });
 
   await step('no test navigated to a destination that does not exist', () => {

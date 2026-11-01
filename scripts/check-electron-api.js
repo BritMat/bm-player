@@ -32,7 +32,7 @@ const declared = (pkg.devDependencies && pkg.devDependencies.electron) || '?';
 
 /* Modules destructured from require('electron'), and the members used on
  * each. Built by scanning main.js and preload.js rather than hardcoding. */
-const sources = ['main.js', 'preload.js']
+const sources = ['main.js', 'preload.js', ...(fs.existsSync(path.join(ROOT, 'main')) ? fs.readdirSync(path.join(ROOT, 'main')).filter(f => f.endsWith('.js')).sort().map(f => path.join('main', f)) : [])]
   .map(f => ({ f, t: fs.readFileSync(path.join(ROOT, f), 'utf8') }));
 
 const strip = s => s.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/(^|[^:])\/\/[^\n]*/g, '$1 ');

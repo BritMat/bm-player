@@ -76,6 +76,17 @@ function wav(file, seconds, hz) {
   h.writeUInt32LE(rate * 2, 28); h.writeUInt16LE(2, 32); h.writeUInt16LE(16, 34); h.write('data', 36); h.writeUInt32LE(d.length, 40);
   fs.writeFileSync(file, Buffer.concat([h, d]));
 }
+// Two channels (v3.47.0): a tone on the left, nothing on the right, so which
+// ear hears what can be measured.
+function wavLeft(file, seconds, hz) {
+  const rate = 22050, n = Math.floor(rate * seconds), d = Buffer.alloc(n * 4);
+  for (let i = 0; i < n; i++) d.writeInt16LE(Math.round(3000 * Math.sin(2 * Math.PI * hz * i / rate)), i * 4);
+  const h = Buffer.alloc(44);
+  h.write('RIFF', 0); h.writeUInt32LE(36 + d.length, 4); h.write('WAVE', 8); h.write('fmt ', 12);
+  h.writeUInt32LE(16, 16); h.writeUInt16LE(1, 20); h.writeUInt16LE(2, 22); h.writeUInt32LE(rate, 24);
+  h.writeUInt32LE(rate * 4, 28); h.writeUInt16LE(4, 32); h.writeUInt16LE(16, 34); h.write('data', 36); h.writeUInt32LE(d.length, 40);
+  fs.writeFileSync(file, Buffer.concat([h, d]));
+}
 const TONE = path.join(FIX, 'tone & one.wav');          // hostile name on purpose
 // 30 seconds: at 3 it could end partway through part B on a slow run, and the
 // visualiser step then found no music to show.
@@ -103,6 +114,25 @@ function writePng(file, w, h, px) {
   const chunk = (t, d) => { const l = Buffer.alloc(4); l.writeUInt32BE(d.length); const td = Buffer.concat([Buffer.from(t), d]); const c = Buffer.alloc(4); c.writeUInt32BE(crc(td)); return Buffer.concat([l, td, c]); };
   const ih = Buffer.alloc(13); ih.writeUInt32BE(w, 0); ih.writeUInt32BE(h, 4); ih[8] = 8; ih[9] = 2;
   fs.writeFileSync(file, Buffer.concat([Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]), chunk('IHDR', ih), chunk('IDAT', zlib.deflateSync(raw, { level: 1 })), chunk('IEND', Buffer.alloc(0))]));
+}
+// A plain PDF writer (v3.47.0): one line of text a page, in Helvetica, which
+// every PDF reader has without the font in the file.
+function writePdf(file, texts) {
+  const objs = [], n = texts.length, font = 3 + 2 * n;
+  objs.push('<< /Type /Catalog /Pages 2 0 R >>');
+  objs.push(`<< /Type /Pages /Kids [${texts.map((_, i) => `${3 + 2 * i} 0 R`).join(' ')}] /Count ${n} >>`);
+  texts.forEach((t, i) => {
+    const body = `BT /F1 28 Tf 40 90 Td (${t.replace(/[\\()]/g, '\\$&')}) Tj ET`;
+    objs.push(`<< /Type /Page /Parent 2 0 R /MediaBox [0 0 300 200] /Contents ${4 + 2 * i} 0 R /Resources << /Font << /F1 ${font} 0 R >> >> >>`);
+    objs.push(`<< /Length ${body.length} >>\nstream\n${body}\nendstream`);
+  });
+  objs.push('<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>');
+  let out = '%PDF-1.4\n';
+  const at = objs.map((o, i) => { const off = out.length; out += `${i + 1} 0 obj\n${o}\nendobj\n`; return off; });
+  const xref = out.length;
+  out += `xref\n0 ${objs.length + 1}\n0000000000 65535 f \n` + at.map(o => String(o).padStart(10, '0') + ' 00000 n \n').join('');
+  out += `trailer\n<< /Size ${objs.length + 1} /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF\n`;
+  fs.writeFileSync(file, out, 'latin1');
 }
 let VIDEO = null;
 try {
@@ -146,6 +176,7 @@ const app = await _electron.launch({
 // mpv ending by itself is written to the main process's log (v3.46.0): shown
 // at the end, as a crash nobody asked for is news even when every check passed.
 const mpvEnded = [];
+let endedOnPurpose = 0;   // the times this check stops mpv itself (part D)
 app.process().stderr?.on('data', d => { for (const l of String(d).split('\n')) if (/mpv ended by itself/.test(l)) mpvEnded.push(l.replace(/^\[[^\]]+\]\s*/, '')); });
 let page;
 for (let i = 0; i < 400 && !page; i++) {
@@ -223,6 +254,24 @@ if (PART === 'a') {
     if (failed) throw new Error(failed.text);
   });
 
+  // v3.47.0: the parts most starts never open are not loaded at start: the
+  // Gallery, the PDF tools and their two libraries, TV, the fox's voice, Flow
+  // and Fruit. The scripts V8 has parsed are asked of the page's debugger
+  // (Chromium's resource timings leave out file:// modules).
+  await step('the Gallery, PDF tools, TV and the games wait until they are used', async () => {
+    const r = await page.evaluate(() => ({ gallery: !!window.bmGallery, pdf: !!window.bmPDF, tv: !!bmApp.tvModule, voice: !!bmApp.foxVoice,
+      reader: !!window.pdfjsLib, editor: !!window.PDFLib }));
+    const cdp = await page.context().newCDPSession(page), parsed = new Set();
+    cdp.on('Debugger.scriptParsed', e => { if (e.url) parsed.add(e.url.replace(/^.*\/src\//, '')); });
+    await cdp.send('Debugger.enable'); await page.waitForTimeout(300);
+    await cdp.send('Debugger.disable'); await cdp.detach();
+    r.scripts = parsed.size;
+    r.early = [...parsed].filter(n => /dash\/(gallery|pdf)\.js|modules\/tv\.js|play\/(fox-voice|flow-toy|slice-game)\.js|pdf(-lib)?\.min\.js/.test(n));
+    if (r.scripts < 20) throw new Error('the debugger listed only ' + r.scripts + ' scripts: this check cannot see what loaded');
+    if (r.gallery || r.pdf || r.tv || r.voice || r.reader || r.editor || r.early.length) throw new Error(JSON.stringify(r));
+    console.log(`      (${r.scripts} scripts at start, none of them those)`);
+  });
+
   await step('welcome content starts below the menubar and fits', async () => {
     const g = await page.evaluate(() => {
       const wc = document.querySelector('.welcome-center').getBoundingClientRect();
@@ -287,6 +336,42 @@ if (PART === 'a') {
       await shot('tab-' + dest);
     });
   }
+
+  // The PDF tools (v3.47.0). They and the two PDF libraries load the first
+  // time they are used, so the whole round is done here in real Electron: a
+  // PDF read with pdf.js and its worker, a page turned and one taken out, the
+  // result written with pdf-lib, and read back. The save dialog answers by
+  // itself (its handler is replaced in the main process for this check).
+  await step('the PDF tools load when used: a PDF is read, edited, saved and read back', async () => {
+    const src = path.join(FIX, 'three pages.pdf'), out = path.join(FIX, 'three pages, edited.pdf');
+    writePdf(src, ['One', 'Two', 'Three']);
+    await app.evaluate(({ ipcMain }, file) => { ipcMain.removeHandler('dialog:savePDF'); ipcMain.handle('dialog:savePDF', () => file); }, out);
+    const r = await page.evaluate(async ({ src, out }) => {
+      const wait = async (f, ms = 10000) => { const t0 = performance.now(); while (!f() && performance.now() - t0 < ms) await new Promise(z => setTimeout(z, 50)); return f(); };
+      const before = { reader: !!window.pdfjsLib, editor: !!window.PDFLib };
+      bmApp.switchDest('pdf');
+      const v = await bmApp.part('pdf');
+      await v.load(src);
+      await wait(() => v.pdfDoc && document.getElementById('pdf-total')?.textContent === '3');
+      const read = { pages: v.pdfDoc?.numPages, shown: document.getElementById('pdf-total')?.textContent,
+        worker: window.pdfjsLib?.GlobalWorkerOptions?.workerSrc, editor: !!window.PDFLib };
+      v.pageNum = 1; v._rotate(90); v.pageNum = 2; v._deletePage();
+      await v._saveAs();
+      const saved = { editor: !!window.PDFLib, name: document.getElementById('pdf-filename')?.textContent };
+      await v.load(out);
+      await wait(() => v.pdfDoc && document.getElementById('pdf-total')?.textContent === '2');
+      const p1 = await v.pdfDoc?.getPage(1), p2 = await v.pdfDoc?.getPage(2);
+      const text = async p => (await p?.getTextContent())?.items?.map(i => i.str).join(' ').trim();
+      return { before, read, saved, back: { pages: v.pdfDoc?.numPages, turned: p1?.rotate, first: await text(p1), second: await text(p2) } };
+    }, { src, out });
+    if (r.before.reader || r.before.editor) throw new Error('a PDF library was loaded before any PDF was opened: ' + JSON.stringify(r.before));
+    if (r.read.pages !== 3 || r.read.shown !== '3') throw new Error('the PDF was not read: ' + JSON.stringify(r.read));
+    if (r.read.worker !== 'vendor/pdf.worker.min.js') throw new Error('pdf.js has no worker set: ' + r.read.worker);
+    if (r.read.editor) throw new Error('pdf-lib loaded just for reading a PDF');
+    if (!r.saved.editor || !fs.existsSync(out)) throw new Error('the PDF was not saved: ' + JSON.stringify(r.saved));
+    if (r.back.pages !== 2 || r.back.turned !== 90 || r.back.first !== 'One' || r.back.second !== 'Three') throw new Error('the saved PDF is not the edited one: ' + JSON.stringify(r.back));
+    console.log(`      (read 3 pages, turned the first, took out the second, saved and read back: ${JSON.stringify(r.back)})`);
+  });
 
   await step('every theme in the picker changes the chrome, not just a token', async () => {
     const themes = await page.evaluate(() => [...document.querySelectorAll('[data-theme].tp, .theme-pill[data-theme]')].map(b => b.dataset.theme));
@@ -613,6 +698,65 @@ if (PART === 'a') {
     if (!r.hat) throw new Error('the Santa hat is not drawn (from the 3D fox\'s geometry)');
     if (!r.canvasGone) throw new Error('the old fox canvas is still in the page');
     console.log(`      (${r.facets} facets, the 3D fox's mesh, blinking, not floating)`);
+  });
+
+  // Last in part A: it plays a song, and the checks before it want an app
+  // with nothing loaded.
+  // The sound chain in real Web Audio (v3.47.0, sound-chain.js). The other
+  // checks of it use a stand-in for Web Audio; this one measures the sound
+  // itself, after the effects, as the speakers get it, ear by ear. The song
+  // is a tone on the left and nothing on the right.
+  await step('the engine\'s effects change the sound as they should, and with all off it is as it was', async () => {
+    const song = path.join(FIX, 'left only.wav'); wavLeft(song, 20, 330);
+    const r = await page.evaluate(async f => {
+      bmApp.switchDest('music'); bmMusic.play(f, 0);
+      const eng = bmMusic.engine;
+      for (let i = 0; i < 40 && !(eng.ctx && eng.currentTime > 0.3); i++) await new Promise(z => setTimeout(z, 100));
+      if (!eng.ctx || !eng.chain) return { why: 'the engine did not play' };
+      const c = eng.ctx, both = c.createGain();
+      both.channelCount = 2; both.channelCountMode = 'explicit'; both.channelInterpretation = 'speakers';
+      const split = c.createChannelSplitter(2), ears = [0, 1].map(i => { const a = c.createAnalyser(); a.fftSize = 2048; split.connect(a, i); return a; });
+      eng.gain.connect(both); both.connect(split);
+      const buf = new Float32Array(2048);
+      const level = async () => {
+        await new Promise(z => setTimeout(z, 350));
+        const sum = [0, 0];
+        for (let k = 0; k < 6; k++) { ears.forEach((a, i) => { a.getFloatTimeDomainData(buf); let s = 0; for (const v of buf) s += v * v; sum[i] += Math.sqrt(s / buf.length); }); await new Promise(z => setTimeout(z, 40)); }
+        return sum.map(x => +(x / 6).toFixed(4));
+      };
+      const off = { eq: new Array(10).fill(0), channels: 'stereo', night: false, boost: 1 };
+      const out = {};
+      eng.setVolume(100); eng.setMuted(false);
+      eng.setSound(off); out.off = await level();
+      for (const ch of ['swap', 'left', 'right', 'mono']) { eng.setSound({ ...off, channels: ch }); out[ch] = await level(); }
+      eng.setSound({ ...off, eq: [0, 0, 0, 12, 12, 0, 0, 0, 0, 0] }); out.eq = await level();
+      eng.setSound({ ...off, boost: 2 }); out.boost = await level();
+      eng.setSound({ ...off, night: true }); out.night = await level();
+      eng.setSound(off); await new Promise(z => setTimeout(z, 300)); out.again = await level(); out.live = eng.chain.live.join(',');
+      eng.gain.disconnect(both);
+      bmApp._applyEQ();
+      return out;
+    }, song);
+    // back to how the checks after this one expect the app: nothing playing, the home screen
+    await page.evaluate(() => { bmApp.stop(); bmMusic.engine?.stop?.(); bmApp.switchDest('video'); });
+    await page.waitForTimeout(400);
+    if (r.why) throw new Error(r.why);
+    const [L, R] = r.off, near = (a, b, tol = 0.12) => Math.abs(a - b) <= tol * Math.max(a, b, 1e-6), quiet = x => x < L * 0.05;
+    if (!(L > 0.01) || !quiet(R)) throw new Error('with every effect off the tone is not on the left only: ' + JSON.stringify(r.off));
+    if (!quiet(r.swap[0]) || !near(r.swap[1], L)) throw new Error('swapped, the tone did not move to the right: ' + JSON.stringify(r.swap));
+    if (!near(r.left[0], L) || !near(r.left[1], L)) throw new Error('left only did not give the left to both ears: ' + JSON.stringify(r.left));
+    if (!quiet(r.right[0]) || !quiet(r.right[1])) throw new Error('right only (silent here) was not silent: ' + JSON.stringify(r.right));
+    if (!near(r.mono[0], L / 2) || !near(r.mono[1], L / 2)) throw new Error('mono is not half in each ear: ' + JSON.stringify(r.mono));
+    if (!(r.eq[0] > L * 2.5)) throw new Error('the equalizer at +12 around the tone did not lift it: ' + JSON.stringify(r.eq));
+    // A 200% boost is a little over double here: the limiter after it is a
+    // Web Audio compressor, which adds a make-up gain of its own (about
+    // +0.9 dB at its settings). Night mode lifts a quiet tone a long way for
+    // the same reason. Both are as 3.46.0 had them; mpv's forms have no
+    // automatic make-up, and Sound lab (3.49) evens the two out.
+    if (!(r.boost[0] > L * 1.9 && r.boost[0] < L * 2.4)) throw new Error('a 200% boost did not double the sound: ' + JSON.stringify(r.boost));
+    if (!(r.night[0] > L * 1.5) || !(r.night[0] < 0.65)) throw new Error('night mode did not lift the quiet tone, or it went past the limiter: ' + JSON.stringify(r.night));
+    if (!near(r.again[0], L, 0.06) || !quiet(r.again[1]) || r.live !== '') throw new Error('with all off again the sound is not as it was: ' + JSON.stringify({ again: r.again, live: r.live }));
+    console.log(`      (left ear: off ${L}, equalizer ${r.eq[0]}, boost ${r.boost[0]}, night ${r.night[0]}, all off again ${r.again[0]})`);
   });
 }
 
@@ -1095,7 +1239,7 @@ if (PART === 'c') {
         out.react = a.fox.kind === 'svg' ? (/gf-(bob|blink)/.test(a.fox.svg?.getAttribute('class') || '') ? 'boop' : null) : (a.fox._state?.react?.name || null);
       }
       if (out.gpu) {
-        a.setPlayMode('flow');
+        await a.setPlayMode('flow');   // Flow loads the first time it is chosen (v3.47.0)
         out.toy = !!a.flowToy?.on;
         const s0 = a.auroraFX.splats || 0, sf = document.getElementById('flow-surface'), r = sf.getBoundingClientRect();
         const pe = (t, i) => sf.dispatchEvent(new PointerEvent(t, { bubbles: true, clientX: r.left + 100 + i * 15, clientY: r.top + 120 + i * 9, pointerId: 9, pointerType: 'mouse', button: 0, buttons: t === 'pointerup' ? 0 : 1 }));
@@ -1103,7 +1247,7 @@ if (PART === 'c') {
         out.splats = (a.auroraFX.splats || 0) - s0;
         document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
         out.back = a._playMode;
-        a.setPlayMode('fruit');
+        await a.setPlayMode('fruit');
         await new Promise(r => setTimeout(r, 300));
         out.menu = !!document.querySelector('#slice-ui:not(.hidden) .sg-btn[data-a="classic"]');
         document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
@@ -1512,7 +1656,7 @@ if (PART === 'c') {
     const big = path.join(FIX, 'big photo.png');
     writePng(big, 2400, 1600, (x, y) => [(x >> 3) & 255, (y >> 3) & 255, 120]);
     const r = await page.evaluate(async p => {
-      const g = window.bmGallery, im = document.createElement('img');
+      const g = await window.bmApp.part('gallery'), im = document.createElement('img');   // set up when its tab first opens (v3.47.0)
       g._thumbInto(im, p);
       for (let i = 0; i < 80 && im.classList.contains('g-wait'); i++) await new Promise(z => setTimeout(z, 100));
       if (!im.complete) await new Promise(z => { im.onload = z; im.onerror = z; });
@@ -1558,6 +1702,44 @@ if (PART === 'c') {
 
   // The title bar (v3.33.0): no stacked-layers symbol, and the name in the
   // middle of the window.
+  // The scene kit (v3.47.0): each theme background drawn through the scene
+  // runner and its adapter is the same picture as drawn the way ThemeFX
+  // draws it, pixel for pixel. The two are given the same random numbers (a
+  // seeded Math.random for the moment of each) and the same clock.
+  await step('the scene runner draws each theme background exactly as ThemeFX does', async () => {
+    const r = await page.evaluate(async () => {
+      const { SceneRunner } = await import('./js/scenes/runner.js');
+      const { createScene, themeScene, SCENE_THEMES } = await import('./js/theme-scenes.js');
+      const { perf } = await import('./js/perf.js');
+      const real = Math.random, W = 480, H = 270, out = {};
+      const seed = () => { let s = 12345; Math.random = () => { s ^= s << 13; s >>>= 0; s ^= s >>> 17; s ^= s << 5; s >>>= 0; return s / 4294967296; }; };
+      const mk = () => { const c = document.createElement('canvas'); c.width = W; c.height = H; c.style.cssText = `position:fixed;left:0;top:0;width:${W}px;height:${H}px;visibility:hidden`; document.body.append(c); return c; };
+      try {
+        for (const name of SCENE_THEMES) {
+          // as ThemeFX draws it: _drawScene, at 5 s, a first step of 1/60
+          const a = mk(), ga = a.getContext('2d');
+          seed(); const sc = createScene(name, W, H, perf.tier);
+          for (let i = 0; i < 3; i++) { ga.clearRect(0, 0, W, H); sc.frame(ga, W, H, i ? 0.016 : 1 / 60, 5 + i * 0.016); }
+          // through the runner, its clock turned to the same moments
+          const b = mk(); let clock = 5000; const q = [];
+          seed();
+          const run = new SceneRunner(b, { raf: f => q.push(f), caf: () => {}, now: () => clock, gap: () => 12 });
+          run.run(themeScene(name));
+          for (let i = 0; i < 3; i++) { q.splice(0).forEach(f => f()); clock += 16; }
+          const pa = ga.getImageData(0, 0, W, H).data, pb = b.getContext('2d').getImageData(0, 0, W, H).data;
+          let diff = 0, lit = 0;
+          for (let i = 0; i < pa.length; i++) { if (pa[i] !== pb[i]) diff++; if (i % 4 === 3 && pa[i] > 8) lit++; }
+          out[name] = { diff, lit: +(lit / (W * H)).toFixed(3), size: [b.width, b.height], frames: run.cost().frames };
+          run.destroy(); a.remove(); b.remove();
+        }
+      } finally { Math.random = real; }
+      return out;
+    });
+    const bad = Object.entries(r).filter(([, v]) => v.diff || v.frames !== 3 || v.size[0] !== 480 || v.size[1] !== 270 || !(v.lit > 0));
+    if (Object.keys(r).length < 10 || bad.length) throw new Error(JSON.stringify(bad.length ? Object.fromEntries(bad) : r));
+    console.log(`      (${Object.keys(r).length} backgrounds, the same to the pixel; parts lit: ${Object.entries(r).map(([k, v]) => k + ' ' + v.lit).join(', ')})`);
+  });
+
   await step('the title bar has the name in the middle, and no stacked symbol', async () => {
     const r = await page.evaluate(() => {
       const b = document.querySelector('.tb-brand')?.getBoundingClientRect();
@@ -1854,6 +2036,7 @@ if (PART === 'd') {
       if (!pid) throw new Error('mpv did not give its process id');
       await page.evaluate(() => { window.__osd.length = 0; window.__mpvStatus.length = 0; });
       process.kill(pid, 'SIGKILL');
+      endedOnPurpose++;
       let now = null, p = null, t = 0;
       for (let k = 0; k < 60; k++) {
         await page.waitForTimeout(250);
@@ -2055,6 +2238,13 @@ if (PART === 'd') {
 }
 
 const bad = results.filter(r => !r).length;
-if (mpvEnded.length) console.log(`\n  mpv ended by itself ${mpvEnded.length} time(s):\n` + mpvEnded.map(l => '    ' + l).join('\n'));
+// The app logs every end of mpv it did not ask for, the one this check
+// makes on purpose too (part D stops it in a film). That one is said as such
+// (v3.47.0): in the 3.46.0 results it read like a crash.
+if (mpvEnded.length) {
+  const own = Math.min(endedOnPurpose, mpvEnded.length), other = mpvEnded.length - own;
+  console.log(`\n  mpv ended ${mpvEnded.length} time(s) without the app asking:` + (own ? ` ${own} of them this check stopping it on purpose, to see the film carry on` : '') +
+    (other ? `, and ${other} by itself` : '') + '\n' + mpvEnded.map(l => '    ' + l).join('\n'));
+}
 console.log(`\n${results.length - bad}/${results.length} checks passed. Screenshots in ${SHOTS}\n`);
 process.exit(bad ? 1 : 0);

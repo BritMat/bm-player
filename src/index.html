@@ -43,6 +43,75 @@
       }catch(_){ window.__BM_LITE__ = false; }
     })();
   </script>
+  <!-- v3.47.0: app.js and every module it loads at start, named here so the browser
+       fetches them all at once rather than one level of imports at a time
+       (app.js, then app/effects.js, then play/fox-play.js...). A contract
+       check keeps this list the same as what app.js loads: run
+       npm run lint:contracts after moving code. Parts loaded on first use
+       (lazy.js) are not here, on purpose. -->
+  <link rel="modulepreload" href="js/fluid.js">
+  <link rel="modulepreload" href="js/visualizer.js">
+  <link rel="modulepreload" href="js/dash/music.js">
+  <link rel="modulepreload" href="js/viz-art.js">
+  <link rel="modulepreload" href="js/fox3d.js">
+  <link rel="modulepreload" href="js/theme-scenes.js">
+  <link rel="modulepreload" href="js/theme-fx.js">
+  <link rel="modulepreload" href="js/modules/lyrics.js">
+  <link rel="modulepreload" href="js/translit.js">
+  <link rel="modulepreload" href="js/app.js">
+  <link rel="modulepreload" href="js/app/effects.js">
+  <link rel="modulepreload" href="js/app/chrome.js">
+  <link rel="modulepreload" href="js/icons.js">
+  <link rel="modulepreload" href="js/app/panels.js">
+  <link rel="modulepreload" href="js/fox3d-mesh.js">
+  <link rel="modulepreload" href="js/audio-engine.js">
+  <link rel="modulepreload" href="js/geofox.js">
+  <link rel="modulepreload" href="js/app/library.js">
+  <link rel="modulepreload" href="js/sub-style.js">
+  <link rel="modulepreload" href="js/md-browser.js">
+  <link rel="modulepreload" href="js/app/preferences.js">
+  <link rel="modulepreload" href="js/app/nowplaying.js">
+  <link rel="modulepreload" href="js/sound-chain.js">
+  <link rel="modulepreload" href="js/plugins.js">
+  <link rel="modulepreload" href="js/app/mpv-events.js">
+  <link rel="modulepreload" href="js/diagnostics.js">
+  <link rel="modulepreload" href="js/play/fox-play.js">
+  <link rel="modulepreload" href="js/viz-beat.js">
+  <link rel="modulepreload" href="js/app/tv-tab.js">
+  <link rel="modulepreload" href="js/neon-gl.js">
+  <link rel="modulepreload" href="js/app/keyboard.js">
+  <link rel="modulepreload" href="js/app/theme-customizer.js">
+  <link rel="modulepreload" href="js/play/sfx.js">
+  <link rel="modulepreload" href="js/modules/lite-mode.js">
+  <link rel="modulepreload" href="js/modules/video-transform.js">
+  <link rel="modulepreload" href="js/util.js">
+  <link rel="modulepreload" href="js/modules/picture.js">
+  <link rel="modulepreload" href="js/perf.js">
+  <link rel="modulepreload" href="js/favourites.js">
+  <link rel="modulepreload" href="js/modules/speed-menu.js">
+  <link rel="modulepreload" href="js/app/registry.js">
+  <link rel="modulepreload" href="js/modules/settings.js">
+  <link rel="modulepreload" href="js/modules/history.js">
+  <link rel="modulepreload" href="js/app/pip.js">
+  <link rel="modulepreload" href="js/scenes/kit.js">
+  <link rel="modulepreload" href="js/lite-video.js">
+  <link rel="modulepreload" href="js/viz-settings.js">
+  <link rel="modulepreload" href="js/modules/abrepeat.js">
+  <link rel="modulepreload" href="js/audio-shadow.js">
+  <link rel="modulepreload" href="js/power.js">
+  <link rel="modulepreload" href="js/modules/sound.js">
+  <link rel="modulepreload" href="js/modules/sleep-timer.js">
+  <link rel="modulepreload" href="js/modules/playlist-io.js">
+  <link rel="modulepreload" href="js/app/sleep.js">
+  <link rel="modulepreload" href="vendor/milkdrop/previews.js">
+  <link rel="modulepreload" href="js/flow-settings.js">
+  <link rel="modulepreload" href="js/modules/bookmarks.js">
+  <link rel="modulepreload" href="js/ctx-menu.js">
+  <link rel="modulepreload" href="js/app/parts.js">
+  <link rel="modulepreload" href="js/lazy.js">
+  <link rel="modulepreload" href="js/range-fill.js">
+  <link rel="modulepreload" href="js/app/mixin.js">
+  <link rel="modulepreload" href="js/app/eq-bands.js">
   <link rel="stylesheet" href="css/fonts.css">
   <link rel="stylesheet" href="css/style.css">
   <!-- Critical inline styles - MUST override external style.css -->
@@ -1212,6 +1281,8 @@
         <button class="pl-act-btn danger" id="settings-reset">Reset</button>
       </div>
     </div>
+    <!-- v3.47.0: settings features add for themselves (app/registry.js) -->
+    <div id="set-features" hidden></div>
   </div>
 </div>
 
@@ -1729,13 +1800,9 @@
 <!-- ══ RESUME PROMPT (toast with action button) ═════════════════ -->
 
 
-<!-- Scripts - Simple loading (matching v1.6.0 working approach) -->
-<!-- VENDORED: these were cdnjs <script> tags, so the fox and the whole PDF
-     tab were dead without an internet connection. three is now r158, which
-     has CapsuleGeometry natively (r128 did not — that was the crash). -->
-<script src="vendor/pdf.min.js"></script>
-<script>if(window.pdfjsLib) pdfjsLib.GlobalWorkerOptions.workerSrc='vendor/pdf.worker.min.js';</script>
-<script src="vendor/pdf-lib.min.js"></script>
+<!-- The page's code. The PDF libraries (vendor/pdf.min.js, pdf-lib.min.js,
+     845 KB) were tags here, read at every start. Since v3.47.0 dash/pdf.js
+     loads them the first time a PDF is opened or saved (lazy.js). -->
 <script type="module" src="js/app.js"></script>
 
 

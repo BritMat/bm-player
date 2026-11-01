@@ -46,16 +46,16 @@ final class Bridge {
 
     /** 'granted', 'ask' or 'denied' (refused for good: only the app's settings can change it). */
     @JavascriptInterface
-    public String permission(String kind) { return a.permissionState(kind); }
+    public String permission(String kind) { return a.access.permissionState(kind); }
 
     @JavascriptInterface
     public void requestPermission(final String kind) {
-        onUi(new Runnable() { public void run() { a.askPermission(kind); } });
+        onUi(new Runnable() { public void run() { a.access.askPermission(kind); } });
     }
 
     @JavascriptInterface
     public void openAppSettings() {
-        onUi(new Runnable() { public void run() { a.openAppSettings(); } });
+        onUi(new Runnable() { public void run() { a.access.openAppSettings(); } });
     }
 
     /** What is playing, for the notification, the lock screen and headphone buttons: JSON. */
@@ -66,27 +66,27 @@ final class Bridge {
 
     @JavascriptInterface
     public void orientation(final String mode) {
-        onUi(new Runnable() { public void run() { a.orientation(mode); } });
+        onUi(new Runnable() { public void run() { a.screen.orientation(mode); } });
     }
 
     @JavascriptInterface
     public void immersive(final boolean on) {
-        onUi(new Runnable() { public void run() { a.immersive(on); } });
+        onUi(new Runnable() { public void run() { a.screen.immersive(on); } });
     }
 
     @JavascriptInterface
     public void keepScreenOn(final boolean on) {
-        onUi(new Runnable() { public void run() { a.keepScreenOn(on); } });
+        onUi(new Runnable() { public void run() { a.screen.keepScreenOn(on); } });
     }
 
     @JavascriptInterface
     public void bars(final String color, final boolean light) {
-        onUi(new Runnable() { public void run() { a.bars(color, light); } });
+        onUi(new Runnable() { public void run() { a.screen.bars(color, light); } });
     }
 
     @JavascriptInterface
     public void brightness(final float v) {
-        onUi(new Runnable() { public void run() { a.brightness(v); } });
+        onUi(new Runnable() { public void run() { a.screen.brightness(v); } });
     }
 
     /** On battery (true) or charging, for the battery saver. Changes come as 'battery' events. */
@@ -170,37 +170,37 @@ final class Bridge {
     /** Android's file picker: 'video', 'audio', 'image', 'pdf' or 'any'. The file comes back as an 'open' event. */
     @JavascriptInterface
     public void pickMedia(final String kind) {
-        onUi(new Runnable() { public void run() { a.pickMedia(kind); } });
+        onUi(new Runnable() { public void run() { a.files.pickMedia(kind); } });
     }
 
     /** The video (or song) at src in another app, which Android asks the user to pick. */
     @JavascriptInterface
     public void openWith(final String src) {
-        onUi(new Runnable() { public void run() { a.openWith(src); } });
+        onUi(new Runnable() { public void run() { a.files.openWith(src); } });
     }
 
     // ── v3.42.0 ──────────────────────────────────────────────────────
     /** The file at src (a picture, a PDF, a video) sent to another app. */
     @JavascriptInterface
     public void shareFile(final String src, final String type) {
-        onUi(new Runnable() { public void run() { a.shareFile(src, type); } });
+        onUi(new Runnable() { public void run() { a.files.shareFile(src, type); } });
     }
 
     /** A file chosen earlier, by the key its 'open' event carried: its address now (/opened/N), or null. */
     @JavascriptInterface
-    public String reopen(String key) { return key == null ? null : a.reopen(key); }
+    public String reopen(String key) { return key == null ? null : a.files.reopen(key); }
 
     /** The brightness now, 0 to 1, for the video player's swipe. */
     @JavascriptInterface
-    public float screenBrightness() { return a.screenBrightness(); }
+    public float screenBrightness() { return a.screen.screenBrightness(); }
 
     /** The music volume, JSON { v, max }. */
     @JavascriptInterface
-    public String volume() { return a.volume(); }
+    public String volume() { return a.screen.volume(); }
 
     @JavascriptInterface
     public void setVolume(final int v) {
-        onUi(new Runnable() { public void run() { a.setVolume(v); } });
+        onUi(new Runnable() { public void run() { a.screen.setVolume(v); } });
     }
 
     /** The battery's charge in percent, or -1. */
@@ -222,7 +222,7 @@ final class Bridge {
     /** Several files to another app at once: JSON { srcs: ['/media/image/12', ...], type }. */
     @JavascriptInterface
     public void shareFiles(final String json) {
-        onUi(new Runnable() { public void run() { a.shareFiles(json); } });
+        onUi(new Runnable() { public void run() { a.files.shareFiles(json); } });
     }
 
     // ── updates from GitHub (v3.44.0, Updater) ───────────────────────

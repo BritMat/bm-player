@@ -972,7 +972,9 @@ await step('PiP size button cycles three sizes, anchored and on screen', async (
 
   /* ── 8. mpv launch contract the end-of-file logic relies on ─────── */
   await step('mpv runs with keep-open and eof-reached is observed', () => {
-    const src = fs.readFileSync(path.join(ROOT, 'main.js'), 'utf8');
+    // main.js and its parts (v3.47.0): mpv's start is in main/mpv.js now.
+    const src = ['main.js', ...fs.readdirSync(path.join(ROOT, 'main')).filter(f => f.endsWith('.js')).map(f => path.join('main', f))]
+      .map(f => fs.readFileSync(path.join(ROOT, f), 'utf8')).join('\n');
     const args = rec.spawned[0] ? rec.spawned[0].args : null;
     const keepOpen = args ? args.includes('--keep-open=yes') : /'--keep-open=yes'/.test(src);
     if (!keepOpen) throw new Error('keep-open changed: the renderer advances on eof-reached, which assumes keep-open=yes');

@@ -32,8 +32,11 @@ console.log('\nBM Player: integration test against real mpv\n  ' + version + '\n
 
 /* The app's own launch arguments, read from main.js so the test cannot
    drift from what actually ships. */
-const mainSrc = fs.readFileSync(path.join(ROOT, 'main.js'), 'utf8');
+// main.js and its parts (v3.47.0): mpv is started in main/mpv.js.
+const mainSrc = ['main.js', ...(fs.existsSync(path.join(ROOT, 'main')) ? fs.readdirSync(path.join(ROOT, 'main')).filter(f => f.endsWith('.js')).map(f => path.join('main', f)) : [])]
+  .map(f => fs.readFileSync(path.join(ROOT, f), 'utf8')).join('\n');
 const block = (mainSrc.match(/const coreArgs\s*=\s*\[([\s\S]*?)\];/) || [])[1] || '';
+if (!block) { console.log('  FAIL: the app\'s mpv arguments (const coreArgs) were not found in main.js or main/'); process.exit(1); }
 const appArgs = [...block.matchAll(/'(--[^']+)'/g)].map(m => m[1])
   .filter(a => !/^--(vo|hwdec)=/.test(a));          // headless: no video output here
 if (!appArgs.includes('--keep-open=yes')) {

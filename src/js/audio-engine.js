@@ -24,9 +24,11 @@
  * always take the mpv path.
  */
 
-/* Matches EQ_BANDS in app.js. Keep them in step: the UI sliders are built
-   from that array and addressed here by index. */
-export const EQ_FREQUENCIES = [31, 62, 125, 250, 500, 1000, 2000, 4000, 8000, 16000];
+/* The equalizer's bands and the sound's effects are sound-chain.js's
+   (v3.47.0), the same list mpv's filter is made from. EQ_FREQUENCIES is
+   still given from here for whatever imported it from this file. */
+import { EQ_FREQUENCIES, WebChain, settings as soundSettings } from './sound-chain.js';
+export { EQ_FREQUENCIES };
 
 /* Extension -> MIME for canPlayType(). Anything absent is assumed mpv-only. */
 const MIME = {
@@ -48,9 +50,8 @@ export class AudioEngine {
     this.available = false;
     this.active = false;          // true while this engine owns playback
     this._handlers = new Map();
-    this._eqGains = new Array(EQ_FREQUENCIES.length).fill(0);
+    this._sound = soundSettings();   // the equalizer and the effects (sound-chain.js), kept for the graph
     this._vol = 1; this._muted = false;
-    this._fx = { night: false, channels: 'stereo', boost: 1 };   // v3.46.0: setFx()
 
     const Ctx = typeof window !== 'undefined' && (window.AudioContext || window.webkitAudioContext);
     if (!Ctx) return;             // no Web Audio: stay unavailable, caller uses mpv
@@ -80,38 +81,28 @@ export class AudioEngine {
       this.ctx = new this._Ctx();
       this.source = this.ctx.createMediaElementSource(this.el);
 
-      // Peaking filters in series, one per band. Q of 1.1 gives roughly
-      // one-octave bandwidth, which is what a 10-band graphic EQ implies.
-      this.filters = EQ_FREQUENCIES.map((f, i) => {
-        const b = this.ctx.createBiquadFilter();
-        b.type = 'peaking';
-        b.frequency.value = f;
-        b.Q.value = 1.1;
-        b.gain.value = this._eqGains[i] || 0;
-        return b;
-      });
-
       this.gain = this.ctx.createGain();
       this.analyser = this.ctx.createAnalyser();
       this.analyser.fftSize = 1024;   // 1024 (v3.32.0): MilkDrop reads 1024 samples
       this.analyser.smoothingTimeConstant = 0.8;
 
       // v3.36.0: the visualiser hears the music as it is, whatever the volume.
-      //   source -> f0 -> ... -> f9 -+-> gain -> speakers              the sound
-      //                              +-> analyser -> tap (0) -> speakers   the measurement
+      //   source -> [equalizer] -> heard -+-> [channels, night, boost, limiter] -> gain -> speakers
+      //                                   +-> analyser -> tap (0) -> speakers   the measurement
       // The analyser used to sit after the volume, and the volume was the audio
       // element's own, which is applied before any of this: at a low volume
       // every visualiser shrank, and mute stopped them dead. Volume and mute
       // now live in the gain, after the point the analyser listens at. (The tap
       // is silent, and there so the analyser is always being fed.)
-      let node = this.source;
-      for (const f of this.filters) { node.connect(f); node = f; }
-      this._eqOut = node;
-      this._buildFx();
+      // The effects in brackets are put in only while they are on (v3.47.0,
+      // sound-chain.js): with none, the song goes straight to the volume.
+      this._heard = this.ctx.createGain();
+      this.chain = new WebChain(this.ctx, { from: this.source, heard: this._heard, to: this.gain });
+      this.chain.set(this._sound);
       this.gain.connect(this.ctx.destination);
       this.tap = this.ctx.createGain();
       this.tap.gain.value = 0;
-      node.connect(this.analyser);
+      this._heard.connect(this.analyser);
       this.analyser.connect(this.tap);
       this.tap.connect(this.ctx.destination);
       this._applyGain();
@@ -128,65 +119,24 @@ export class AudioEngine {
   }
 
   /**
-   * Sound effects (v3.46.0), between the equalizer and the volume:
-   *
-   *   EQ -> two channels -> splitter -> four gains -> merger   which ear hears what
-   *      -> [compressor -> make-up gain]                      night mode
-   *      -> boost -> [limiter]                                louder than 100%
-   *      -> volume
-   *
-   * The first gain makes two channels of whatever comes in, a mono song or a
-   * 5.1 one, mixed as speakers would, so the four gains always have a left
-   * and a right to work with. The compressor and the limiter are only in the
-   * chain while they are wanted: a compressor at rest still changes the sound.
+   * The equalizer and the sound effects (sound-chain.js, v3.47.0): night mode,
+   * which ear hears what, a boost past 100%. Kept here, and given to the
+   * graph when there is one; with none yet it is made with them.
+   *   setSound({ eq, channels, night, boost })   any of them; the rest stay
+   *   setFx({ night, channels, boost })          the effects alone (v3.46.0)
    */
-  _buildFx() {
-    const c = this.ctx;
-    this._two = c.createGain();
-    this._two.channelCount = 2; this._two.channelCountMode = 'explicit'; this._two.channelInterpretation = 'speakers';
-    this._split = c.createChannelSplitter(2);
-    this._merge = c.createChannelMerger(2);
-    // _route[from][to]: how much of the left (0) or right (1) goes to each ear
-    this._route = [0, 1].map(from => [0, 1].map(to => {
-      const g = c.createGain(); this._split.connect(g, from); g.connect(this._merge, 0, to); return g;
-    }));
-    this._eqOut.connect(this._two); this._two.connect(this._split);
-    this._comp = c.createDynamicsCompressor();
-    this._comp.threshold.value = -26; this._comp.knee.value = 12; this._comp.ratio.value = 4;
-    this._comp.attack.value = 0.008; this._comp.release.value = 0.25;
-    this._makeup = c.createGain(); this._makeup.gain.value = 2;     // +6 dB: the quiet parts come up
-    this._comp.connect(this._makeup);
-    this._boost = c.createGain();
-    this._limit = c.createDynamicsCompressor();
-    this._limit.threshold.value = -1.5; this._limit.knee.value = 0; this._limit.ratio.value = 20;
-    this._limit.attack.value = 0.002; this._limit.release.value = 0.1;
-    this._wireFx();
+  setSound(next) {
+    this._sound = soundSettings({ ...this._sound, ...next });
+    this.chain?.set(this._sound);
   }
-  _wireFx() {
-    if (!this.ctx || !this._merge) return;
-    const fx = this._fx;
-    const ROUTES = { stereo: [[1, 0], [0, 1]], mono: [[0.5, 0.5], [0.5, 0.5]], left: [[1, 1], [0, 0]], right: [[0, 0], [1, 1]], swap: [[0, 1], [1, 0]] };
-    const r = ROUTES[fx.channels] || ROUTES.stereo;
-    for (const from of [0, 1]) for (const to of [0, 1]) this._route[from][to].gain.value = r[from][to];
-    for (const n of [this._merge, this._makeup, this._boost, this._limit]) { try { n.disconnect(); } catch (_) {} }
-    try { this._comp.disconnect(); } catch (_) {}
-    this._comp.connect(this._makeup);
-    let node = this._merge;
-    if (fx.night) { node.connect(this._comp); node = this._makeup; }
-    node.connect(this._boost); node = this._boost;
-    this._boost.gain.value = fx.boost;
-    if (fx.boost > 1 || fx.night) { node.connect(this._limit); node = this._limit; }
-    node.connect(this.gain);
-  }
-  /** night: true or false. channels: stereo, mono, left, right or swap. boost: 1 to 2. */
   setFx(opts) {
-    const f = this._fx;
-    if (opts && 'night' in opts) f.night = !!opts.night;
-    if (opts && 'channels' in opts) f.channels = ['stereo', 'mono', 'left', 'right', 'swap'].includes(opts.channels) ? opts.channels : 'stereo';
-    if (opts && 'boost' in opts) f.boost = Math.max(1, Math.min(2, Number(opts.boost) || 1));
-    this._wireFx();   // no graph yet: it is made with these
+    const o = {};
+    for (const k of ['night', 'channels', 'boost']) if (opts && k in opts) o[k] = opts[k];
+    this.setSound(o);
   }
-  getFx() { return { ...this._fx }; }
+  getFx() { const { night, channels, boost } = this._sound; return { night, channels, boost }; }
+  /** The equalizer's ten filters, while it has been on (they are made then). */
+  get filters() { return this.chain?.made.get('eq')?.bands || null; }
 
   /**
    * Nothing playing for REST_MS: the context is suspended, so its thread
@@ -325,23 +275,21 @@ export class AudioEngine {
   get speed() { return this.available ? this.el.playbackRate : 1; }
 
   /* ── equalizer ───────────────────────────────────────────────── */
+  // A band's gain glides while the sound runs (stepping a filter's gain
+  // clicks) and is set outright at rest: sound-chain.js's WebChain._to.
   setEQBand(index, gainDb) {
     if (!this.available || index < 0 || index >= EQ_FREQUENCIES.length) return;
-    const g = Math.max(-12, Math.min(12, Number(gainDb) || 0));
-    this._eqGains[index] = g;
-    if (!this.filters) return;    // no graph yet: it starts with these
-    // setTargetAtTime rather than a hard assignment: stepping a filter gain
-    // instantly produces an audible click. At rest the value is set outright,
-    // as in _applyGain.
-    const p = this.filters[index].gain;
-    try {
-      if (this.ctx.state === 'running') p.setTargetAtTime(g, this.ctx.currentTime, 0.02);
-      else { p.cancelScheduledValues(0); p.value = g; }
-    } catch (_) { p.value = g; }
+    const eq = this._sound.eq.slice(); eq[index] = gainDb;
+    this.setSound({ eq });
   }
-  setEQ(gains) { (gains || []).forEach((g, i) => this.setEQBand(i, g)); }
+  setEQ(gains) {
+    if (!this.available) return;
+    const eq = this._sound.eq.slice();
+    (gains || []).forEach((g, i) => { if (i < eq.length) eq[i] = g; });
+    this.setSound({ eq });
+  }
   resetEQ()    { this.setEQ(new Array(EQ_FREQUENCIES.length).fill(0)); }
-  getEQ()      { return [...this._eqGains]; }
+  getEQ()      { return [...this._sound.eq]; }
 
   /** Handed to Visualizer so it draws real spectrum data instead of synth.
    *  Null until a song has loaded: asking does not make the graph, as the
@@ -351,6 +299,7 @@ export class AudioEngine {
   destroy() {
     try { this.stop(); } catch (_) {}
     clearTimeout(this._restT);
+    try { this.chain?.destroy(); } catch (_) {}
     try { this.ctx && this.ctx.close(); } catch (_) {}
     this.available = false;
     this._handlers.clear();

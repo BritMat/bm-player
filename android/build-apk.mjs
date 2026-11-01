@@ -94,8 +94,12 @@ const MPV = {
 const FROM_DESKTOP = [
   'js/visualizer.js', 'js/fluid.js', 'js/viz-art.js', 'js/viz-beat.js', 'js/neon-gl.js', 'js/perf.js', 'js/power.js',
   'js/md-browser.js', 'js/viz-settings.js', 'js/icons.js', 'js/audio-engine.js', 'js/modules/lyrics.js', 'js/translit.js',
+  // v3.47.0: the equalizer and the sound effects, which audio-engine.js loads
+  'js/sound-chain.js',
   // v3.42.0: the home screen's fox, backgrounds and play, and the PDF reader
   'js/fox3d.js', 'js/fox3d-mesh.js', 'js/geofox.js', 'js/theme-fx.js', 'js/theme-scenes.js', 'js/flow-settings.js',
+  // v3.47.0: the scene kit's helpers, which theme-scenes.js draws with
+  'js/scenes/kit.js',
   'js/play/sfx.js', 'js/play/fox-play.js', 'js/play/fox-voice.js', 'js/play/flow-toy.js', 'js/play/slice-game.js',
   'css/play.css', 'vendor/pdf.min.js', 'vendor/pdf.worker.min.js', 'vendor/pdfjs-LICENSE.txt',
   'vendor/milkdrop/butterchurn.min.js', 'vendor/milkdrop/presets.js', 'vendor/milkdrop/previews.js', 'vendor/milkdrop/previews.jpg',

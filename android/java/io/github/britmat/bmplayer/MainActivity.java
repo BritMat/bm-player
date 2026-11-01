@@ -3,14 +3,11 @@ package io.github.britmat.bmplayer;
 import android.app.Activity;
 import android.content.ActivityNotFoundException;
 import android.content.BroadcastReceiver;
-import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
-import android.content.pm.ActivityInfo;
 import android.content.pm.PackageInfo;
 import android.content.pm.PackageManager;
-import android.database.Cursor;
 import android.graphics.Bitmap;
 import android.graphics.Color;
 import android.media.AudioManager;
@@ -20,11 +17,9 @@ import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
-import android.provider.OpenableColumns;
 import android.provider.Settings;
 import android.view.View;
 import android.view.Window;
-import android.view.WindowManager;
 import android.webkit.ConsoleMessage;
 import android.webkit.PermissionRequest;
 import android.webkit.RenderProcessGoneDetail;
@@ -40,10 +35,7 @@ import android.widget.TextView;
 
 import org.json.JSONObject;
 
-import java.security.MessageDigest;
 import java.util.ArrayList;
-import java.util.Iterator;
-import java.util.Locale;
 
 /**
  * BM Player for Android: one window with a WebView that shows the app's
@@ -75,6 +67,11 @@ public class MainActivity extends Activity {
     LocalServer server;
     MpvPlayer mpv;
     MediaDelete deleter;
+    // Its parts (v3.47.0): the window, files in and out, and permissions.
+    // The page reaches them through Bridge as a.screen, a.files, a.access.
+    Screen screen;
+    Files files;
+    Access access;
     private boolean videoBehind;
     private WebChromeClient chrome;
     private View customView;
@@ -82,28 +79,28 @@ public class MainActivity extends Activity {
     private ValueCallback<Uri[]> fileCallback;
     private boolean pageReady;
     private JSONObject pendingOpen;
-    private int barColor = 0xFF080B14;
-    private boolean lightBars, immersiveOn;
     private BroadcastReceiver power;
-    private PermissionRequest pendingMic;
 
-    private static final int REQ_FILE = 11, REQ_MEDIA = 7, REQ_PICK_VIDEO = 12, REQ_PICK_AUDIO = 13, REQ_PICK_IMAGE = 14, REQ_PICK_PDF = 15,
-            REQ_PICK_ANY = 16, REQ_MIC = 21;
+    // The page's file input. Files has 12 to 16 (the picker), Access 7 and 21, MediaDelete its own.
+    private static final int REQ_FILE = 11;
 
     @Override
     protected void onCreate(Bundle saved) {
         super.onCreate(saved);
         current = this;
+        screen = new Screen(this);
+        files = new Files(this);
+        access = new Access(this);
         BMLog.init(getApplicationContext());
         BMLog.i("start " + BuildInfo.VERSION_NAME + " (" + BuildInfo.VERSION_CODE + ") on Android " + Build.VERSION.RELEASE
                 + " (API " + Build.VERSION.SDK_INT + "), " + Build.MANUFACTURER + " " + Build.MODEL + ", WebView " + webViewVersion());
         // The volume keys set the music's volume, even while nothing plays.
         setVolumeControlStream(AudioManager.STREAM_MUSIC);
         Window w = getWindow();
-        w.setStatusBarColor(barColor);
-        w.setNavigationBarColor(barColor);
+        w.setStatusBarColor(screen.barColor);
+        w.setNavigationBarColor(screen.barColor);
         root = new FrameLayout(this);
-        root.setBackgroundColor(barColor);
+        root.setBackgroundColor(screen.barColor);
         setContentView(root);
         server = new LocalServer(getApplicationContext());
         mpv = new MpvPlayer(this);
@@ -130,7 +127,7 @@ public class MainActivity extends Activity {
 
     private void makeWeb() {
         web = new WebView(this);
-        web.setBackgroundColor(videoBehind ? Color.TRANSPARENT : barColor);
+        web.setBackgroundColor(videoBehind ? Color.TRANSPARENT : screen.barColor);
         // Above mpv's picture, when there is one, so the page's controls show over it.
         View video = mpv == null ? null : mpv.surfaceView();
         int at = video == null ? 0 : root.indexOfChild(video) + 1;
@@ -213,7 +210,7 @@ public class MainActivity extends Activity {
             customView = view;
             customCallback = callback;
             root.addView(view, new FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
-            immersive(true);
+            screen.immersive(true);
         }
 
         @Override
@@ -223,7 +220,7 @@ public class MainActivity extends Activity {
             customView = null;
             if (customCallback != null) customCallback.onCustomViewHidden();
             customCallback = null;
-            immersive(false);
+            screen.immersive(false);
         }
 
         /** A file input in the page: Android's own file picker. */
@@ -266,36 +263,14 @@ public class MainActivity extends Activity {
             return Bitmap.createBitmap(1, 1, Bitmap.Config.ARGB_8888);
         }
 
-        /**
-         * The page asks for the microphone (v3.42.0: the fox listens, after
-         * Talk is pressed). Only the app's own page, only the microphone, and
-         * only once Android's own permission is given: asked for here the
-         * first time. Anything else (the camera) is refused.
-         */
+        /** The page asks for the microphone (the fox listens): Access decides. */
         @Override
         public void onPermissionRequest(final PermissionRequest r) {
-            ui.post(new Runnable() {
-                public void run() {
-                    boolean ours = r.getOrigin() != null && HOST.equals(r.getOrigin().getHost());
-                    boolean mic = false;
-                    for (String res : r.getResources()) if (PermissionRequest.RESOURCE_AUDIO_CAPTURE.equals(res)) mic = true;
-                    if (!ours || !mic) { r.deny(); return; }
-                    if (checkSelfPermission("android.permission.RECORD_AUDIO") == PackageManager.PERMISSION_GRANTED) {
-                        r.grant(new String[] { PermissionRequest.RESOURCE_AUDIO_CAPTURE });
-                        return;
-                    }
-                    if (pendingMic != null) pendingMic.deny();
-                    pendingMic = r;
-                    getSharedPreferences("bm", MODE_PRIVATE).edit().putBoolean("asked:android.permission.RECORD_AUDIO", true).apply();
-                    requestPermissions(new String[] { "android.permission.RECORD_AUDIO" }, REQ_MIC);
-                }
-            });
+            ui.post(new Runnable() { public void run() { access.micRequest(r); } });
         }
 
         @Override
-        public void onPermissionRequestCanceled(PermissionRequest r) {
-            if (pendingMic == r) pendingMic = null;
-        }
+        public void onPermissionRequestCanceled(PermissionRequest r) { access.micCanceled(r); }
     }
 
     @Override
@@ -316,171 +291,8 @@ public class MainActivity extends Activity {
             cb.onReceiveValue(picked);
             return;
         }
-        if (request >= REQ_PICK_VIDEO && request <= REQ_PICK_ANY) {
-            if (result == RESULT_OK && data != null && data.getData() != null) {
-                Uri u = data.getData();
-                String type = null;
-                try { type = getContentResolver().getType(u); } catch (Exception ignored) { }
-                String name = displayName(u);
-                String kind = request == REQ_PICK_VIDEO ? "video" : request == REQ_PICK_AUDIO ? "audio" : request == REQ_PICK_IMAGE ? "image"
-                        : request == REQ_PICK_PDF ? "pdf" : kindOf(type, name);
-                // Kept by Android for the app (v3.42.0), so Home can open it again after a restart.
-                String key = null;
-                try {
-                    getContentResolver().takePersistableUriPermission(u, Intent.FLAG_GRANT_READ_URI_PERMISSION);
-                    key = rememberDoc(u, type, name);
-                } catch (Exception e) { BMLog.w("could not keep access to the file: " + e.getMessage()); }
-                openFile(u, type, kind, "chosen", key);
-            }
-            return;
-        }
+        if (files.onResult(request, result, data)) return;   // the file picker (Files.pickMedia)
         super.onActivityResult(request, result, data);
-    }
-
-    /**
-     * A video or song chosen with Android's file picker (the folder button).
-     * It comes to the page as an 'open' event, as a file from another app
-     * does, and plays from /opened/N: mpv opens it by its address, which a
-     * file chosen inside the page would not have.
-     */
-    void pickMedia(String kind) {
-        Intent i = new Intent(Intent.ACTION_OPEN_DOCUMENT);
-        i.addCategory(Intent.CATEGORY_OPENABLE);
-        i.setType("*/*");
-        // MKV files are often listed as application/x-matroska, not as video.
-        String[] video = { "video/*", "application/x-matroska", "application/mp4" }, audio = { "audio/*", "application/ogg", "application/x-flac" };
-        String[] types; int req;
-        if ("audio".equals(kind)) { types = audio; req = REQ_PICK_AUDIO; }
-        else if ("image".equals(kind)) { types = new String[] { "image/*" }; req = REQ_PICK_IMAGE; }
-        else if ("pdf".equals(kind)) { types = new String[] { "application/pdf" }; req = REQ_PICK_PDF; }
-        else if ("any".equals(kind)) { types = new String[] { "video/*", "audio/*", "image/*", "application/pdf", "application/x-matroska", "application/mp4", "application/ogg", "application/x-flac" }; req = REQ_PICK_ANY; }
-        else { types = video; req = REQ_PICK_VIDEO; }
-        i.putExtra(Intent.EXTRA_MIME_TYPES, types);
-        try { startActivityForResult(i, req); }
-        catch (ActivityNotFoundException e) { BMLog.w("no file picker: " + e); }
-    }
-
-    /** What a file is, by its type or, where the type says little, its name: video, audio, image or pdf. */
-    static String kindOf(String type, String name) {
-        String t = type == null ? "" : type.toLowerCase(Locale.US), n = name == null ? "" : name.toLowerCase(Locale.US);
-        if (t.startsWith("video/") || t.endsWith("/x-matroska") || n.matches(".*\\.(mkv|mp4|m4v|webm|avi|mov|ts|m2ts|flv|wmv|3gp)$")) return "video";
-        if (t.startsWith("image/")) return "image";
-        if (t.contains("pdf") || n.endsWith(".pdf")) return "pdf";
-        return "audio";
-    }
-
-    /** A song, video or picture by its address in the page (/media/KIND/ID, /opened/N) as Android's. */
-    Uri uriOf(String src) {
-        if (src == null) return null;
-        // All here (v3.45.0), so sharing works when mpv could not start.
-        String s = src.split("\\?")[0];
-        try {
-            if (s.startsWith("/media/image/")) return android.content.ContentUris.withAppendedId(MediaDelete.base("image"), Long.parseLong(s.substring(13)));
-            if (s.startsWith("/media/video/")) return android.content.ContentUris.withAppendedId(MediaDelete.base("video"), Long.parseLong(s.substring(13)));
-            if (s.startsWith("/media/audio/")) return android.content.ContentUris.withAppendedId(MediaDelete.base("audio"), Long.parseLong(s.substring(13)));
-            if (s.startsWith("/opened/") && server != null) return server.uri(Integer.parseInt(s.substring(8)));
-        } catch (NumberFormatException ignored) { }
-        return null;
-    }
-
-    /** Sent to another app (a chat, an email), as the file itself. */
-    void shareFile(String src, String type) {
-        Uri u = uriOf(src);
-        if (u == null) return;
-        try {
-            Intent i = new Intent(Intent.ACTION_SEND);
-            i.setType(type != null && type.length() > 0 ? type : "*/*");
-            i.putExtra(Intent.EXTRA_STREAM, u);
-            i.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
-            startActivity(Intent.createChooser(i, "Share"));
-        } catch (Exception e) { BMLog.w("share file: " + e); }
-    }
-
-    /**
-     * Several files to another app at once (v3.45.0): JSON { srcs, type }.
-     * One goes as a single file, as shareFile sends it.
-     */
-    void shareFiles(String json) {
-        ArrayList<Uri> uris = new ArrayList<Uri>();
-        String type = "*/*";
-        try {
-            JSONObject o = new JSONObject(json);
-            org.json.JSONArray srcs = o.getJSONArray("srcs");
-            for (int k = 0; k < srcs.length() && uris.size() < 500; k++) { Uri u = uriOf(srcs.getString(k)); if (u != null) uris.add(u); }
-            String t = o.optString("type", "");
-            if (t.length() > 0) type = t;
-        } catch (Exception e) { BMLog.w("share files: " + e); return; }
-        if (uris.isEmpty()) return;
-        try {
-            Intent i;
-            if (uris.size() == 1) { i = new Intent(Intent.ACTION_SEND); i.putExtra(Intent.EXTRA_STREAM, uris.get(0)); }
-            else { i = new Intent(Intent.ACTION_SEND_MULTIPLE); i.putParcelableArrayListExtra(Intent.EXTRA_STREAM, uris); }
-            i.setType(type);
-            i.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
-            startActivity(Intent.createChooser(i, "Share"));
-        } catch (Exception e) { BMLog.w("share files: " + e); }
-    }
-
-    // ── files Android keeps for the app (v3.42.0) ────────────────────
-    /** A chosen file remembered under a short key, for Home to open again later. At most 40. */
-    String rememberDoc(Uri u, String type, String name) throws Exception {
-        String key = shortHash(u.toString());
-        android.content.SharedPreferences p = getSharedPreferences("docs", MODE_PRIVATE);
-        JSONObject all = new JSONObject(p.getString("all", "{}"));
-        JSONObject o = new JSONObject();
-        o.put("u", u.toString()); o.put("t", type == null ? "" : type); o.put("n", name == null ? "" : name); o.put("at", System.currentTimeMillis());
-        all.remove(key);
-        all.put(key, o);
-        while (all.length() > 40) {
-            String oldest = null; long at = Long.MAX_VALUE;
-            for (Iterator<String> it = all.keys(); it.hasNext(); ) { String k = it.next(); long a = all.getJSONObject(k).optLong("at"); if (a < at) { at = a; oldest = k; } }
-            if (oldest == null) break;
-            try { getContentResolver().releasePersistableUriPermission(Uri.parse(all.getJSONObject(oldest).getString("u")), Intent.FLAG_GRANT_READ_URI_PERMISSION); } catch (Exception ignored) { }
-            all.remove(oldest);
-        }
-        p.edit().putString("all", all.toString()).apply();
-        return key;
-    }
-
-    /** A remembered file's address in the page again (/opened/N), or null when it is gone or no longer allowed. */
-    String reopen(String key) {
-        try {
-            JSONObject o = new JSONObject(getSharedPreferences("docs", MODE_PRIVATE).getString("all", "{}")).optJSONObject(key);
-            if (o == null) return null;
-            Uri u = Uri.parse(o.getString("u"));
-            android.content.res.AssetFileDescriptor f = getContentResolver().openAssetFileDescriptor(u, "r");
-            if (f == null) return null;
-            f.close();
-            String t = o.optString("t", "");
-            return "/opened/" + server.register(u, t.length() > 0 ? t : null);
-        } catch (Exception e) { BMLog.w("reopen " + key + ": " + e.getMessage()); return null; }
-    }
-
-    static String shortHash(String s) {
-        try {
-            byte[] d = MessageDigest.getInstance("SHA-1").digest(s.getBytes("UTF-8"));
-            StringBuilder b = new StringBuilder();
-            for (int k = 0; k < 6; k++) b.append(String.format(Locale.US, "%02x", d[k]));
-            return b.toString();
-        } catch (Exception e) { return Integer.toHexString(s.hashCode()); }
-    }
-
-    /** A video in another app (VLC, the phone's own player): Android asks which. */
-    void openWith(String src) {
-        Uri u = uriOf(src);
-        if (u == null) return;
-        String type = null;
-        try { type = getContentResolver().getType(u); } catch (Exception ignored) { }
-        if (type == null && src.startsWith("/opened/")) {
-            try { type = server.type(Integer.parseInt(src.substring(8))); } catch (Exception ignored) { }
-        }
-        Intent i = new Intent(Intent.ACTION_VIEW);
-        i.setDataAndType(u, type != null ? type : src.startsWith("/media/audio/") ? "audio/*" : src.startsWith("/media/image/") ? "image/*" : "video/*");
-        i.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
-        Intent chooser = Intent.createChooser(i, "Open with");
-        chooser.putExtra(Intent.EXTRA_EXCLUDE_COMPONENTS, new ComponentName[] { new ComponentName(this, MainActivity.class) });
-        try { startActivity(chooser); }
-        catch (Exception e) { BMLog.w("open with: " + e); toastShort("No other app on this phone can open it."); }
     }
 
     void toastShort(String text) { android.widget.Toast.makeText(this, text, android.widget.Toast.LENGTH_SHORT).show(); }
@@ -488,7 +300,7 @@ public class MainActivity extends Activity {
     /** mpv's picture behind the page (true), or not: the WebView is see-through while it shows. */
     void videoBehind(boolean on) {
         videoBehind = on;
-        if (web != null) web.setBackgroundColor(on ? Color.TRANSPARENT : barColor);
+        if (web != null) web.setBackgroundColor(on ? Color.TRANSPARENT : screen.barColor);
     }
 
     // ── talking to the page ──────────────────────────────────────────
@@ -542,17 +354,17 @@ public class MainActivity extends Activity {
         Uri u = i.getData();
         String type = i.getType();
         try { if (type == null) type = getContentResolver().getType(u); } catch (Exception ignored) { }
-        openFile(u, type, kindOf(type, displayName(u)), "opened from another app", null);
+        openFile(u, type, Files.kindOf(type, files.displayName(u)), "opened from another app", null);
     }
 
-    /** A file for the page to open, from another app or the file picker: an 'open' event. */
-    private void openFile(Uri u, String type, String kind, String how, String key) {
+    /** A file for the page to open, from another app or the file picker (Files): an 'open' event. */
+    void openFile(Uri u, String type, String kind, String how, String key) {
         try {
             int n = server.register(u, type);
             JSONObject o = new JSONObject();
             o.put("url", "/opened/" + n);
             o.put("kind", kind);
-            o.put("name", displayName(u));
+            o.put("name", files.displayName(u));
             o.put("mime", type == null ? "" : type);
             if (key != null) o.put("key", key);
             BMLog.i(how + ": " + kind + " " + (type == null ? "" : type));
@@ -565,174 +377,18 @@ public class MainActivity extends Activity {
         if (pendingOpen != null && pageReady && web != null) { emit("open", pendingOpen); pendingOpen = null; }
     }
 
-    private String displayName(Uri u) {
-        String name = null;
-        try {
-            Cursor c = getContentResolver().query(u, new String[] { OpenableColumns.DISPLAY_NAME }, null, null, null);
-            if (c != null) { try { if (c.moveToFirst()) name = c.getString(0); } finally { c.close(); } }
-        } catch (Exception ignored) { }
-        if (name == null) name = u.getLastPathSegment();
-        return name == null ? "" : name;
-    }
-
-    // ── permissions ──────────────────────────────────────────────────
-    /** What a kind of access needs: Android 13 split reading media in two, before it there was one. */
-    static String[] permissionsFor(String kind) {
-        if ("notifications".equals(kind)) return Build.VERSION.SDK_INT >= 33 ? new String[] { "android.permission.POST_NOTIFICATIONS" } : new String[0];
-        if ("mic".equals(kind)) return new String[] { "android.permission.RECORD_AUDIO" };
-        if (Build.VERSION.SDK_INT >= 33) return new String[] { "video".equals(kind) ? "android.permission.READ_MEDIA_VIDEO"
-                : "image".equals(kind) ? "android.permission.READ_MEDIA_IMAGES" : "android.permission.READ_MEDIA_AUDIO" };
-        return new String[] { "android.permission.READ_EXTERNAL_STORAGE" };
-    }
-
-    /** 'granted', 'ask', or 'denied' (refused for good: only the app's settings can change it). */
-    String permissionState(String kind) {
-        String[] ps = permissionsFor(kind);
-        if (ps.length == 0) return "granted";
-        String p = ps[0];
-        if (checkSelfPermission(p) == PackageManager.PERMISSION_GRANTED) return "granted";
-        boolean asked = getSharedPreferences("bm", MODE_PRIVATE).getBoolean("asked:" + p, false);
-        return asked && !shouldShowRequestPermissionRationale(p) ? "denied" : "ask";
-    }
-
-    void askPermission(String kind) {
-        String[] ps = permissionsFor(kind);
-        if (ps.length == 0) { permissionResult(); return; }
-        getSharedPreferences("bm", MODE_PRIVATE).edit().putBoolean("asked:" + ps[0], true).apply();
-        if (checkSelfPermission(ps[0]) == PackageManager.PERMISSION_GRANTED) { permissionResult(); return; }
-        requestPermissions(ps, REQ_MEDIA);
-    }
-
     @Override
     public void onRequestPermissionsResult(int code, String[] perms, int[] results) {
         super.onRequestPermissionsResult(code, perms, results);
         if (code == MediaDelete.REQ_WRITE) { deleter.onPermission(results.length > 0 && results[0] == PackageManager.PERMISSION_GRANTED); return; }
-        if (code == REQ_MIC && pendingMic != null) {
-            PermissionRequest r = pendingMic;
-            pendingMic = null;
-            if (results.length > 0 && results[0] == PackageManager.PERMISSION_GRANTED) r.grant(new String[] { PermissionRequest.RESOURCE_AUDIO_CAPTURE });
-            else r.deny();
-        }
-        permissionResult();
+        access.onResult(code, results);
     }
 
-    private void permissionResult() {
-        try {
-            JSONObject o = new JSONObject();
-            o.put("audio", permissionState("audio"));
-            o.put("video", permissionState("video"));
-            o.put("image", permissionState("image"));
-            o.put("mic", permissionState("mic"));
-            o.put("notifications", permissionState("notifications"));
-            BMLog.i("access: music " + o.optString("audio") + ", videos " + o.optString("video") + ", pictures " + o.optString("image") + ", microphone " + o.optString("mic"));
-            emit("permission", o);
-        } catch (Exception e) { BMLog.w("permission result: " + e); }
-    }
-
-    /** The app's page in Android's settings, for access refused for good. */
-    void openAppSettings() {
-        try { startActivity(new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:" + getPackageName()))); }
-        catch (Exception e) { BMLog.w("settings: " + e); }
-    }
-
-    // ── the window ───────────────────────────────────────────────────
-    void orientation(String mode) {
-        int o = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED;          // as the phone's auto-rotate says
-        if ("landscape".equals(mode)) o = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE;
-        else if ("portrait".equals(mode)) o = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT;
-        else if ("sensor".equals(mode)) o = ActivityInfo.SCREEN_ORIENTATION_FULL_SENSOR;
-        setRequestedOrientation(o);
-    }
-
-    void immersive(boolean on) {
-        immersiveOn = on;
-        applyBars();
-    }
-
-    /** The bars at the top and bottom in the page's colour, with dark or light icons. */
-    void bars(String color, boolean light) {
-        try {
-            barColor = Color.parseColor(color);
-            lightBars = light;
-            getWindow().setStatusBarColor(barColor);
-            getWindow().setNavigationBarColor(barColor);
-            root.setBackgroundColor(barColor);
-            applyBars();
-        } catch (Exception e) { BMLog.w("bars " + color + ": " + e); }
-    }
-
-    @SuppressWarnings("deprecation")
-    private void applyBars() {
-        View d = getWindow().getDecorView();
-        int f = 0;
-        if (immersiveOn) {
-            f = View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY | View.SYSTEM_UI_FLAG_HIDE_NAVIGATION | View.SYSTEM_UI_FLAG_FULLSCREEN
-                    | View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION | View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN | View.SYSTEM_UI_FLAG_LAYOUT_STABLE;
-        } else if (lightBars) {
-            f = View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR;
-            if (Build.VERSION.SDK_INT >= 26) f |= View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR;
-        }
-        d.setSystemUiVisibility(f);
-    }
-
+    // ── the window (Screen) ──────────────────────────────────────────
     @Override
     public void onWindowFocusChanged(boolean focus) {
         super.onWindowFocusChanged(focus);
-        if (focus && immersiveOn) applyBars();
-    }
-
-    void keepScreenOn(boolean on) {
-        if (on) getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
-        else getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
-    }
-
-    /** The screen's brightness for this window, 0 to 1, or below 0 for the phone's own. */
-    void brightness(float v) {
-        WindowManager.LayoutParams lp = getWindow().getAttributes();
-        lp.screenBrightness = v < 0 ? WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE : Math.max(0.01f, Math.min(1f, v));
-        getWindow().setAttributes(lp);
-    }
-
-    /**
-     * The brightness now, 0 to 1: this window's own, or the phone's setting
-     * (v3.42.0, the video player's swipe). The setting counts to 255 on most
-     * phones, but further on some (Xiaomi's to 2047, 4095 or more), which
-     * read as several times full: a swipe down then did nothing for a long
-     * way (v3.43.2). Android's own top is asked for, and past it the next
-     * such top above the value is taken.
-     */
-    float screenBrightness() {
-        float w = getWindow().getAttributes().screenBrightness;
-        if (w >= 0) return Math.min(1f, w);
-        try {
-            int v = Settings.System.getInt(getContentResolver(), Settings.System.SCREEN_BRIGHTNESS);
-            int max = 255;
-            try {
-                int id = android.content.res.Resources.getSystem().getIdentifier("config_screenBrightnessSettingMaximum", "integer", "android");
-                if (id != 0) max = Math.max(max, android.content.res.Resources.getSystem().getInteger(id));
-            } catch (Exception ignored) { }
-            while (v > max && max < (1 << 16)) max = max * 2 + 1;   // 255, 511, 1023, 2047, 4095...
-            return Math.max(0.01f, Math.min(1f, v / (float) max));
-        } catch (Exception e) { return 0.5f; }
-    }
-
-    /** The music volume as { v, max }, in the phone's own steps. */
-    String volume() {
-        try {
-            AudioManager am = (AudioManager) getSystemService(AUDIO_SERVICE);
-            JSONObject o = new JSONObject();
-            o.put("v", am.getStreamVolume(AudioManager.STREAM_MUSIC));
-            o.put("max", am.getStreamMaxVolume(AudioManager.STREAM_MUSIC));
-            return o.toString();
-        } catch (Exception e) { return "{}"; }
-    }
-
-    /** Sets it, without Android's own volume panel (the player shows its own). */
-    void setVolume(int v) {
-        try {
-            AudioManager am = (AudioManager) getSystemService(AUDIO_SERVICE);
-            am.setStreamVolume(AudioManager.STREAM_MUSIC, Math.max(0, Math.min(am.getStreamMaxVolume(AudioManager.STREAM_MUSIC), v)), 0);
-        } catch (Exception e) { BMLog.w("volume: " + e); }   // Do Not Disturb can refuse it
+        screen.focused(focus);
     }
 
     /** The battery's charge in percent, or -1. */
@@ -779,7 +435,7 @@ public class MainActivity extends Activity {
             startActivity(i);
         } catch (Exception e) {
             BMLog.w("install permission settings: " + e);
-            openAppSettings();
+            access.openAppSettings();
         }
     }
 
