@@ -232,9 +232,13 @@ try {
   // On Low quality (a weak phone, and this browser often) it is a still that moves when touched.
   const still = await ev(() => window.__bmHome.scene.still);
   {
-    const f0 = await ev(() => window.__bmHome.scene.cost().frames); await sleep(800);
+    // Moving: at whatever pace this browser's software drawing allows. On GitHub's machines (not Low,
+    // so not a still) Aurora Lake drew one frame in the first 0.8 s while it made its land (v3.49.0).
+    const f0 = await ev(() => window.__bmHome.scene.cost().frames);
+    if (still) await sleep(800);
+    else await until(n => window.__bmHome.scene.cost().frames > n + 5, f0, 5000);
     const f1 = await ev(() => window.__bmHome.scene.cost().frames);
-    ok(still ? f1 === f0 : f1 > f0 + 5, still ? 'on Low it is a still picture' : `it moves (${f1 - f0} frames in 0.8 s)`);
+    ok(still ? f1 === f0 : f1 > f0 + 5, still ? 'on Low it is a still picture' : `it moves (${f1 - f0} frames)`);
     // a place the scene gets: not the fox, a button or a row (an update's card can come and go above the fox)
     const free = above => ev(up => {
       const no = 'button, a, input, .fox-stage, .home-recent, .home-favs';
