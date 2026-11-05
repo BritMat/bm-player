@@ -13,12 +13,24 @@ import { FoxPlay } from '../play/fox-play.js';
 import { el, fileURL } from '../util.js';
 import liteMode from '../modules/lite-mode.js';
 import { once } from '../lazy.js';
+import { SceneRunner } from '../scenes/runner.js';
+import { beatMeter } from '../scenes/kit.js';
+import { themeScene } from '../theme-scenes.js';
 
 // The fox's voice, Flow and Fruit (v3.47.0) load the first time they are used,
 // not at every start. The fox you can touch (fox-play.js) is the home screen
 // itself, so it is there from the start as before.
 const playPart = name => once('play:' + name, { voice: () => import('../play/fox-voice.js'),
   flow: () => import('../play/flow-toy.js'), fruit: () => import('../play/slice-game.js') }[name]);
+
+// The scenes Home can show instead of the theme's own (v3.48.0), each loaded
+// the first time it is chosen. 'theme' is the theme's own background.
+const SCENES = [['theme', 'The theme\'s own'], ['aurora', 'Aurora Lake'], ['jellyfish', 'Jellyfish Drift']];
+const scenePart = id => once('scene:' + id, { aurora: () => import('../scenes/aurora.js'), jellyfish: () => import('../scenes/jellyfish.js') }[id]);
+const AURORA_COLOURS = [['green', 'Green'], ['violet', 'Violet'], ['both', 'Both']];
+// v3.49.0: Jellyfish Drift's two looks (scenes/jellyfish.js LOOKS)
+const JELLY_LOOKS = [['natural', 'Natural'], ['glow', 'Glow']];
+const store = (k, v) => { try { if (v === undefined) return localStorage.getItem(k); localStorage.setItem(k, v); } catch (_) { return null; } return null; };
 
 export default class EffectsFeature {
   // ── Fluid Settings panel ────────────────────────────────────────
@@ -94,8 +106,11 @@ export default class EffectsFeature {
       const mode=this._playMode||'fox';
       const on=shown&&(mode!=='fox'||!power.idle);   // resting after two idle minutes (v3.39.0), with the fox only
       // v3.42.0: Flow and Fruit use the fluid alone; the fox and the scene wait.
-      for(const fx of [this.fox,this.themeFX]){ try{ if(on&&mode==='fox')fx?.resume?.();else fx?.pause?.(); }catch(_){} }
-      try{ if(on)this.auroraFX?.resume?.();else this.auroraFX?.pause?.(); }catch(_){}
+      // v3.48.0: a scene chosen on Home runs instead of the theme's own: one at a time.
+      const picked=!!this._sceneOn;
+      for(const fx of [this.fox,this.themeFX]){ try{ if(on&&mode==='fox'&&!(picked&&fx===this.themeFX))fx?.resume?.();else fx?.pause?.(); }catch(_){} }
+      try{ if(on&&!(picked&&mode==='fox'))this.auroraFX?.resume?.();else this.auroraFX?.pause?.(); }catch(_){}
+      try{ this._sceneRunner?.rest(!(on&&mode==='fox')); }catch(_){}
       try{ if(on&&mode==='fox')this.foxPlay?.resume();else this.foxPlay?.pause(); }catch(_){}
       if(!shown){ try{ this.foxVoice?.stop(); if(this.sliceGame?.busy) this.sliceGame.pause(); }catch(_){} }
       this._foxMusic(on&&mode==='fox');
@@ -340,6 +355,97 @@ export default class EffectsFeature {
       if(this._playMode==='fruit'&&this.sliceGame?.busy){ this.sliceGame.pause(); return; }
       this.setPlayMode('fox');
     },true);
+  }
+
+  // ── v3.48.0: the scene on Home ──────────────────────────────────
+  // The theme's own background, or a scene chosen here (Aurora Lake, and from v3.49.0 Jellyfish Drift), which
+  // then runs instead of it on a canvas of its own, under the fox. It rests
+  // with the welcome screen (_syncEffects). In Lite each one is a still
+  // picture that moves for a few seconds when touched.
+  wireScenes(){
+    const ws=el('welcome-screen'); if(!ws||!el('scene-canvas'))return;
+    this._sceneId=SCENES.some(x=>x[0]===store('bm_home_scene'))?store('bm_home_scene'):'theme';
+    this._sceneTok=0;
+    const pick=document.createElement('div');
+    pick.className='scene-pick'; pick.id='scene-pick';
+    pick.innerHTML='<button type="button" class="scene-btn" id="scene-btn" aria-haspopup="menu" aria-expanded="false" aria-label="Scene on Home" title="The picture behind the fox">'
+      +'<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2 19l6.5-9 4 5.5 2.5-3.5L22 19z" fill="currentColor"/><circle cx="17" cy="6" r="2" fill="currentColor"/></svg><span id="scene-btn-label"></span></button>'
+      +'<div class="scene-menu hidden" id="scene-menu" role="menu" aria-label="Scene on Home">'
+      +SCENES.map(([k,l])=>`<button type="button" role="menuitemradio" data-scene="${k}">${l}</button>`).join('')
+      +'<div class="scene-opts" id="scene-aurora-opts"><div class="scene-opt-row" role="group" aria-label="Colour of the lights">'
+      +AURORA_COLOURS.map(([k,l])=>`<button type="button" data-colour="${k}">${l}</button>`).join('')
+      +'</div><label class="scene-opt-check"><input type="checkbox" id="scene-shoot"> Shooting stars</label></div>'
+      +'<div class="scene-opts" id="scene-jellyfish-opts"><div class="scene-opt-row" role="group" aria-label="How the jellyfish look">'
+      +JELLY_LOOKS.map(([k,l])=>`<button type="button" data-look="${k}">${l}</button>`).join('')
+      +'</div></div></div>';
+    ws.appendChild(pick);
+    const menu=el('scene-menu'), btn=el('scene-btn');
+    const open=on=>{ menu.classList.toggle('hidden',!on); btn.setAttribute('aria-expanded',String(on)); if(on)this._sceneMarks(); };
+    btn.addEventListener('click',e=>{ e.stopPropagation(); open(menu.classList.contains('hidden')); });
+    menu.addEventListener('click',e=>{
+      e.stopPropagation();
+      const s=e.target.closest('[data-scene]'), c=e.target.closest('[data-colour]'), lk=e.target.closest('[data-look]');
+      if(s){ this.setScene(s.dataset.scene); if(s.dataset.scene==='theme') open(false); else this._sceneMarks(); }
+      if(c){ store('bm_aurora_colour',c.dataset.colour); this._sceneRunner?.set('colour',c.dataset.colour); this._sceneMarks(); }
+      if(lk){ store('bm_jelly_look',lk.dataset.look); this._sceneRunner?.set('look',lk.dataset.look); this._sceneMarks(); }
+    });
+    el('scene-shoot')?.addEventListener('change',e=>{ store('bm_aurora_shoot',e.target.checked?'1':'0'); this._sceneRunner?.set('shoot',e.target.checked); });
+    document.addEventListener('click',e=>{ if(!menu.classList.contains('hidden')&&!e.target.closest('#scene-pick')) open(false); });
+    document.addEventListener('keydown',e=>{ if(e.key==='Escape'&&!menu.classList.contains('hidden')){ e.__bmHandled=true; open(false); } },true);
+    // a touch on the sky or the water, not on the fox or a button
+    ws.addEventListener('pointerdown',e=>{
+      if(!this._sceneRunner?.scene||(this._playMode||'fox')!=='fox')return;
+      if(e.target.closest('button, a, input, select, textarea, label, .fox-stage, .scene-pick, .welcome-actions, .welcome-recent-section, .welcome-modes'))return;
+      this._sceneRunner.pointer('down',e.clientX,e.clientY);
+    });
+    ws.addEventListener('pointermove',e=>{ if(this._sceneRunner?.scene&&!this._sceneRunner.still) this._sceneRunner.pointer('move',e.clientX,e.clientY); },{passive:true});
+    ws.addEventListener('pointerleave',()=>this._sceneRunner?.pointer('leave',0,0));
+    this._sceneMarks();
+    this._applyScene();
+  }
+  _sceneMarks(){
+    const id=this._sceneId||'theme', colour=store('bm_aurora_colour')||'green';
+    const lbl=el('scene-btn-label'); if(lbl) lbl.textContent=id==='theme'?'Scene':SCENES.find(x=>x[0]===id)[1];
+    for(const b of document.querySelectorAll('#scene-menu [data-scene]')){ const on=b.dataset.scene===id; b.classList.toggle('on',on); b.setAttribute('aria-checked',String(on)); }
+    for(const b of document.querySelectorAll('#scene-menu [data-colour]')){ const on=b.dataset.colour===colour; b.classList.toggle('on',on); b.setAttribute('aria-pressed',String(on)); }
+    el('scene-aurora-opts')?.classList.toggle('hidden',id!=='aurora');
+    const look=store('bm_jelly_look')||'natural';
+    for(const b of document.querySelectorAll('#scene-menu [data-look]')){ const on=b.dataset.look===look; b.classList.toggle('on',on); b.setAttribute('aria-pressed',String(on)); }
+    el('scene-jellyfish-opts')?.classList.toggle('hidden',id!=='jellyfish');
+    const sh=el('scene-shoot'); if(sh) sh.checked=store('bm_aurora_shoot')!=='0';
+  }
+  /** The scene on Home: 'theme' (the theme's own) or one of SCENES. Kept for the next start. */
+  setScene(id){
+    if(!SCENES.some(x=>x[0]===id))id='theme';
+    this._sceneId=id; store('bm_home_scene',id);
+    this._sceneMarks();
+    return this._applyScene();
+  }
+  // What the scene canvas shows: the scene chosen, or in Lite the theme's own as a still.
+  async _applyScene(){
+    const ws=el('welcome-screen'), cv=el('scene-canvas'); if(!ws||!cv)return;
+    const id=this._sceneId||'theme', tok=++this._sceneTok, lite=!!this.isLite;
+    let def=null, opts={};
+    if(id!=='theme'){
+      try{ def=(await scenePart(id)).default; }
+      catch(e){ console.error('[BM Player] the scene '+id+' could not be loaded:',e); this.showOSD('That scene could not be loaded'); }
+      opts={ colour: store('bm_aurora_colour')||'green', shoot: store('bm_aurora_shoot')!=='0', look: store('bm_jelly_look')||'natural' };
+    } else if(lite) def=themeScene(document.documentElement.getAttribute('data-theme')||'dark');
+    if(tok!==this._sceneTok)return;
+    this._sceneOn=!!def&&id!=='theme';
+    ws.classList.toggle('has-scene',!!def);
+    ws.classList.toggle('scene-picked',this._sceneOn);
+    if(!def){ this._sceneRunner?.stop(); this._syncEffects(); return; }
+    if(!this._sceneRunner){
+      const meter=beatMeter();
+      // the music's beat, while a song plays in the app or mpv's has its silent copy
+      const level=()=>{ const e=window.bmMusic?.engine; const a=e?.el&&!e.el.paused?e.getAnalyser?.():this._shadowOn?sharedAnalyser():null; return meter(a); };
+      this._sceneRunner=new SceneRunner(cv,{ still: lite, level });
+      window.__bmScene=this._sceneRunner;   // for the checks and Diagnostics: what it costs
+    }
+    const r=this._sceneRunner;
+    if(r.def?.id!==def.id){ r.rest(true); r.run(def,opts); }
+    this._syncEffects();
   }
 
   // Flow and Fruit are loaded the first time they are chosen (v3.47.0), so

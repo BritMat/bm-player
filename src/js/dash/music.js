@@ -21,6 +21,7 @@ import { setIcon, setPlaying } from '../icons.js';
 import { isFav, toggleFav } from '../favourites.js';   // v3.43.0: a star on each song
 import { Visualizer, vizSettings } from '../visualizer.js';
 import { AudioEngine } from '../audio-engine.js';
+import { rateOf } from '../sound-chain.js';   // v3.49.0: Slowed and Nightcore for a song mpv plays
 import SpeedMenu from '../modules/speed-menu.js';
 
 const AUDIO = new Set(['mp3', 'flac', 'aac', 'ogg', 'wav', 'm4a', 'wma', 'opus', 'ape', 'mka', 'm4b']);
@@ -526,7 +527,19 @@ _mpvOpen(fp){
   this._mpvSong=fp;
   if(this._filmSpeed==null)this._filmSpeed=window.bmApp?.speedMenu?._current||1;
   this.api?.mpv?.open([fp]);
-  this.api?.mpv?.cmd('set_property','speed',this.speed);
+  this._mpvRate();
+}
+/** mpv's speed for a song it plays: the music's, times a sound mode's
+ *  (v3.49.0: Slowed 0.85, Nightcore 1.25), with the pitch following when a
+ *  mode changes it, as the engine does. */
+_mpvRate(){
+  const f=rateOf(this.engine?.sound);
+  this.api?.mpv?.cmd('set_property','audio-pitch-correction',f===1)?.catch?.(()=>{});
+  this.api?.mpv?.cmd('set_property','speed',Math.max(0.25,Math.min(4,this.speed*f)));
+}
+/** The sound mode changed (app/panels.js _applyEQ): a song mpv plays gets its speed. The engine sees to its own. */
+applyRate(){
+  if(this._mpvSong&&this.currentPath&&!this.engineOwns()&&!window.bmApp?._hasVideo)this._mpvRate();
 }
 
 // ── The list ───────────────────────────────────────────────────────
@@ -766,6 +779,9 @@ _markPlaying(){
       if(!d.path) return;
       this.engine.active=false;
       if(d.path!==this.currentPath) return;   // a song already left behind
+      // From where the engine had got to (v3.48.0), not from the start: mpv
+      // goes there once it has the song's length, as after a crash of its own.
+      if(d.at>2&&window.bmApp) window.bmApp._crashSeek={t:d.at,paused:false};
       this._mpvOpen(d.path);
     });
   }
@@ -790,6 +806,8 @@ _markPlaying(){
     this._mpvSong=null;   // what mpv plays next is a film, not a song
     // mpv played a song at the music's speed: the film gets its own back (v3.38.0).
     if(this._filmSpeed!=null){const v=this._filmSpeed;this._filmSpeed=null;this.api?.mpv?.cmd('set_property','speed',v);}
+    // and its pitch kept, whatever a sound mode did to the song's (v3.49.0)
+    this.api?.mpv?.cmd('set_property','audio-pitch-correction',true)?.catch?.(()=>{});
     if(!this.engineOwns?.()) return false;
     this._yielding=true;
     this.engine.stop();
@@ -828,7 +846,7 @@ _markPlaying(){
         try{localStorage.setItem('bm_music_speed',String(this.speed));}catch(_){}
         this.engine?.setSpeed(this.speed);
         // A song mpv plays (a format the engine cannot): mpv's speed, as before.
-        if(!this.engineOwns()&&this.currentPath&&!window.bmApp?._hasVideo)this.api?.mpv?.cmd('set_property','speed',this.speed);
+        if(!this.engineOwns()&&this.currentPath&&!window.bmApp?._hasVideo)this._mpvRate();
         this._npSpeed?.sync();window.bmApp?.speedMenu?.sync?.();
       },
     };

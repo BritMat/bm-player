@@ -78,6 +78,7 @@ export default class MpvEventsFeature {
       const musicOwns=!!window.bmMusic?.engineOwns?.();
       if(p.name==='duration'){this.duration=p.data||0;this.setTime('time-total',this.duration);const tot=el('np-time-tot');if(tot&&!musicOwns)tot.textContent=fmtSec(this.duration);this._renderBookmarksOnSeekbar();
         // Loaded again after mpv was restarted: back to the place (v3.46.0).
+        // A song the engine gave up on partway comes back here too (v3.48.0).
         const c=this._crashSeek; if(c&&p.data>0){ this._crashSeek=null; if(c.t>2&&c.t<p.data-1)this.seekTo(c.t); if(c.paused)this.togglePlay(); }}   // opened playing: paused again
       if(p.name==='volume'){const sl=el('volume-slider');if(sl)sl.value=p.data;const l=el('vol-label');if(l)l.textContent=Math.round(p.data);}
       if(p.name==='mute'){this._muted=!!p.data;this.updateMuteIcon(p.data);}

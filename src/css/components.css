@@ -890,6 +890,35 @@ html.is-fs.lite-window body.playing:not(.pip-mode):has(#controls-bar.faded) #pla
 #welcome-screen[data-play="fruit"] .sg-stage { display: block; z-index: 6; }
 #welcome-screen[data-play="flow"] .aurora-canvas, #welcome-screen[data-play="fruit"] .aurora-canvas { opacity: 1 !important; }
 
+/* ── v3.48.0: the scene on Home (scenes/*.js) ─────────────────────────
+   A scene chosen with the picker at the top left runs on its own canvas,
+   under the fox, in place of the theme's own background (hidden while it
+   shows). Flow and Fruit have the welcome area to themselves. */
+.scene-canvas { position: absolute; inset: 0; width: 100%; height: 100%; z-index: 3; pointer-events: none; opacity: 0; transition: opacity .6s; }
+#welcome-screen.has-scene .scene-canvas { opacity: 1; }
+#welcome-screen.scene-picked #theme-fx-canvas, #welcome-screen.scene-picked .aurora-canvas { visibility: hidden; }
+#welcome-screen.scene-picked[data-play="flow"] .aurora-canvas, #welcome-screen.scene-picked[data-play="fruit"] .aurora-canvas { visibility: visible; }
+#welcome-screen[data-play="flow"] .scene-canvas, #welcome-screen[data-play="fruit"] .scene-canvas,
+#welcome-screen[data-play="flow"] .scene-pick, #welcome-screen[data-play="fruit"] .scene-pick { display: none; }
+.scene-pick { position: absolute; z-index: 8; top: 14px; left: 18px; }
+.scene-btn { display: inline-flex; align-items: center; gap: 7px; min-height: 34px; padding: 0 14px 0 11px; border-radius: 99px; cursor: pointer;
+  border: 1px solid var(--border, rgba(255,255,255,.1)); background: color-mix(in srgb, var(--surface2, #1b2030) 78%, transparent); backdrop-filter: blur(10px);
+  color: var(--text-muted, #9aa3b8); font: 600 13.5px/1 var(--font-ui, system-ui), system-ui, sans-serif; }
+.scene-btn svg { width: 16px; height: 16px; }
+.scene-btn:hover, .scene-btn:focus-visible, .scene-btn[aria-expanded="true"] { color: var(--text); border-color: var(--accent); outline: none; }
+.scene-menu { position: absolute; top: calc(100% + 6px); left: 0; min-width: 230px; display: flex; flex-direction: column; gap: 2px; padding: 6px;
+  border-radius: 14px; background: color-mix(in srgb, var(--surface, #12151f) 94%, transparent); border: 1px solid var(--border); box-shadow: 0 16px 40px rgba(0, 0, 0, .45); backdrop-filter: blur(12px); }
+.scene-menu.hidden { display: none; }
+.scene-menu > button { text-align: left; min-height: 36px; padding: 0 12px 0 30px; border: 0; border-radius: 9px; background: transparent; color: var(--text); font: 500 14px/1.2 var(--font-ui, system-ui), system-ui, sans-serif; cursor: pointer; position: relative; }
+.scene-menu > button:hover, .scene-menu > button:focus-visible { background: color-mix(in srgb, var(--accent) 16%, transparent); outline: none; }
+.scene-menu > button.on::before { content: ''; position: absolute; left: 12px; top: 50%; width: 8px; height: 8px; margin-top: -4px; border-radius: 50%; background: var(--accent); }
+.scene-opts { display: flex; flex-direction: column; gap: 8px; padding: 8px 8px 6px; margin-top: 4px; border-top: 1px solid var(--border); }
+.scene-opts.hidden { display: none; }
+.scene-opt-row { display: inline-flex; gap: 4px; padding: 3px; border-radius: 99px; background: color-mix(in srgb, var(--surface2, #1b2030) 70%, transparent); align-self: flex-start; }
+.scene-opt-row button { min-height: 28px; padding: 0 12px; border: 0; border-radius: 99px; background: transparent; color: var(--text-muted); font: 600 12.5px/1 var(--font-ui, system-ui), system-ui, sans-serif; cursor: pointer; }
+.scene-opt-row button.on { background: var(--accent); color: var(--on-accent, #fff); }
+.scene-opt-check { display: inline-flex; align-items: center; gap: 8px; font-size: 13px; color: var(--text-muted); cursor: pointer; }
+
 /* ── The welcome screen's rows (v3.43.0, favourites.js) ───────────────
    Recent files and Favourites, each one line that scrolls sideways, so both
    fit under the fox. A star on each card, shown on hover and kept lit on a
@@ -960,3 +989,8 @@ html.is-fs.lite-window body.playing:not(.pip-mode):has(#controls-bar.faded) #pla
 .sleep-badge.hidden { display: none; }
 .sleep-badge .ico { width: 13px; height: 13px; display: inline-flex; }
 .sleep-badge .ico svg { width: 100%; height: 100%; }
+
+/* v3.49.0: the equalizer's preamp, under the bands */
+.eq-preamp { display: flex; align-items: center; gap: 10px; margin: 10px 2px 4px; font-size: 12px; color: var(--text-muted); }
+.eq-preamp input[type="range"] { flex: 1; accent-color: var(--accent); cursor: pointer; }
+.eq-preamp .eq-band-val { width: 52px; }

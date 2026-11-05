@@ -16,9 +16,9 @@
 import { AudioEngine } from './audio-engine.js';
 import { call, on } from './m-android.js';
 import { lib } from './m-library.js';
-import { toast } from './m-ui.js';
+import { toast, fmtTime } from './m-ui.js';
 
-const KEEP = 'bm_m_queue', SPEED = 'bm_m_speed', EQ = 'bm_m_eq', KEEPQ = 'bm_m_keepq';
+const KEEP = 'bm_m_queue', SPEED = 'bm_m_speed', EQ = 'bm_m_eq', KEEPQ = 'bm_m_keepq', SOUND = 'bm_m_sound';
 const listeners = new Map();
 
 /** Whether the queue is kept for the next time the app opens (Settings, v3.43.0). */
@@ -59,7 +59,8 @@ export const player = {
     e.on('ended', () => this.ended());
     e.on('fallback', d => this.failedSong(d));
     try { const s = +localStorage.getItem(SPEED); if (s > 0 && s !== 1) e.setSpeed(s); } catch (_) {}
-    try { const g = JSON.parse(localStorage.getItem(EQ) || 'null'); if (Array.isArray(g?.gains)) e.setEQ(g.gains); } catch (_) {}
+    try { const g = JSON.parse(localStorage.getItem(EQ) || 'null'); if (Array.isArray(g?.gains)) e.setEQ(g.gains); if (isFinite(g?.preamp)) e.setSound({ preamp: g.preamp }); } catch (_) {}
+    e.setSound(this.sound());
     e.setVolume(100);
     on('remote', d => this.remote(d));
     setInterval(() => { if (!this.paused) this.save(); }, 10000);
@@ -231,11 +232,30 @@ export const player = {
   },
   get speed () { return this.engine?.speed || 1; },
 
-  setEQ (gains, name) {
+  setEQ (gains, name, preamp = this.eq().preamp || 0) {
     this.engine?.setEQ(gains);
-    try { localStorage.setItem(EQ, JSON.stringify({ gains, name })); } catch (_) {}
+    this.engine?.setSound({ preamp });
+    try { localStorage.setItem(EQ, JSON.stringify({ gains, name, preamp })); } catch (_) {}
   },
-  eq () { try { return JSON.parse(localStorage.getItem(EQ) || 'null') || { gains: new Array(10).fill(0), name: 'Flat' }; } catch (_) { return { gains: new Array(10).fill(0), name: 'Flat' }; } },
+  eq () { try { return JSON.parse(localStorage.getItem(EQ) || 'null') || { gains: new Array(10).fill(0), name: 'Flat', preamp: 0 }; } catch (_) { return { gains: new Array(10).fill(0), name: 'Flat', preamp: 0 }; } },
+
+  /**
+   * The sound mode, clear voice and night mode (v3.49.0, Sound lab), kept
+   * like the equaliser: { mode, voice, night }, for the music and the videos
+   * (m-sound.js). Slowed and Nightcore play the music slower
+   * or faster too (the engine does that from the mode), and the speed menu goes
+   * on showing the speed chosen.
+   */
+  sound () {
+    try { const o = JSON.parse(localStorage.getItem(SOUND) || '{}'); return { mode: typeof o.mode === 'string' ? o.mode : 'off', voice: o.voice === true, night: o.night === true }; }
+    catch (_) { return { mode: 'off', voice: false, night: false }; }
+  },
+  setSound (next) {
+    const o = { ...this.sound(), ...next };
+    try { localStorage.setItem(SOUND, JSON.stringify(o)); } catch (_) {}
+    this.engine?.setSound(o);
+    this.emit('sound', o); this.tell();
+  },
 
   // ── what happens by itself ────────────────────────────────────────
   ended () {
@@ -243,13 +263,19 @@ export const player = {
     this.next(true);
   },
 
-  failedSong () {
+  // The engine has tried a song that lost its stream partway three times,
+  // from where it was, before it gives up on it (v3.48.0, audio-engine.js):
+  // a song that comes here could not be read on, or not at all.
+  failedSong (d = {}) {
     const s = this.current;
     this.failed++;
     const ext = (s?.file || s?.path || '').split('.').pop().toUpperCase();
-    console.warn('[BM Player] could not play', s?.path || s?.url);
+    const partway = d.at > 5;
+    console.warn('[BM Player] could not play', s?.path || s?.url, partway ? `(stopped at ${fmtTime(d.at)})` : '');
     if (this.failed >= 4) { toast('These songs could not be played on this phone.'); this.failed = 0; this.emit('state'); return; }
-    const what = `This phone could not play ${s?.title ? '"' + s.title + '"' : 'that song'}${ext && ext.length <= 4 ? ' (' + ext + ')' : ''}`;
+    const name = s?.title ? '"' + s.title + '"' : 'that song';
+    const what = partway ? `${name} stopped at ${fmtTime(d.at)}: the rest of the file could not be read`
+      : `This phone could not play ${name}${ext && ext.length <= 4 ? ' (' + ext + ')' : ''}`;
     // Restored at start-up and not playing: say so, but start nothing by itself.
     if (!this._meant) { toast(what + '.'); this.emit('state'); return; }
     toast(what + '. Skipping it.');
@@ -273,7 +299,7 @@ export const player = {
   /** Android is told what plays: the notification, the lock screen, a car's screen. */
   tell () {
     const s = this.current;
-    const o = s ? { has: true, playing: !this.paused, title: s.title, artist: s.artist, album: s.album, duration: this.duration, position: this.time, speed: this.speed, artId: s.id || -1, albumId: s.albumId || -1 } : { has: false };
+    const o = s ? { has: true, playing: !this.paused, title: s.title, artist: s.artist, album: s.album, duration: this.duration, position: this.time, speed: this.engine?.rate || this.speed, artId: s.id || -1, albumId: s.albumId || -1 } : { has: false };
     call('playback', JSON.stringify(o));
   },
 

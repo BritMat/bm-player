@@ -31,10 +31,11 @@ import { wireGestures, hud, hudOff } from './m-vgest.js';
 import { favItem, videoFav } from './m-favs.js';
 import { shareItems } from './m-select.js';
 import { deleteItems, canDelete } from './m-delete.js';
+import { soundSheet, soundNote, videoAf } from './m-sound.js';
 
 /** The seek bar's steps: ten thousand along the film (v3.43.2). */
 const RANGE = 10000;
-const v = { open: false, item: null, uiT: 0, turn: 'auto', aspect: 'fit', seeking: false, objectUrl: null, subUrls: [],
+const v = { open: false, item: null, uiT: 0, turn: 'auto', rot: 0, fileRot: 0, aspect: 'fit', seeking: false, objectUrl: null, subUrls: [],
   waiting: false, failed: false, spinT: 0, lifted: false, besideTried: false, list: null, index: -1, locked: false,
   zoom: 1, pan: [0, 0], boost: 100, ab: { a: null, b: null }, sleepT: 0, sleepAt: 0, sleepEnd: false, held: false, speedBefore: 1,
   saveT: 0, clockT: 0, nextT: 0, lastSeek: 0, startAt: 0 };
@@ -72,19 +73,31 @@ const web = {
   jump (d) { this.seek(this.time + d); },
   get speed () { return this.el.playbackRate || 1; },
   setSpeed (s) { this.el.playbackRate = s; this.el.defaultPlaybackRate = s; },
-  aspect (mode) {
-    const vid = this.el;
+  aspect () { this.layout(); },
+  zoom () { this.layout(); },
+  turn () { this.layout(); },
+  // The picture's size, its turn (v3.48.0) and the pinch's zoom, together.
+  // Turned a quarter, its box is the screen the other way round, then turned
+  // about its middle, so the picture fits the screen as it is.
+  layout () {
+    const vid = this.el, side = v.rot % 180 !== 0, mode = v.aspect;
+    const W = window.innerWidth, H = window.innerHeight, bw = side ? H : W, bh = side ? W : H;
     vid.classList.remove('fill', 'stretch', 'orig');
-    vid.style.width = vid.style.height = vid.style.left = vid.style.top = '';
+    let w = bw, hh = bh;
     if (mode === 'fill' || mode === 'stretch' || mode === 'orig') vid.classList.add(mode);
     else if (mode === '16:9' || mode === '4:3') {
-      const r = mode === '16:9' ? 16 / 9 : 4 / 3, W = window.innerWidth, H = window.innerHeight;
-      const w = Math.min(W, H * r), hh = w / r;
-      Object.assign(vid.style, { width: w + 'px', height: hh + 'px', left: (W - w) / 2 + 'px', top: (H - hh) / 2 + 'px' });
+      const r = mode === '16:9' ? 16 / 9 : 4 / 3;
+      w = Math.min(bw, bh * r); hh = w / r;
       vid.classList.add('stretch');
     }
+    if (side || mode === '16:9' || mode === '4:3') Object.assign(vid.style, { width: w + 'px', height: hh + 'px', left: (W - w) / 2 + 'px', top: (H - hh) / 2 + 'px' });
+    else vid.style.width = vid.style.height = vid.style.left = vid.style.top = '';
+    // the pan is a share of the screen, as the fingers move on it
+    const t = [];
+    if (v.zoom > 1.001) t.push(`translate(${(v.pan[0] * W).toFixed(1)}px, ${(v.pan[1] * H).toFixed(1)}px)`, `scale(${v.zoom})`);
+    if (v.rot) t.push(`rotate(${v.rot}deg)`);
+    vid.style.transform = t.join(' ');
   },
-  zoom (z, px, py) { this.el.style.transform = z > 1.001 ? `translate(${px * 100}%, ${py * 100}%) scale(${z})` : ''; },
   setLoop () {},
 };
 const mp = {
@@ -110,6 +123,8 @@ const mp = {
   },
   // video-zoom is a power of two; the pan is a share of the picture's size
   zoom (z, px, py) { mpv.set('video-zoom', Math.log2(Math.max(1, z)).toFixed(3)); mpv.set('video-pan-x', px.toFixed(3)); mpv.set('video-pan-y', py.toFixed(3)); },
+  // added to the file's own turn (v3.48.0); mpv keeps it from film to film, so it is set on each
+  turn (r) { mpv.set('video-rotate', r); },
 };
 let eng = web;
 
@@ -149,6 +164,30 @@ let hooks = { watched () {} };
 export function initPlayer (h = {}) {
   hooks = { ...hooks, ...h };
   wirePlayer();
+  // v3.48.0: in Android's small window (picture-in-picture) only the picture
+  // shows; closing that window pauses the film.
+  on('pip', d => {
+    v.pip = !!d.on;
+    $('vp').classList.toggle('pip', v.pip);
+    if (v.pip) { clearTimeout(v.uiT); $('vp').classList.remove('ui'); hudOff(0); hideChip(); }
+    else if (d.closed && v.open) eng.pause();
+    else if (v.open) showUi();
+  });
+}
+
+/**
+ * What Android needs for picture-in-picture (v3.48.0): a film open, playing
+ * or not, its shape, and whether more are around it (the small window's
+ * buttons skip to them, else ten seconds). Told when any of it changes.
+ */
+function tellPip () {
+  const s = mpv.st, vid = $('vp-video');
+  let w = eng === mp ? s.w : vid.videoWidth, h = eng === mp ? s.h : vid.videoHeight;
+  if (((eng === mp ? v.fileRot : 0) + v.rot) % 180) [w, h] = [h, w];
+  const now = JSON.stringify({ film: v.open, playing: v.open && !eng.paused, w: w || 16, h: h || 9, list: !!(v.list && v.list.length > 1) });
+  if (now === v.pipSaid) return;
+  v.pipSaid = now;
+  call('pip', now);
 }
 
 /** A video chosen inside the page, without Android's picker: played from a blob address, the one before let go. */
@@ -170,9 +209,14 @@ function wirePlayer () {
   $('vp-rotate').addEventListener('click', () => {
     v.turn = v.turn === 'landscape' ? 'portrait' : v.turn === 'portrait' ? 'sensor' : 'landscape';
     call('orientation', v.turn);
-    toast(v.turn === 'landscape' ? 'Landscape' : v.turn === 'portrait' ? 'Portrait' : 'Turns with the phone', 1200);
+    // This button turns the screen. The first time, where the picture itself is turned (v3.48.0).
+    let told = true; try { told = localStorage.getItem('bm_m_turn_told') === '1'; localStorage.setItem('bm_m_turn_told', '1'); } catch (_) {}
+    const what = v.turn === 'landscape' ? 'Landscape' : v.turn === 'portrait' ? 'Portrait' : 'Turns with the phone';
+    toast(told ? what : what + '. To turn the picture itself: More, Turn the picture.', told ? 1200 : 3600);
     showUi();
   });
+  // A picture turned a quarter, or at 16:9 or 4:3, is laid out by the screen's size: again when it turns.
+  window.addEventListener('resize', () => { if (v.open && eng === web) web.layout(); });
   $('vp-lock').addEventListener('click', () => setLock(true));
   $('vp-unlock').addEventListener('click', () => setLock(false));
   $('vp-speed').addEventListener('click', speedMenu);
@@ -213,10 +257,12 @@ function wirePlayer () {
   vid.addEventListener('ended', mine(() => { state(); showUi(true); ended(); }));
   vid.addEventListener('waiting', mine(() => { v.waiting = true; spin(); }));
   for (const ev of ['playing', 'canplay', 'seeked']) vid.addEventListener(ev, mine(() => { v.waiting = false; spin(); }));
-  vid.addEventListener('loadedmetadata', mine(() => { hideNote(); turnFor(vid.videoWidth, vid.videoHeight, 0); meta(); }));
+  vid.addEventListener('loadedmetadata', mine(() => { hideNote(); v.fileRot = 0; turnFor(vid.videoWidth, vid.videoHeight, v.rot); meta(); }));
   vid.addEventListener('error', mine(webError));
   // mpv's.
   mpv.listen(onMpv);
+  // The sound changed in its sheet (v3.49.0): a video mpv plays hears it at once.
+  player.on('sound', () => { if (v.open && eng === mp) mpv.set('af', videoAf()); });
   // Touch: taps, double taps, swipes, pinch and hold (m-vgest.js).
   wireGestures($('vp-tap'), {
     locked: () => v.locked,
@@ -290,6 +336,7 @@ export function openVideo (item, { engine = null, start = null, list = null, ind
   clearTimeout(v.nextT); $('vp-chip').classList.add('hidden');
   if (list) { v.list = list; v.index = index; } else if (!v.open || !v.list || !v.list.includes(item)) { v.list = null; v.index = -1; }
   else v.index = v.list.indexOf(item);
+  if (item !== v.item) v.rot = 0;           // a turn is the video's: kept only when the same one opens again (another engine)
   v.item = item; v.open = true; v.turn = 'auto'; v.failed = false; v.waiting = false; v.lifted = false; v.besideTried = false;
   v.zoom = 1; v.pan = [0, 0]; v.boost = 100; v.ab = { a: null, b: null }; v.held = false;
   eng = engine || engineFor(item);
@@ -309,6 +356,8 @@ export function openVideo (item, { engine = null, start = null, list = null, ind
   call('immersive', true);
   eng.open(item, v.startAt);
   if (eng === mp && localStorage.getItem('bm_m_hwdec')) mpv.set('hwdec', localStorage.getItem('bm_m_hwdec'));
+  if (eng === mp) mp.turn(v.rot);
+  if (eng === mp) mpv.set('af', videoAf());          // the sound mode, clear voice, night mode (v3.49.0)
   setAspect(v.aspect, false);
   applySubStyle();
   markAb();
@@ -333,6 +382,7 @@ export function closeVideo () {
   const vp = $('vp');
   savePos();
   v.open = false;
+  tellPip();
   eng.close();
   clearSubs();
   clearTimeout(v.spinT); clearInterval(v.saveT); clearInterval(v.clockT); clearTimeout(v.nextT);
@@ -401,13 +451,14 @@ function onMpv (d, s) {
   switch (d.e) {
     case 'loaded':
       hideNote();
-      turnFor(s.w, s.h, s.rotate);
+      v.fileRot = s.rotate || 0;               // the file's own turn (its demuxer's): the one asked for comes on top
+      turnFor(s.w, s.h, v.fileRot + v.rot);
       time(); meta();
       markSubs();
       // A subtitle file beside the film, unless mpv found one itself.
       if (v.item?.id && !v.besideTried && !s.tracks.some(t => t.type === 'sub' && t.external)) { v.besideTried = true; besideSubs(v.item); }
       break;
-    case 'video': turnFor(d.w, d.h, d.rotate); break;
+    case 'video': turnFor(d.w, d.h, d.rotate); break;          // the decoded picture's turn, the one asked for in it
     case 'restart': case 'buffering': case 'seeking': spin(); break;
     case 'time': case 'duration': time(); break;
     case 'pause': case 'eof': state(); if (mp.paused) showUi(true); else showUi(); if (d.e === 'eof' && d.v) ended(); break;
@@ -423,8 +474,27 @@ function onMpv (d, s) {
   }
 }
 
+/**
+ * The picture turned (v3.48.0): straight, a quarter to the right, upside
+ * down or a quarter to the left, for a film recorded sideways. The screen
+ * follows it while it turns with the film.
+ */
+const TURNS = [[0, 'Straight'], [90, 'A quarter to the right'], [180, 'Upside down'], [270, 'A quarter to the left']];
+function turnPicture (r, tell) {
+  v.rot = ((Math.round(r / 90) * 90) % 360 + 360) % 360;
+  eng.turn(v.rot);
+  if (eng === mp) { if (mpv.st.w) turnFor(mpv.st.w, mpv.st.h, v.fileRot + v.rot); }
+  else { const vid = $('vp-video'); turnFor(vid.videoWidth, vid.videoHeight, v.rot); }
+  if (tell) toast('Picture: ' + TURNS.find(t => t[0] === v.rot)[1].toLowerCase(), 1400);
+}
+function turnMenu () {
+  sheet({ title: 'Turn the picture', sub: 'For a video recorded sideways. The screen follows it.',
+    items: TURNS.map(([deg, label]) => ({ label, note: deg ? deg + '°' : '', on: v.rot === deg, action: () => turnPicture(deg, true) })) });
+}
+
 /** The screen turns to suit the film: landscape for a wide one. */
 function turnFor (w, h, rotate) {
+  tellPip();
   if (v.turn !== 'auto' || !w || !h) return;
   const wide = (rotate || 0) % 180 ? h > w : w > h;
   call('orientation', wide ? 'landscape' : 'sensor');
@@ -447,6 +517,7 @@ function state () {
   setIcon($('vp-play'), p ? 'play' : 'pause');
   $('vp-play').setAttribute('aria-label', p ? 'Play' : 'Pause');
   call('keepScreenOn', v.open && !p && awakeOn());
+  tellPip();
 }
 
 function time () {
@@ -494,7 +565,7 @@ function spin () {
 }
 
 function showUi (stay = false) {
-  if (v.locked) return;
+  if (v.locked || v.pip) return;
   const vp = $('vp');
   vp.classList.add('ui');
   lift(true);
@@ -636,8 +707,11 @@ function moreMenu () {
     title: v.item?.title || 'Video',
     items: [
       { icon: 'speed', label: 'Speed', note: eng.speed === 1 ? 'Normal' : eng.speed + '×', action: speedMenu },
+      // v3.49.0: the sound modes, clear voice and night mode, through mpv's audio filter (the web engine has none)
+      ...(eng === mp ? [{ icon: 'wave', label: 'Sound', note: soundNote(), action: () => soundSheet({ film: true }) }] : []),
       ...(audios.length > 1 ? [{ icon: 'volHigh', label: 'Audio track', note: sel ? trackLabel(sel) : 'Off', action: audioMenu }] : []),
       { icon: 'aspect', label: 'Picture size', note: ASPECTS.find(a => a[0] === v.aspect)[1], action: () => sheet({ title: 'Picture size', items: ASPECTS.map(([k, l]) => ({ label: l, on: v.aspect === k, action: () => setAspect(k, true) })) }) },
+      { icon: 'turnPic', label: 'Turn the picture', note: v.rot ? v.rot + '°' : 'Straight', action: turnMenu },
       { icon: 'timer', label: 'Sleep timer', note: v.sleepAt ? 'On' : v.sleepEnd ? 'At the end' : 'Off', action: sleepMenu },
       { icon: 'abloop', label: 'Repeat a part (A-B)', note: v.ab.b != null ? `${fmtTime(v.ab.a)} to ${fmtTime(v.ab.b)}` : 'Off', action: () => { if (v.ab.a != null) clearAb(); abStep(); } },
       ...(eng === mp ? [{ icon: 'sub', label: 'Subtitle timing', action: () => delayMenu('sub-delay', 'Subtitle timing') }, { icon: 'volHigh', label: 'Sound timing', action: () => delayMenu('audio-delay', 'Sound timing') },

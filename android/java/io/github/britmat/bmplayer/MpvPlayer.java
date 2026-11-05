@@ -77,7 +77,9 @@ final class MpvPlayer implements MPVLib.Listener, SurfaceHolder.Callback, AudioM
             "sub-scale", "sub-font-size", "sub-border-style", "sub-back-color", "sub-border-size", "sub-shadow-offset",
             "sub-margin-y", "sub-pos", "volume", "mute", "loop-file", "video-rotate", "video-zoom", "hwdec",
             // v3.42.0: the picture's size and place, repeating a part
-            "keepaspect", "video-unscaled", "video-aspect-override", "video-pan-x", "video-pan-y", "ab-loop-a", "ab-loop-b"));
+            "keepaspect", "video-unscaled", "video-aspect-override", "video-pan-x", "video-pan-y", "ab-loop-a", "ab-loop-b",
+            // v3.49.0: the sound modes, clear voice and night mode, as sound-chain.js writes them (AfGuard checks each)
+            "af"));
 
     // mpv is one per app. These describe it, whichever window made it, and
     // owner is the window it reports to (a new window takes it over).
@@ -93,6 +95,11 @@ final class MpvPlayer implements MPVLib.Listener, SurfaceHolder.Callback, AudioM
     private final SharedPreferences prefs;
     private SurfaceView view;
     private boolean surface, shown;
+    // What decodes now (hwdec-current), what did before the picture went out
+    // of sight, and the decoders asked for: for putting the phone's direct
+    // decoder back when the picture returns (v3.48.0).
+    private volatile String hwdecNow, hwdecBefore;
+    private volatile String hwdecAsked = "mediacodec,mediacodec-copy";
     private String pending;                 // what to open once the surface is there
     private double pendingStart;
     private boolean pendingPaused;
@@ -208,6 +215,11 @@ final class MpvPlayer implements MPVLib.Listener, SurfaceHolder.Callback, AudioM
             BMLog.w("mpv: the page asked to change '" + (args.length > 1 ? args[1] : "") + "', which is not allowed");
             return;
         }
+        if ("af".equals(args[1]) && !("set".equals(args[0]) && args.length == 3 && AfGuard.ok(args[2]))) {
+            BMLog.w("mpv: the page's audio filter was not taken (only sound-chain.js's own filters are)");
+            return;
+        }
+        if ("set".equals(args[0]) && "hwdec".equals(args[1]) && args.length > 2) hwdecAsked = args[2];
         MPVLib.command(args);
     }
 
@@ -269,6 +281,12 @@ final class MpvPlayer implements MPVLib.Listener, SurfaceHolder.Callback, AudioM
             MPVLib.setOptionString("hwdec", "mediacodec,mediacodec-copy");
             MPVLib.setOptionString("hwdec-codecs", "h264,hevc,mpeg4,mpeg2video,vp8,vp9,av1");
             MPVLib.setOptionString("ao", "audiotrack,opensles");
+            // v3.48.0: half a second of sound ready ahead, not mpv's fifth of
+            // one. The phone's log had "Audio device underrun" several times a
+            // second in a film's first half minute, while the picture's decoder
+            // started (a gap heard each time). The volume swipe sets Android's
+            // own volume, so nothing waits on this but the boost past 100%.
+            MPVLib.setOptionString("audio-buffer", "0.5");
             MPVLib.setOptionString("audio-set-media-role", "yes");
             MPVLib.setOptionString("volume-max", "150");                 // the volume swipe's boost (v3.42.0)
             // What mpv keeps in memory ahead of where it plays, and behind:
@@ -403,7 +421,23 @@ final class MpvPlayer implements MPVLib.Listener, SurfaceHolder.Callback, AudioM
         // mpv draws into the surface even when there is nothing to show yet (black).
         MPVLib.setOptionString("force-window", "yes");
         surface = true;
-        if (voOff) { MPVLib.setPropertyString("vo", "gpu"); voOff = false; }
+        if (voOff) {
+            MPVLib.setPropertyString("vo", "gpu");
+            voOff = false;
+            // A film that went on out of sight lost the surface its hardware
+            // decoder draws on, and mpv took the slower copying one (the log's
+            // "Both surface and native_window are NULL", then mediacodec-copy)
+            // and kept it. Asked for the same decoders in other words (with
+            // ",no" added or taken off: mpv only starts its decoder again when
+            // the words change), it picks the direct one again.
+            if (active && pending == null && "mediacodec".equals(hwdecBefore) && !"mediacodec".equals(hwdecNow)) {
+                String again = hwdecAsked.endsWith(",no") ? hwdecAsked.substring(0, hwdecAsked.length() - 3) : hwdecAsked + ",no";
+                hwdecAsked = again;
+                MPVLib.setPropertyString("hwdec", again);
+                BMLog.i("mpv: on screen again, back to the phone's direct decoder (from " + hwdecNow + ")");
+            }
+            hwdecBefore = null;
+        }
         if (pending != null) loadPending();
     }
 
@@ -417,6 +451,7 @@ final class MpvPlayer implements MPVLib.Listener, SurfaceHolder.Callback, AudioM
     public void surfaceDestroyed(SurfaceHolder h) {
         if (!mine() || !surface) return;
         surface = false;
+        hwdecBefore = hwdecNow;
         MPVLib.setPropertyString("vo", "null");
         voOff = true;
         MPVLib.setPropertyString("force-window", "no");
@@ -519,9 +554,27 @@ final class MpvPlayer implements MPVLib.Listener, SurfaceHolder.Callback, AudioM
         a.ui.post(new Runnable() { public void run() { onEvent(id); } });
     }
 
+    // v3.48.0: the sound running dry, told at most every half minute with a
+    // count (it filled a third of the phone's log, a line each time), and a
+    // phone camera's own tags in its films, which mpv skips, not told at all.
+    private int underruns;
+    private long underrunTold;
+
     @Override
     public void log(String prefix, int level, String text) {
         if (level > LOG_WARN || text == null) return;
+        if (text.startsWith("Skipping unhandled metadata")) return;
+        if (text.contains("Audio device underrun")) {
+            long now = SystemClock.elapsedRealtime();
+            int n;
+            synchronized (errors) {
+                underruns++;
+                if (underrunTold != 0 && now - underrunTold < 30000) return;
+                n = underruns; underruns = 0; underrunTold = now;
+            }
+            BMLog.w("mpv: the sound ran dry" + (n > 1 ? " " + n + " times since the last note" : "") + " (audio device underrun)");
+            return;
+        }
         String line = "[" + prefix + "] " + text.trim();
         synchronized (errors) {
             errors.addLast(line);
@@ -549,6 +602,7 @@ final class MpvPlayer implements MPVLib.Listener, SurfaceHolder.Callback, AudioM
             if (active) send("tracks", "list", tracks());
         }
         else if ("hwdec-current".equals(name)) {
+            hwdecNow = v == null ? null : String.valueOf(v);
             if (v != null && active) BMLog.i("mpv decodes with " + ("no".equals(v) ? "its own decoder (software)" : v + " (the phone's hardware)"));
             send("hwdec", "v", v);
         }

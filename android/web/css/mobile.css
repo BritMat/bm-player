@@ -229,6 +229,14 @@ body:has(.np.on) .m-toast, body:has(.vp.on) .m-toast { bottom: 96px; }
 .eq-bands { display: grid; grid-template-columns: repeat(10, 1fr); gap: 2px; height: 220px; }
 .eq-band { display: flex; flex-direction: column; align-items: center; gap: 6px; min-width: 0; }
 .eq-band input { -webkit-appearance: slider-vertical; writing-mode: vertical-lr; direction: rtl; flex: 1; width: 28px; accent-color: var(--accent); }
+/* v3.49.0: the equaliser's preamp, and the Sound sheet (m-sound.js) */
+.eq-pre { display: flex; align-items: center; gap: 10px; margin-top: 12px; font-size: 14px; color: var(--text-muted); }
+.eq-pre input { flex: 1; accent-color: var(--accent); }
+.eq-pre .eq-val { min-width: 52px; text-align: right; }
+.snd { padding: 2px 4px 6px; }
+.snd-h { font-size: 13px; font-weight: 700; letter-spacing: .02em; color: var(--text); margin: 6px 2px 2px; }
+.snd-chips { flex-wrap: wrap; overflow: visible; padding-bottom: 6px; }
+.snd-note { margin: 0 2px 10px; font-size: 13px; line-height: 1.4; color: var(--text-muted); }
 .eq-val, .eq-f { font-size: 11px; color: var(--text-muted); font-variant-numeric: tabular-nums; }
 .eq-val { color: var(--text); font-weight: 600; }
 
@@ -469,6 +477,11 @@ html.mpv-on #app, html.mpv-on #np, html.mpv-on #viz-settings, html.mpv-on #md-br
 .home-bg { position: absolute; inset: 0; width: 100%; height: 100%; display: block; pointer-events: none; }
 #home-fx { z-index: 1; }
 #home-flow { z-index: 0; }
+/* v3.48.0: a scene chosen for Home, over the theme's own (hidden while it shows) */
+#home-scene { z-index: 1; opacity: 0; transition: opacity .6s; }
+.m-home.has-scene #home-scene { opacity: 1; }
+.m-home.has-scene #home-fx, .m-home.has-scene[data-mode="fox"] #home-flow { visibility: hidden; }
+.m-home[data-mode="fruit"] #home-scene, .m-home[data-mode="flow"] #home-scene { display: none; }
 .home-main { position: absolute; inset: 0; z-index: 2; display: flex; flex-direction: column; transition: opacity .25s; }
 .home-top { flex: none; display: flex; align-items: center; gap: 2px; padding: max(8px, env(safe-area-inset-top)) 6px 0 12px; }
 .home-sp { flex: 1; }
@@ -689,3 +702,6 @@ body.home-full .m-home { bottom: 0; z-index: 20; }
 .sh-item.danger, .sh-item.danger .sh-ico { color: var(--danger, #ef4444); }
 /* the picture viewer's Delete, between the count and Details */
 .iv-count { flex: 1; text-align: center; }
+
+/* v3.48.0: in Android's small window (picture-in-picture) the picture alone */
+.vp.pip .vp-ui, .vp.pip .vp-hud, .vp.pip .vp-flash, .vp.pip .vp-chip, .vp.pip .vp-note, .vp.pip .vp-unlock, .vp.pip .vp-spin { display: none !important; }

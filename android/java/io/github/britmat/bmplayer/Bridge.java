@@ -74,6 +74,15 @@ final class Bridge {
         onUi(new Runnable() { public void run() { a.screen.immersive(on); } });
     }
 
+    /** v3.48.0: a film open, playing or not, its size, and whether more are around it: JSON, for picture-in-picture. */
+    @JavascriptInterface
+    public void pip(final String json) {
+        onUi(new Runnable() { public void run() { if (a.pip != null) a.pip.state(json); } });
+    }
+
+    @JavascriptInterface
+    public boolean pipSupported() { return Pip.supported(a); }
+
     @JavascriptInterface
     public void keepScreenOn(final boolean on) {
         onUi(new Runnable() { public void run() { a.screen.keepScreenOn(on); } });

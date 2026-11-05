@@ -100,6 +100,8 @@ const FROM_DESKTOP = [
   'js/fox3d.js', 'js/fox3d-mesh.js', 'js/geofox.js', 'js/theme-fx.js', 'js/theme-scenes.js', 'js/flow-settings.js',
   // v3.47.0: the scene kit's helpers, which theme-scenes.js draws with
   'js/scenes/kit.js',
+  // v3.48.0: the scene runner, and Aurora Lake for Home's scene picker (loaded when chosen)
+  'js/scenes/runner.js', 'js/scenes/aurora.js', 'js/scenes/jellyfish.js',
   'js/play/sfx.js', 'js/play/fox-play.js', 'js/play/fox-voice.js', 'js/play/flow-toy.js', 'js/play/slice-game.js',
   'css/play.css', 'vendor/pdf.min.js', 'vendor/pdf.worker.min.js', 'vendor/pdfjs-LICENSE.txt',
   'vendor/milkdrop/butterchurn.min.js', 'vendor/milkdrop/presets.js', 'vendor/milkdrop/previews.js', 'vendor/milkdrop/previews.jpg',

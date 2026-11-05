@@ -110,6 +110,7 @@ function installBrowserStubs(win) {
       if (p === 'createRadialGradient' || p === 'createLinearGradient')
         return () => ({ addColorStop: noop });
       if (p === 'getImageData') return () => ({ data: new Uint8ClampedArray(4) });
+      if (p === 'createImageData') return (w, h) => ({ width: w, height: h, data: new Uint8ClampedArray(Math.max(1, w * h * 4)) });
       if (p === 'measureText') return () => ({ width: 10 });
       return () => undefined;
     }
@@ -173,6 +174,9 @@ function installAudioStubs(win) {
     createChannelSplitter() { return new Node('splitter'); }
     createChannelMerger() { return new Node('merger'); }
     createDynamicsCompressor() { const n = new Node('compressor'); for (const k of ['threshold', 'knee', 'ratio', 'attack', 'release']) n[k] = new Param(0); return n; }
+    // the sound modes' nodes (v3.49.0): echoes, 8D's and lo-fi's slow swings
+    createDelay() { const n = new Node('delay'); n.delayTime = new Param(0); return n; }
+    createOscillator() { const n = new Node('oscillator'); n.type = 'sine'; n.frequency = new Param(440); n.started = 0; n.stopped = 0; n.start = () => { n.started++; }; n.stop = () => { n.stopped++; }; return n; }
     resume() { this.state = 'running'; return Promise.resolve(); }
     suspend() { this.state = 'suspended'; return Promise.resolve(); }
     close() { this.state = 'closed'; return Promise.resolve(); }
@@ -642,6 +646,159 @@ async function main() {
     eng.ctx.state = 'running'; eng.setEQBand(4, 2); eng.setEQBand(4, 0);
     eng.destroy();
     if (c._fading.size) throw new Error('taken down, the engine left a timer running');
+  });
+
+  // Sound lab (v3.49.0): the modes go in and out of the chain as the other
+  // effects do, at their place (after night mode, before the boost and the
+  // limiter), and Slowed and Nightcore play the song slower and faster with
+  // the pitch following, while the speed chosen stays what the menus show.
+  await step('the sound modes go in at their place, and Slowed and Nightcore change the speed and the pitch', async () => {
+    const eng = new AudioEngine();
+    await eng.load('file:///a/x.mp3', '/a/x.mp3', false);
+    const c = eng.chain, live = () => c.live.join(',');
+    eng.ctx.state = 'suspended';
+    eng.setSpeed(1.5);
+    eng.setSound({ mode: 'hall' });
+    if (live() !== 'hall,limit') throw new Error('concert hall: ' + live());
+    if (eng.el.playbackRate !== 1.5 || eng.el.preservesPitch !== true) throw new Error('a mode with no speed of its own changed the speed or the pitch');
+    eng.setSound({ mode: 'slowed', night: true, preamp: 3 });
+    if (live() !== 'preamp,night,slowed,limit') throw new Error('slowed with night mode and the preamp: ' + live());
+    if (Math.abs(eng.el.playbackRate - 1.5 * 0.85) > 1e-9 || eng.el.preservesPitch !== false) throw new Error(`slowed plays at ${eng.el.playbackRate} with the pitch ${eng.el.preservesPitch ? 'kept' : 'following'}`);
+    if (eng.speed !== 1.5 || Math.abs(eng.rate - 1.275) > 1e-9) throw new Error(`the speed reads ${eng.speed} and the rate ${eng.rate}`);
+    eng.setSpeed(2);
+    if (Math.abs(eng.el.playbackRate - 1.7) > 1e-9 || eng.el.defaultPlaybackRate !== eng.el.playbackRate) throw new Error('a new speed with Slowed on: ' + eng.el.playbackRate);
+    eng.setSound({ mode: 'nightcore', night: false, preamp: 0 });
+    if (live() !== '' || eng.el.playbackRate !== 2.5 || eng.el.preservesPitch !== false) throw new Error(`nightcore: ${live()} at ${eng.el.playbackRate}`);
+    eng.setSpeed(4);
+    if (eng.el.playbackRate !== 4) throw new Error('past four times: ' + eng.el.playbackRate);
+    eng.setSound({ mode: 'off' }); eng.setSpeed(1);
+    if (eng.el.playbackRate !== 1 || eng.el.preservesPitch !== true) throw new Error('off again, the speed or the pitch stayed changed');
+    // each mode, and clear voice, has a part in the graph that runs from the song to the volume
+    for (const m of ['8d', 'bass', 'karaoke', 'lofi', 'wide']) {
+      eng.setSound({ mode: m, voice: true });
+      if (live() !== 'voice,' + m + ',limit') throw new Error(m + ' with clear voice: ' + live());
+      const L = c.links;
+      if (L[0][0] !== eng.source || L[L.length - 1][1] !== eng.gain) throw new Error(m + ': the chain does not run from the song to the volume');
+      for (const [a, b] of L) if (!a.outs.has(b)) throw new Error(m + ': a link the chain counts is not connected');
+    }
+    eng.setSound({ mode: 'off', voice: false });
+    if (live() !== '') throw new Error('all off: ' + live());
+    eng.destroy();
+    // 8D's turn and lo-fi's wow are oscillators: started when made, stopped when the engine goes
+    if (!c.made.get('8d')?.stop || !c.made.get('lofi')?.stop) throw new Error('8D or lo-fi cannot be stopped');
+  });
+
+  // v3.48.0: a song whose stream is lost partway (the phone's log: "decode
+  // failed (code 2)", then the song skipped) is loaded again and carries on
+  // from the same second, three times at most, and only then handed back.
+  const fakeMedia = (el, { duration = 300 } = {}) => {
+    const m = { t: 0, err: null, ready: 4, loads: 0 };
+    for (const [k, get, set] of [['currentTime', () => m.t, v => { m.t = v; }], ['duration', () => duration], ['readyState', () => m.ready], ['error', () => m.err], ['seeking', () => false]])
+      Object.defineProperty(el, k, { configurable: true, get, ...(set ? { set } : {}) });
+    el.load = () => { m.loads++; };
+    m.fire = type => el.dispatchEvent(new window.Event(type));
+    m.lose = (code = 2) => { m.err = { code }; m.fire('error'); };
+    m.at = t => { m.t = t; m.fire('timeupdate'); };
+    return m;
+  };
+  await step('a song whose stream is lost partway carries on from the same second, three times at most', async () => {
+    const eng = new AudioEngine(), seen = [];
+    for (const k of ['fallback', 'recovered', 'ended', 'loaded']) eng.on(k, d => seen.push([k, d]));
+    await eng.load('file:///a/long.mp3', '/a/long.mp3', true);
+    const m = fakeMedia(eng.el);
+    m.at(95);
+    const warn = console.warn, said = []; console.warn = (...a) => said.push(a.join(' '));
+    try {
+      m.lose(2);
+      if (seen.some(e => e[0] === 'fallback')) throw new Error('handed back at once, as before: the song would skip');
+      if (eng.currentTime !== 95) throw new Error('while it is loaded again its time reads ' + eng.currentTime);
+      await tick(360);
+      if (m.loads !== 1) throw new Error('not loaded again: ' + m.loads + ' loads');
+      m.t = 0; m.fire('loadedmetadata');
+      if (m.t !== 95 || eng.paused) throw new Error(`back at ${m.t} s, ${eng.paused ? 'paused' : 'playing'}: it should play on from 95 s`);
+      if (!seen.some(e => e[0] === 'recovered' && e[1].at === 95) || seen.some(e => e[0] === 'loaded')) throw new Error('events: ' + JSON.stringify(seen));
+      for (const k of [2, 3]) { m.lose(2); await tick(300 * k + 60); m.fire('loadedmetadata'); }
+      if (seen.filter(e => e[0] === 'recovered').length !== 3) throw new Error('three tries were not made');
+      m.lose(2);
+      const fb = seen.find(e => e[0] === 'fallback');
+      if (!fb || fb[1].at !== 95 || fb[1].code !== 2 || fb[1].path !== '/a/long.mp3') throw new Error('the fourth loss was not handed back with where it got to: ' + JSON.stringify(fb));
+      if (!said.some(l => /lost its stream \(a network error\) at 1:35: carrying on from there, try 1 of 3/.test(l))) throw new Error('the log does not say what happened: ' + said[0]);
+    } finally { console.warn = warn; eng.destroy(); }
+  });
+
+  await step('a file that cannot be decoded has one more try partway and none at its start, a loss at the end is the end, a pause or a seek while it comes back holds', async () => {
+    const warn = console.warn; console.warn = () => {};
+    try {
+      let eng = new AudioEngine(), seen = [];
+      for (const k of ['fallback', 'ended', 'recovered']) eng.on(k, d => seen.push([k, d]));
+      await eng.load('file:///a/x.mp3', '/a/x.mp3', true);
+      let m = fakeMedia(eng.el);
+      // before it played at all: a format this browser lacks, handed back at once
+      m.lose(3);
+      if (!seen.some(e => e[0] === 'fallback' && e[1].code === 3 && e[1].at === 0)) throw new Error('a song that could not be decoded from the start was not handed back at once: ' + JSON.stringify(seen));
+      eng.destroy();
+      // partway: once more from the same second (a stream that came mangled), then handed back
+      eng = new AudioEngine(); seen = [];
+      for (const k of ['fallback', 'ended', 'recovered']) eng.on(k, d => seen.push([k, d]));
+      await eng.load('file:///a/x.mp3', '/a/x.mp3', true);
+      m = fakeMedia(eng.el);
+      m.at(40); m.lose(3);
+      if (seen.some(e => e[0] === 'fallback')) throw new Error('a decode error partway was handed back with no second try');
+      await tick(360); m.fire('loadedmetadata');
+      if (m.t !== 40 || !seen.some(e => e[0] === 'recovered')) throw new Error('the second try did not go back to 40 s: ' + m.t);
+      m.lose(3);
+      if (!seen.some(e => e[0] === 'fallback' && e[1].code === 3 && e[1].at === 40)) throw new Error('the same decode error again was not handed back: ' + JSON.stringify(seen));
+      eng.destroy();
+      eng = new AudioEngine(); seen = [];
+      for (const k of ['fallback', 'ended', 'recovered']) eng.on(k, d => seen.push([k, d]));
+      await eng.load('file:///a/y.mp3', '/a/y.mp3', true);
+      m = fakeMedia(eng.el, { duration: 200 });
+      m.at(199.2); m.lose(2);
+      if (!seen.some(e => e[0] === 'ended') || seen.some(e => e[0] === 'fallback') || eng._recovering) throw new Error('a loss in the last two seconds was not taken as the end: ' + JSON.stringify(seen));
+      // a pause while it comes back: back at its place, and still paused
+      m.at(60); m.lose(2); eng.pause(); await tick(360); m.fire('loadedmetadata');
+      if (m.t !== 60 || !eng.paused) throw new Error(`paused while it came back: at ${m.t}, ${eng.paused ? 'paused' : 'playing'}`);
+      // a seek while it comes back: goes to the new place
+      await eng.play(); m.at(70); m.lose(2); eng.seek(120); await tick(700); m.fire('loadedmetadata');
+      if (m.t !== 120 || eng.paused) throw new Error(`seeked to 120 while it came back: at ${m.t}, ${eng.paused ? 'paused' : 'playing'}`);
+      // a song that stands still with no error at all
+      const was = AudioEngine.STALL_MS; AudioEngine.STALL_MS = 300;
+      try {
+        await eng.load('file:///a/z.mp3', '/a/z.mp3', true);
+        m = fakeMedia(eng.el); m.at(33); m.ready = 2; seen = [];
+        eng._unwatch(); eng._watch();
+        await tick(700);
+        if (!eng._recovering && !seen.some(e => e[0] === 'recovered')) throw new Error('a song that stood still was not loaded again');
+      } finally { AudioEngine.STALL_MS = was; }
+      eng.destroy();
+    } finally { console.warn = warn; }
+  });
+
+  // v3.48.0: an audio context made while the sound went to a call runs at 8
+  // or 16 kHz (a phone's log: "BiquadFilter 8000 outside [0, 4000]").
+  await step('an audio context made at a call\'s rate is made again at a music rate, and the phone mixes in larger blocks', async () => {
+    const Real = window.AudioContext, made = [];
+    window.AudioContext = class extends Real {
+      constructor (o) { super(o); this.opts = o; this.sampleRate = o && o.sampleRate ? o.sampleRate : 8000; made.push(this); }
+    };
+    const warn = console.warn; console.warn = () => {};
+    const ua = Object.getOwnPropertyDescriptor(window.navigator, 'userAgent');
+    try {
+      let eng = new AudioEngine();
+      await eng.load('file:///a/x.mp3', '/a/x.mp3', false);
+      if (eng.ctx.sampleRate !== 48000 || made.length !== 2 || made[0].state !== 'closed') throw new Error(`rates ${made.map(c => c.sampleRate + ' ' + c.state).join(', ')}`);
+      if (made[0].opts !== undefined) throw new Error('the desktop asked for a latency: ' + JSON.stringify(made[0].opts));
+      eng.destroy();
+      made.length = 0;
+      Object.defineProperty(window.navigator, 'userAgent', { configurable: true, get: () => 'Mozilla/5.0 (Linux; Android 14) BMPlayerAndroid/3.48.0' });
+      eng = new AudioEngine();
+      await eng.load('file:///a/x.mp3', '/a/x.mp3', false);
+      if (made[0].opts?.latencyHint !== 'playback' || made[1].opts?.latencyHint !== 'playback' || made[1].opts?.sampleRate !== 48000) throw new Error('the phone: ' + JSON.stringify(made.map(c => c.opts)));
+      eng.destroy();
+    } finally {
+      window.AudioContext = Real; console.warn = warn;
+      if (ua) Object.defineProperty(window.navigator, 'userAgent', ua); else delete window.navigator.userAgent;
+    }
   });
 
   // Since v3.36.0 all of the volume is the gain node's, and the audio element
@@ -2783,6 +2940,10 @@ async function main() {
     if (of('beat').map(b => b[1]).join() !== '1,0') throw new Error('the beat was given as ' + of('beat').map(b => b[1]));
     rect = { left: 10, top: 20, width: 400, height: 300 }; r.resize(); r.resize();
     if (of('resize').length !== 1 || JSON.stringify(of('resize')[0]) !== '["resize",400,300,1]' || cv.width !== 400) throw new Error('resize: ' + JSON.stringify(of('resize')));
+    // its view hidden (v3.48.0): no size, so the scene keeps the one it had
+    rect = { left: 0, top: 0, width: 0, height: 0 }; r.resize();
+    if (of('resize').length !== 1 || cv.width !== 400) throw new Error('hidden, the scene was sized to nothing: ' + JSON.stringify(of('resize')));
+    rect = { left: 10, top: 20, width: 400, height: 300 };
     const c1 = r.cost(); if (!(c1.frames >= 6) || c1.errors || !(c1.msPerFrame >= 0)) throw new Error('cost: ' + JSON.stringify(c1));
     // a second scene puts the first away
     let k = 0;
@@ -2811,6 +2972,88 @@ async function main() {
       const c = r.cost(); r.destroy();
       if (c.errors || c.frames < 19) throw new Error(`${name}: ${JSON.stringify(c)}`);
     }
+  });
+
+  /* ── v3.48.0: the runner's still (Lite), its beat feed and options ── */
+  await step('a still scene draws once and moves only when touched; the beat is fed each frame; options reach the scene', async () => {
+    const { SceneRunner } = await import(pathToFileURL(path.join(ROOT, 'src/js/scenes/runner.js')).href);
+    let clock = 1000, next = 1; const queue = new Map();
+    const opts = { raf: f => { queue.set(next, f); return next++; }, caf: id => queue.delete(id), now: () => clock, gap: () => 12 };
+    const turn = ms => { clock += ms; const fs = [...queue.values()]; queue.clear(); fs.forEach(f => f()); };
+    const cv = window.document.createElement('canvas'); cv.getBoundingClientRect = () => ({ left: 0, top: 0, width: 320, height: 200 });
+    const calls = [], of = k => calls.filter(c => c[0] === k);
+    const def = { id: 'still', start (host) { calls.push(['start', host.opts]); return { frame: () => calls.push(['frame']), beat: l => calls.push(['beat', l]), set: (k, v) => calls.push(['set', k, v]), pointer: k => calls.push(['pointer', k]) }; } };
+    let level = 0.4;
+    const r = new SceneRunner(cv, { ...opts, still: true, level: () => level });
+    r.run(def, { colour: 'violet' });
+    if (of('start')[0][1]?.colour !== 'violet') throw new Error('the options did not reach the scene: ' + JSON.stringify(of('start')[0]));
+    for (let i = 0; i < 6; i++) turn(16);
+    if (of('frame').length !== 1 || r.running) throw new Error(`a still drew ${of('frame').length} frames`);
+    if (of('beat')[0]?.[1] !== 0.4) throw new Error('the beat was not fed before the frame: ' + JSON.stringify(of('beat')));
+    r.pointer('down', 50, 50);
+    for (let i = 0; i < 10; i++) turn(16);
+    const moving = of('frame').length;
+    if (moving < 8 || !of('pointer').length) throw new Error(`touched, it drew ${moving - 1} more frames`);
+    for (let i = 0; i < 400; i++) turn(16);
+    const after = of('frame').length; turn(16); turn(16);
+    if (r.running || of('frame').length !== after) throw new Error('after its while it did not stand still again');
+    r.set('colour', 'both'); turn(16);
+    if (JSON.stringify(of('set')[0]) !== '["set","colour","both"]' || of('frame').length !== after + 1) throw new Error('an option change was not passed on and drawn: ' + JSON.stringify(of('set')));
+    r.rest(true); r.pointer('down', 5, 5); turn(16); turn(16);
+    if (of('frame').length !== after + 1) throw new Error('resting, a touch made it move');
+    level = 3; r.rest(false); turn(16);
+    if (of('beat').at(-1)[1] !== 1) throw new Error('the beat was not kept to 0..1: ' + of('beat').at(-1)[1]);
+    r.destroy();
+  });
+
+  await step('Aurora Lake runs on the runner: its layers, a tap on the sky and the lake, colours and the beat', async () => {
+    const { SceneRunner } = await import(pathToFileURL(path.join(ROOT, 'src/js/scenes/runner.js')).href);
+    const aurora = (await import(pathToFileURL(path.join(ROOT, 'src/js/scenes/aurora.js')).href)).default;
+    let clock = 0; const queue = []; const opts = { raf: f => queue.push(f), caf: () => {}, now: () => clock, gap: () => 12 };
+    const cv = window.document.createElement('canvas'); cv.getBoundingClientRect = () => ({ left: 0, top: 0, width: 160, height: 100 });
+    const r = new SceneRunner(cv, { ...opts, level: () => 0.8 });
+    const warn = console.warn; let said = ''; console.warn = (...a) => { said += a.join(' '); };
+    try {
+      if (!r.run(aurora, { colour: 'violet', shoot: true }) || aurora.id !== 'aurora' || aurora.name !== 'Aurora Lake') throw new Error('it did not start');
+      for (let i = 0; i < 12; i++) { clock += 16; queue.splice(0).forEach(f => f()); }
+      r.pointer('down', 80, 20); r.pointer('down', 80, 90); r.pointer('move', 40, 30); r.set('colour', 'both'); r.set('shoot', false);
+      for (let i = 0; i < 12; i++) { clock += 16; queue.splice(0).forEach(f => f()); }
+      // 24 steps of 16 ms, at its own 40 frames a second: one in two
+      const c = r.cost();
+      if (c.errors || c.frames < 11 || c.frames > 13) throw new Error(`${JSON.stringify(c)} ${said}`);
+    } finally { console.warn = warn; r.destroy(); }
+  });
+
+  // v3.49.0: Jellyfish Drift, on the same runner: it starts, draws, takes a
+  // tap (a current), the pointer's light, a change of look and of size, and
+  // the music's beat, with nothing thrown. Low quality has fewer jellies.
+  await step('Jellyfish Drift runs on the scene runner: taps, its looks, a new size and the beat', async () => {
+    const { SceneRunner } = await import(pathToFileURL(path.join(ROOT, 'src/js/scenes/runner.js')).href);
+    const jelly = (await import(pathToFileURL(path.join(ROOT, 'src/js/scenes/jellyfish.js')).href)).default;
+    const { perf } = await import(pathToFileURL(path.join(ROOT, 'src/js/perf.js')).href);
+    let clock = 0, beat = 0; const queue = []; const opts = { raf: f => queue.push(f), caf: () => {}, now: () => clock, gap: () => 12 };
+    let box = { left: 0, top: 0, width: 160, height: 100 };
+    const cv = window.document.createElement('canvas'); cv.getBoundingClientRect = () => box;
+    const r = new SceneRunner(cv, { ...opts, level: () => beat });
+    const warn = console.warn; let said = ''; console.warn = (...a) => { said += a.join(' '); };
+    const tick = n => { for (let i = 0; i < n; i++) { clock += 16; queue.splice(0).forEach(f => f()); } };
+    const keepSession = perf._session;
+    try {
+      if (!r.run(jelly, { look: 'glow' }) || jelly.id !== 'jellyfish' || jelly.name !== 'Jellyfish Drift') throw new Error('it did not start');
+      tick(12);
+      r.pointer('down', 80, 50); r.pointer('move', 40, 30); r.pointer('up', 40, 30); r.set('look', 'natural'); r.set('look', 'nonsense');
+      beat = 0.9; tick(4); beat = 0.1; tick(4); beat = 0.95; tick(4);
+      box = { left: 0, top: 0, width: 320, height: 180 }; r.resize(); tick(8);
+      r.pointer('leave', 0, 0);
+      const c = r.cost();
+      if (c.errors || c.frames < 16) throw new Error(`${JSON.stringify(c)} ${said}`);
+      if (cv.width !== Math.round(320 * r.dpr)) throw new Error('the canvas did not take the new size: ' + cv.width);
+      r.stop();
+      perf.setSessionTier('low');
+      if (!r.run(jelly, {})) throw new Error('it did not start at low quality');
+      tick(6);
+      if (r.cost().errors) throw new Error('at low quality: ' + said);
+    } finally { perf.setSessionTier(keepSession || null); console.warn = warn; r.destroy(); }
   });
 
   /* ── v3.47.0: what a feature adds from its own file (app/registry.js) ── */

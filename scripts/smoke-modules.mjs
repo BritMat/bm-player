@@ -299,6 +299,45 @@ async function main() {
     for (const e of EFFECTS) if (typeof e.on !== 'function' || typeof e.mpv !== 'function' || typeof e.web !== 'function') throw new Error(e.id + ' is missing a form');
   });
 
+
+  // Sound lab (v3.49.0): what mpv is given for each sound mode, clear voice
+  // and the preamp, written out, so a change to any of them is seen here.
+  // scripts/sound-check.mjs plays them against the engine's forms, and
+  // scripts/integration-mpv.cjs gives them to a real mpv.
+  await step('sound chain: mpv gets the sound modes, clear voice and the preamp as written', async () => {
+    const { lavfi } = await load('src/js/sound-chain.js');
+    const cases = [
+      ["off", {"mode": "off"}, ""],
+      ["slowed", {"mode": "slowed"}, "lavfi=[asplit=2[slowedd][slowedw];[slowedw]highpass=f=200,aecho=0:1:5.6|10.5|14|15.7:0.5|0.45|0.4|0.35,aecho=1:0.8:34|37.1|56.7|73.9:0.4|0.33|0.27|0.22,aecho=1:0.8:93|154.8|216.1|277.6:0.45|0.35|0.27|0.2,volume=0.7[slowedr];[slowedd][slowedr]amix=inputs=2,volume=2,alimiter=limit=0.95]"],
+      ["nightcore", {"mode": "nightcore"}, ""],
+      ["8d", {"mode": "8d"}, "lavfi=[aformat=channel_layouts=stereo,pan=stereo|c0=0.6*c0+0.4*c1|c1=0.4*c0+0.6*c1,apulsator=hz=0.1:amount=0.9,asplit=2[spaced][spacew];[spacew]highpass=f=200,aecho=0:1:8.4|11|13.9|15.9:0.5|0.45|0.4|0.35,aecho=1:0.8:27.3|35.8|50.4|68.7:0.35|0.3|0.25|0.2,volume=0.3[spacer];[spaced][spacer]amix=inputs=2,volume=2,alimiter=limit=0.95]"],
+      ["bass", {"mode": "bass"}, "lavfi=[lowshelf=g=8:f=100:t=s:w=1,alimiter=limit=0.95]"],
+      ["karaoke", {"mode": "karaoke"}, "lavfi=[aformat=channel_layouts=stereo,asplit=2[ka][kb];[kb]lowpass=f=180,lowpass=f=180,pan=stereo|c0=c1|c1=c0[kc];[ka]pan=stereo|c0=c0-c1|c1=c1-c0[kd];[kd][kc]amix=inputs=2,volume=2,alimiter=limit=0.95]"],
+      ["hall", {"mode": "hall"}, "lavfi=[asplit=2[halld][hallw];[hallw]highpass=f=200,aecho=0:1:7.3|12.4|15.1|19.4:0.5|0.45|0.4|0.35,aecho=1:0.8:19.8|28.5|45.3|59.4:0.35|0.3|0.25|0.2,aecho=1:0.8:72.2|133|171.9|231.9:0.4|0.3|0.22|0.16,volume=0.5[hallr];[halld][hallr]amix=inputs=2,volume=2,alimiter=limit=0.95]"],
+      ["lofi", {"mode": "lofi"}, "lavfi=[highpass=f=200,lowpass=f=3800,vibrato=f=0.5:d=0.6]"],
+      ["wide", {"mode": "wide"}, "lavfi=[aformat=channel_layouts=stereo,pan=stereo|c0=1.3*c0-0.3*c1|c1=1.3*c1-0.3*c0,alimiter=limit=0.95]"],
+      ["clear voice", {"voice": true}, "lavfi=[dialoguenhance,pan=stereo|c0=c0+0.4*c2|c1=c1+0.4*c2,alimiter=limit=0.95]"],
+      ["preamp", {"preamp": -3.5, "eq": [2]}, "lavfi=[volume=-3.5dB,equalizer=f=31:width_type=o:width=2:g=2]"],
+      ["preamp up", {"preamp": 3}, "lavfi=[volume=3dB,alimiter=limit=0.95]"],
+    ];
+    for (const [name, s, want] of cases) { const got = lavfi(s); if (got !== want) throw new Error(`${name}: ${got}\n      expected ${want}`); }
+  });
+
+  await step('sound chain: the modes, one at a time, with Slowed and Nightcore playing slower and faster', async () => {
+    const { settings, MODES, RATES, rateOf, EFFECTS } = await load('src/js/sound-chain.js');
+    const d = settings();
+    if (d.mode !== 'off' || d.voice !== false || d.preamp !== 0) throw new Error('the new settings are not off by default: ' + JSON.stringify(d));
+    if (settings({ mode: 'loud' }).mode !== 'off' || settings({ preamp: 40 }).preamp !== 12 || settings({ preamp: 'x' }).preamp !== 0) throw new Error('an unknown mode or preamp was let through');
+    if (MODES.map(m => m[0]).join() !== 'off,slowed,nightcore,8d,bass,karaoke,hall,lofi,wide') throw new Error('the modes are ' + MODES.map(m => m[0]));
+    if (rateOf({ mode: 'slowed' }) !== 0.85 || rateOf({ mode: 'nightcore' }) !== 1.25 || rateOf({ mode: 'hall' }) !== 1 || rateOf() !== 1) throw new Error('the rates: ' + JSON.stringify(RATES));
+    // each mode turns on its own effect only (Nightcore has none: it is only faster)
+    for (const [m] of MODES) {
+      const on = EFFECTS.filter(e => e.on(settings({ mode: m }))).map(e => e.id).filter(id => id !== 'limit');
+      const want = m === 'off' || m === 'nightcore' ? '' : m;
+      if (on.join() !== want) throw new Error(`${m} turns on ${on.join() || 'nothing'}`);
+    }
+  });
+
   const bad = results.filter(r => !r).length;
   console.log(`\n${results.length - bad}/${results.length} checks passed.\n`);
   process.exit(bad ? 1 : 0);

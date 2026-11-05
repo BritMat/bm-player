@@ -89,14 +89,23 @@ read by BM Player's built-in updater. You don't need to download them.
 - Sound: night mode (quiet voices up, loud bangs down), mono or one ear
   only or the two swapped, and a boost to 150% or 200%, beside the
   equalizer. They work for films and for music alike.
+- Sound modes, one tap each: **Slowed + reverb**, **Nightcore**, **8D**
+  (the sound going round your head), **Bass boost**, **Vocal remover**,
+  **Concert hall**, **Lo-fi** and **Wider stereo**. Slowed and Nightcore
+  play songs slower or faster with the pitch following, as a record would.
+  **Clear voice** brings the words of a film forward over the music and the
+  bangs, and a preamp sets the whole sound up or down before the
+  equalizer. All of it sounds the same in films and in songs (the two are
+  played by different engines, and a check holds them to each other).
 - A second subtitle at the top of the picture, in Subtitle: two languages
   at once.
 - A sleep timer (Playback, Sleep Timer): playing stops after 15 minutes to
   2 hours, or at the end of the film or song, with the sound fading out
   first.
 - If mpv stops by itself, it is started again and the film carries on from
-  where it was. A song that will not play (a broken or missing file) is
-  passed over to the next one.
+  where it was. A song whose stream breaks partway is picked up again from
+  the same second, and only a song that will not play at all (a broken or
+  missing file) is passed over to the next one.
 - Subtitles in any font on your computer, in the colour you choose, with a
   thin outline, a soft shadow, a see-through box or nothing round the
   letters.
@@ -175,6 +184,16 @@ read by BM Player's built-in updater. You don't need to download them.
   own colours, swirl, glow, neon lines and more, and **Fruit** is a fruit
   slicing game whose juice pours into the fluid. Nothing of it runs until
   you use it.
+- A scene of its own behind the fox, chosen at the top left of the home
+  screen instead of the theme's background: **Aurora Lake**, the northern
+  lights over a mountain lake that holds the sky. Tap the sky for a new
+  star and the lake for ripples. Shooting stars now and then, and the
+  lights sway with the music, green, violet or both. Or **Jellyfish
+  Drift**: moon jellies, sea nettles and comb jellies in deep water, their
+  bells pulsing in time with the music. Rest the pointer and they drift to
+  its light, tap the water to send a current, natural colours or glowing.
+  A scene rests when the home screen is out of sight or a film plays, and
+  in Lite it is a still picture that moves for a moment when you touch it.
 - The app's windows run in Chromium's sandbox, as web pages in a browser do,
   and stay on the app: a link or a stray dropped file can no longer replace
   the player. Measured on Linux, the sandbox costs no frames.
@@ -212,7 +231,16 @@ phone, and its own testing happens on real phones. What it does:
   with the fox (tap, stroke, tickle, hold, and **Talk**, and it repeats what
   you say), draw in **Flow**, a full screen fluid simulator with its own
   settings (tilt the phone to pour it), or play **Fruit**, slicing fruit
-  with a swipe.
+  with a swipe. The mountains button at the top puts **Aurora Lake** or
+  **Jellyfish Drift** behind the fox instead of the theme's background, as
+  on the desktop (a still picture that moves when touched, on a phone set
+  to Low quality).
+- The sound modes, clear voice and night mode, in a Sound sheet for the
+  music (Now Playing, More) and for videos (the player's More), and a
+  preamp in the equaliser.
+- A song whose stream breaks partway carries on from where it stopped
+  instead of skipping to the next one, and the app's log says where and why
+  it broke.
 - Lyrics as on the desktop: a .lrc file beside the song (where Android lets
   the app read it), the words in the song's own tags (MP3, FLAC, Ogg, Opus
   and M4A), then LRCLIB, with search, loading a file, and the timing to
@@ -239,6 +267,11 @@ phone, and its own testing happens on real phones. What it does:
   playing on to the next, speed, repeating a part (A-B), a sleep timer, and
   the timing of the subtitles and the sound. The clock and the battery show
   with the controls.
+- Turn the picture (in the player's More): straight, a quarter either way or
+  upside down, for a video recorded sideways, and the screen follows it.
+- Picture-in-picture (Android 8.0 and newer): press Home while a video plays
+  and it carries on in a small floating window, with play, pause and a skip
+  each way. Closing the small window pauses it.
 - Photos: every picture on the phone, or by album, in a viewer with pinch
   and double tap zoom, swipes to the next one, turning, sharing and a
   slideshow.

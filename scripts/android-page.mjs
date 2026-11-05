@@ -110,7 +110,8 @@ const mock = await startMock({ media: ffmpeg ? media : null, big: 0 });
 const URL0 = `http://127.0.0.1:${mock.port}/index.html`;
 const browser = await chromium.launch({ executablePath: chrome, args: ['--autoplay-policy=no-user-gesture-required', '--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist', '--disable-background-networking', '--no-first-run', '--mute-audio'] });
 const ctx = await browser.newContext({ viewport: { width: 412, height: 892 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true,
-  userAgent: 'Mozilla/5.0 (Linux; Android 14; Pixel 7; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/129.0.6668.100 Mobile Safari/537.36' });
+  // As the app's WebView says it (MainActivity adds BMPlayerAndroid/VERSION)
+  userAgent: 'Mozilla/5.0 (Linux; Android 14; Pixel 7; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/129.0.6668.100 Mobile Safari/537.36 BMPlayerAndroid/3.48.0' });
 const page = await ctx.newPage();
 const errors = [];
 page.on('pageerror', e => errors.push(e.message));
@@ -219,6 +220,62 @@ try {
   ok(await ev(() => window.BMNative.back()) === 'handled' && await until(() => window.__bmHome.game.state === 'paused'), 'Back pauses the game');
   await ev(() => window.BMNative.back());
   ok(await until(() => window.__bmHome.game && document.getElementById('v-home').dataset.mode === 'fox'), 'and again: the fox');
+  // v3.48.0: a scene for Home in place of the theme's own, one at a time, resting when not seen
+  const themeWas = await ev(() => document.documentElement.dataset.theme || 'dark');
+  await page.tap('#home-theme');
+  await page.tap('#sheet .sh-item:has-text("Ocean")');
+  await until(() => document.documentElement.dataset.theme === 'ocean' && window.__bmHome.theme?.running);
+  await page.tap('#home-scene-btn');
+  await page.tap('#sheet .sh-item:has-text("Aurora Lake")');
+  ok(await until(() => window.__bmHome.scene?.def?.id === 'aurora' && window.__bmHome.scene.cost().frames >= 1, null, 10000), 'Scene: Aurora Lake draws behind the fox');
+  ok(await ev(() => document.getElementById('v-home').classList.contains('has-scene') && !window.__bmHome.theme?.running && localStorage.getItem('bm_m_scene') === 'aurora'), 'in place of the theme\'s own, and kept');
+  // On Low quality (a weak phone, and this browser often) it is a still that moves when touched.
+  const still = await ev(() => window.__bmHome.scene.still);
+  {
+    const f0 = await ev(() => window.__bmHome.scene.cost().frames); await sleep(800);
+    const f1 = await ev(() => window.__bmHome.scene.cost().frames);
+    ok(still ? f1 === f0 : f1 > f0 + 5, still ? 'on Low it is a still picture' : `it moves (${f1 - f0} frames in 0.8 s)`);
+    // a place the scene gets: not the fox, a button or a row (an update's card can come and go above the fox)
+    const free = above => ev(up => {
+      const no = 'button, a, input, .fox-stage, .home-recent, .home-favs';
+      for (const fy of up ? [0.12, 0.2, 0.3, 0.4] : [0.9, 0.8, 0.7, 0.6]) for (const fx of [0.08, 0.92, 0.5, 0.25, 0.75]) {
+        const x = innerWidth * fx, y = innerHeight * fy, e = document.elementFromPoint(x, y);
+        if (e && e.closest('#home-main') && !e.closest(no)) return [x, y];
+      }
+      return null;
+    }, above);
+    const sky = await free(true), lake = await free(false);
+    if (sky) await page.touchscreen.tap(sky[0], sky[1]);
+    if (lake) await page.touchscreen.tap(lake[0], lake[1]);
+    // moving, at whatever pace this browser's software drawing allows (a phone's is quicker)
+    ok(!!sky && await until(n => window.__bmHome.scene.running && window.__bmHome.scene.cost().frames > n + 3, f1, 4000), `and a touch on the sky or the lake moves it (at ${JSON.stringify(sky)} and ${JSON.stringify(lake)})`);
+  }
+  await page.tap('#home-scene-btn');
+  ok(await until(() => /Lights: Violet/.test(document.getElementById('sheet').textContent)), 'its lights\' colours are offered');
+  await page.tap('#sheet .sh-item:has-text("Lights: Violet")');
+  ok(await until(() => localStorage.getItem('bm_m_aurora_colour') === 'violet'), 'and a colour is kept');
+  await sleep(600); await shot('00-home-aurora');
+  ok(await ev(() => window.__bmHome.scene.cost().errors === 0), 'a tap on the sky and one on the lake, with no error');
+  await page.tap('#nav button[data-tab="music"]');
+  await sleep(400);
+  const away0 = await ev(() => window.__bmHome.scene.cost().frames); await sleep(700);
+  ok(await ev(n => window.__bmHome.scene.cost().frames === n && window.__bmHome.scene.resting, away0), 'away from Home it rests');
+  await page.tap('#nav button[data-tab="home"]');
+  ok(await until(([n, st]) => window.__bmHome.scene.cost().frames > n + (st ? 0 : 5) && !window.__bmHome.scene.resting, [away0, still]), 'and draws again on Home');
+  // v3.49.0: Jellyfish Drift, in Aurora Lake's place, with its two looks
+  await page.tap('#home-scene-btn');
+  await page.tap('#sheet .sh-item:has-text("Jellyfish Drift")');
+  ok(await until(() => window.__bmHome.scene?.def?.id === 'jellyfish' && window.__bmHome.scene.cost().frames >= 1, null, 10000), 'Scene: Jellyfish Drift draws in its place');
+  await page.tap('#home-scene-btn');
+  ok(await until(() => /Look: Glow/.test(document.getElementById('sheet').textContent) && !/Lights: Violet/.test(document.getElementById('sheet').textContent)), 'its looks are offered, and not Aurora Lake\'s colours');
+  await page.tap('#sheet .sh-item:has-text("Look: Glow")');
+  ok(await until(() => localStorage.getItem('bm_m_jelly_look') === 'glow' && localStorage.getItem('bm_m_scene') === 'jellyfish'), 'the look is kept, and the scene');
+  await sleep(600); await shot('00b-home-jellyfish');
+  ok(await ev(() => window.__bmHome.scene.cost().errors === 0), 'with no error');
+  await page.tap('#home-scene-btn');
+  await page.tap('#sheet .sh-item:has-text("The theme\'s own")');
+  ok(await until(() => !window.__bmHome.scene.scene && !document.getElementById('v-home').classList.contains('has-scene') && window.__bmHome.theme?.running), 'The theme\'s own: its scene again, the scene put away');
+  await ev(t => { localStorage.setItem('bm_m_theme', t); document.documentElement.dataset.theme = t; window.dispatchEvent(new CustomEvent('bm-theme', { detail: t })); }, themeWas);
   await page.tap('#nav button[data-tab="music"]');
   await shot('01-music');
 
@@ -262,6 +319,42 @@ try {
   await ev(() => window.BMNative.event('remote', { action: 'prev' }));
   ok(await until(() => window.__bmPlayback?.title === 'Night Lights'), 'previous goes back to it (the next song had only just begun)');
   await shot('02-playing');
+  // v3.48.0: a song's stream lost partway, as the phone's log showed ("decode
+  // failed (code 2)", then the song skipped): it goes on from the same place.
+  // A song not played yet (the browser keeps what it has read of one it has),
+  // and a WAV: an Ogg as small as the test's is read to its end before it
+  // plays (its length is at its end), so it never breaks partway.
+  {
+    const id = mock.lib.audio.find(x => x.t === 'Plain Tone')?.i, file = id && mock.lib.files.get('audio/' + id);
+    // the stand-in's own state, waited for here rather than in the page
+    const waitFor = async (f, ms) => { const t0 = Date.now(); while (Date.now() - t0 < ms) { if (await f()) return true; await sleep(100); } return false; };
+    if (file) {
+      mock.hits.cut = { file, share: 0.3, phase: 'armed' };
+      // A stream that hangs with no error is waited on for twelve seconds; four here.
+      await ev(() => { window.bmLyrics.music.engine.constructor.STALL_MS = 4000; window.__bmEngineLog = []; const w = console.warn; console.warn = (...a) => { window.__bmEngineLog.push(a.join(' ')); w.apply(console, a); }; });
+      await page.tap(`#mu-list .vrow[data-i="${await rowOf('Plain Tone')}"] .txt`);
+      // the stream is held after its first part, and broken off three seconds in
+      const begun = await until(() => window.__bmPlayback?.title === 'Plain Tone', null, 6000) && await waitFor(() => mock.hits.cut.phase === 'held', 6000)
+        && await until(() => window.__bmPlayback?.playing && window.bmLyrics.music.engine.currentTime >= 3, null, 12000);
+      mock.hits.cut.drop?.();
+      ok(begun, `a song plays, and its stream is broken off three seconds in (${mock.hits.cut.phase})`);
+      const lost = await waitFor(() => mock.hits.cut.phase === 'over', 30000);
+      const log = await ev(() => window.__bmEngineLog.filter(l => /AudioEngine|could not play/.test(l)));
+      ok(lost && /carrying on from there, try 1 of 3/.test(log.join(' | ')), `the engine loads it again to carry on (${log.slice(0, 2).join(' | ') || 'nothing said'})`);
+      // where it stopped, as the engine said it ("... at 0:07: carrying on")
+      const m = /at (\d+):(\d\d): carrying on/.exec(log.join(' ')), stoppedAt = m ? +m[1] * 60 + +m[2] : null;
+      await sleep(2000);
+      const r = await ev(() => ({ t: window.bmLyrics.music.engine.currentTime || 0, playing: window.__bmPlayback?.playing, title: window.__bmPlayback?.title, skipped: window.__bmEngineLog.some(l => /could not play|Skipping/.test(l)) }));
+      ok(stoppedAt > 2 && r.t >= stoppedAt - 1 && r.playing === true && r.title === 'Plain Tone' && !r.skipped,
+        `and it plays on from there (stopped at ${stoppedAt} s, now at ${r.t.toFixed(1)} s), not skipped or started again`);
+      console.log(`      (the browser's own tries to go on with the broken stream, refused: ${mock.hits.cut.refused || 0})`);
+      mock.hits.cut = null;
+      await ev(() => { window.bmLyrics.music.engine.constructor.STALL_MS = 12000; });
+      await page.tap(`#mu-list .vrow[data-i="${await rowOf('Night Lights')}"] .txt`);
+      await until(() => window.__bmPlayback?.title === 'Night Lights', null, 6000);
+      await sleep(300);
+    }
+  }
   // v3.43.2: a sideways swipe on the music bar is the bar's, not taken by the browser as a pan
   { const c = await page.context().newCDPSession(page);
     const tch = (type, x, y) => c.send('Input.dispatchTouchEvent', { type, touchPoints: type === 'touchEnd' ? [] : [{ x, y }] });
@@ -301,6 +394,30 @@ try {
   ok(await until(() => document.getElementById('np').classList.contains('full') && window.__bmImmersive === true), 'full screen (Android hides its bars)');
   ok(await ev(() => window.BMNative.back() === 'handled' && !document.getElementById('np').classList.contains('full') && window.__bmImmersive === false), 'Back leaves full screen');
 
+  // v3.49.0, Sound lab: the sound modes, clear voice and night mode, for the music
+  step = 'sound modes';
+  console.log('\n' + step);
+  await ev(() => document.getElementById('np-more').click());
+  await page.tap('#sheet .sh-item:has-text("Sound mode")');
+  ok(await until(() => document.querySelectorAll('#sheet .snd [data-mode]').length === 9), 'Sound mode opens its sheet, with the nine modes');
+  await page.tap('#sheet .snd [data-mode="hall"]');
+  ok(await until(() => window.bmLyrics?.music?.engine?.chain?.live.includes('hall')), `Concert hall: the music goes through the hall (${await ev(() => window.bmLyrics?.music?.engine?.chain?.live.join(','))})`);
+  await page.tap('#sheet .snd [data-mode="nightcore"]');
+  ok(await until(() => { const e = window.bmLyrics.music.engine; return Math.abs(e.el.playbackRate - e.speed * 1.25) < 1e-6 && e.el.preservesPitch === false && !e.chain.live.includes('hall'); }), 'Nightcore: a quarter faster, the pitch following, the hall gone');
+  await page.tap('#sheet .snd [data-voice="on"]');
+  ok(await until(() => window.bmLyrics.music.engine.chain.live.includes('voice')), 'clear voice goes in');
+  ok(await until(() => ['mode="nightcore"', 'voice="on"', 'night="off"'].every(a => document.querySelector(`#sheet .snd [data-${a}]`)?.classList.contains('on')) && document.querySelectorAll('#sheet .snd .chip.on').length === 3), 'the sheet shows what is on');
+  await shot('03b-sound-modes');
+  ok(await ev(() => { const k = JSON.parse(localStorage.getItem('bm_m_sound') || '{}'); return k.mode === 'nightcore' && k.voice === true; }), 'and they are kept for next time');
+  await ev(() => window.BMNative.back());
+  await ev(() => document.getElementById('np-more').click());
+  ok(await ev(() => /Sound mode\s*Nightcore, Clear voice/.test(document.getElementById('sheet').textContent)), 'the menu says which');
+  await page.tap('#sheet .sh-item:has-text("Sound mode")');
+  await page.tap('#sheet .snd [data-mode="off"]');
+  await page.tap('#sheet .snd [data-voice="off"]');
+  ok(await until(() => { const e = window.bmLyrics.music.engine; return e.chain.live.join(',') === '' && e.el.preservesPitch === true && Math.abs(e.el.playbackRate - e.speed) < 1e-6; }), 'all off again: nothing in the way, the speed and the pitch as chosen');
+  await ev(() => window.BMNative.back());
+
   step = 'lyrics';
   console.log('\n' + step);
   await page.tap('#np-tab-lyrics');
@@ -327,8 +444,21 @@ try {
     await ev(() => { const l = window.bmLyrics; l._apply({ source: 'file', synced: '[00:00.00]ഇന്ന് നല്ല മഴയാണ്\n[00:04.00]നീ എന്റെ കൂടെ വരുമോ\n[00:08.00]காதல் வந்தேன்\n[00:12.00]and English', plain: null }); l._render(); });
     ok(await until(() => document.querySelectorAll('#np-lyrics .lyr-sbtn').length === 3), 'Malayalam lyrics: Original, English letters and Both offered');
     await page.tap('#np-lyrics .lyr-sbtn[data-v="both"]');
-    ok(await until(() => document.querySelector('#np-lyrics .lyr-line[data-i="0"] .lyr-rom')?.textContent === 'Innu nalla mazhayaanu'
-      && document.querySelector('#np-lyrics .lyr-line[data-i="2"] .lyr-rom')?.textContent === 'Kaadhal vandhen' && !document.querySelector('#np-lyrics .lyr-line[data-i="3"] .lyr-rom')), 'Both: the English letters under each line (Malayalam and Tamil), none under English');
+    const bothShown = () => document.querySelector('#np-lyrics .lyr-line[data-i="0"] .lyr-rom')?.textContent === 'Innu nalla mazhayaanu'
+      && document.querySelector('#np-lyrics .lyr-line[data-i="2"] .lyr-rom')?.textContent === 'Kaadhal vandhen' && !document.querySelector('#np-lyrics .lyr-line[data-i="3"] .lyr-rom');
+    // A tap now and then is not taken here (a few runs in ten, never seen on a
+    // phone): tapped again as a person would, and noted with what was seen.
+    let both = await until(bothShown, null, 2500);
+    if (!both) {
+      const lost = await ev(() => 'chosen ' + (document.querySelector('#np-lyrics .lyr-sbtn.on')?.dataset.v || 'none') + '; scrolled sideways: ' + ([...document.querySelectorAll('*')].filter(e => e.scrollLeft > 0).map(e => (e.id || e.className || e.tagName) + ' ' + e.scrollLeft).join(', ') || 'nothing'));
+      soft(false, 'the first tap on Both was not taken (' + lost + ')');
+      await page.tap('#np-lyrics .lyr-sbtn[data-v="both"]');
+      both = await until(bothShown);
+    }
+    const seen = both ? '' : ' (' + await ev(() => [...document.querySelectorAll('#np-lyrics .lyr-line')].slice(0, 4).map(l => JSON.stringify(l.textContent)).join(', ') + '; chosen ' + (document.querySelector('#np-lyrics .lyr-sbtn.on')?.dataset.v || 'none') + '; source ' + window.bmLyrics.source
+      + '; scrolled sideways: ' + [...document.querySelectorAll('*')].filter(e => e.scrollLeft > 0).map(e => (e.id || e.className || e.tagName) + ' ' + e.scrollLeft).join(', ')
+      + '; past the right edge: ' + [...document.querySelectorAll('#np *')].filter(e => e.getBoundingClientRect().right > innerWidth + 1).slice(0, 6).map(e => (e.id || e.className || e.tagName) + ' ' + Math.round(e.getBoundingClientRect().right)).join(', ')) + ')';
+    ok(both, 'Both: the English letters under each line (Malayalam and Tamil), none under English' + seen);
     const sb = await ev(() => { const r = document.querySelector('#np-lyrics .lyr-script').getBoundingClientRect(); return { h: r.height, w: r.width, right: r.right, vw: innerWidth }; });
     ok(sb.h >= 34 && sb.right <= sb.vw, `the choice fits the phone and is big enough to tap (${Math.round(sb.w)}×${Math.round(sb.h)})`);
     await sleep(300); await shot('06b-lyrics-english-letters');
@@ -454,6 +584,18 @@ try {
     ok(await until(() => (document.getElementById('vp-video').currentTime || 0) > 0.3, null, 8000), 'a video plays');
     ok(await until(() => { const t = document.getElementById('vp-video').textTracks; return t.length === 1 && t[0].mode === 'showing'; }), 'its .srt beside it is shown as subtitles');
     ok(await ev(() => window.__bmOrientation === 'landscape' && window.__bmImmersive === true && window.__bmAwake === true), 'landscape, full screen, the screen kept on');
+    // v3.48.0: turned in the web engine, its box is the screen the other way round
+    await ev(() => document.getElementById('vp-more').click());
+    await page.tap('#sheet .sh-item:has-text("Turn the picture")');
+    await page.tap('#sheet .sh-item:has-text("A quarter to the left")');
+    // (a menu's choice is acted on as its sheet closes)
+    await until(() => /rotate/.test(document.getElementById('vp-video').style.transform));
+    const turned = await ev(() => { const e = document.getElementById('vp-video'); return { tf: e.style.transform, w: parseFloat(e.style.width), h: parseFloat(e.style.height), W: innerWidth, H: innerHeight, o: window.__bmOrientation }; });
+    ok(/rotate\(270deg\)/.test(turned.tf) && Math.abs(turned.w - turned.H) < 1 && Math.abs(turned.h - turned.W) < 1 && turned.o === 'sensor', `the web engine turns it too, in a box the screen's other way round (${JSON.stringify(turned)})`);
+    await ev(() => document.getElementById('vp-more').click());
+    await page.tap('#sheet .sh-item:has-text("Turn the picture")');
+    await page.tap('#sheet .sh-item:has-text("Straight")');
+    ok(await until(() => !document.getElementById('vp-video').style.transform && !document.getElementById('vp-video').style.width && window.__bmOrientation === 'landscape'), 'straight again, as it was');
     await sleep(600); await shot('07-video');
     ok(await ev(() => window.BMNative.back()) === 'handled' && await ev(() => window.__bmImmersive === false && window.__bmOrientation === 'auto'), 'Back closes it and gives the screen back');
 
@@ -490,8 +632,46 @@ try {
     await page.tap('#sheet .sh-item:has-text("Audio track")');
     await page.tap('#sheet .sh-item:has-text("English dub")');
     ok(await until(() => window.__bmMpv.commands.some(c => c.join(' ') === 'set aid 2')), 'and an audio track');
+    // v3.49.0: the sound modes reach mpv as its audio filter (more below)
+    ok(await ev(() => window.__bmMpv.commands.some(c => c[0] === 'set' && c[1] === 'af' && c[2] === '')), 'a film opens with no audio filter while every sound setting is off');
+    // v3.48.0: the picture turned, for a film recorded sideways; the screen follows it
+    ok(await ev(() => window.__bmMpv.commands.some(c => c.join(' ') === 'set video-rotate 0')), 'a new film starts straight (mpv keeps a turn from film to film)');
+    await ev(() => { window.__bmMpv.commands = []; document.getElementById('vp-more').click(); });
+    await page.tap('#sheet .sh-item:has-text("Turn the picture")');
+    await page.tap('#sheet .sh-item:has-text("A quarter to the right")');
+    ok(await until(() => window.__bmMpv.commands.some(c => c.join(' ') === 'set video-rotate 90') && window.__bmOrientation === 'sensor'), `Turn the picture: mpv turns it a quarter, and the wide film now stands up (${await ev(() => window.__bmOrientation)})`);
+    await ev(() => document.getElementById('vp-more').click());
+    ok(await ev(() => /Turn the picture\s*90°/.test(document.getElementById('sheet').textContent)), 'the menu says how it is turned');
+    await page.tap('#sheet .sh-item:has-text("Turn the picture")');
+    await page.tap('#sheet .sh-item:has-text("Straight")');
+    ok(await until(() => window.__bmMpv.commands.some(c => c.join(' ') === 'set video-rotate 0') && window.__bmOrientation === 'landscape'), 'and straight again, landscape again');
+    // v3.49.0: the sound modes reach mpv as its audio filter, made by sound-chain.js
+    await ev(() => { window.__bmMpv.commands = []; document.getElementById('vp-more').click(); });
+    await page.tap('#sheet .sh-item:has-text("Sound")');
+    await page.tap('#sheet .snd [data-voice="on"]');
+    ok(await until(() => window.__bmMpv.commands.some(c => c[0] === 'set' && c[1] === 'af' && /^lavfi=\[dialoguenhance,/.test(c[2]))), `clear voice: mpv is given dialoguenhance (${await ev(() => (window.__bmMpv.commands.filter(c => c[1] === 'af').pop() || [])[2])})`);
+    await page.tap('#sheet .snd [data-mode="hall"]');
+    ok(await until(() => window.__bmMpv.commands.some(c => c[1] === 'af' && /aecho/.test(c[2]) && /dialoguenhance/.test(c[2]))), 'and Concert hall with it');
+    await page.tap('#sheet .snd [data-mode="off"]'); await page.tap('#sheet .snd [data-voice="off"]');
+    ok(await until(() => { const a = window.__bmMpv.commands.filter(c => c[1] === 'af').pop(); return a && a[2] === ''; }), 'and off again');
+    await ev(() => window.BMNative.back());
+    // v3.48.0: picture-in-picture: Android is told a film plays, and its shape
+    ok(await until(() => window.__bmPip?.film === true && window.__bmPip.playing === true && window.__bmPip.w === 3840 && window.__bmPip.h === 2160), `Android is told a film plays, for its small window (${JSON.stringify(await ev(() => window.__bmPip))})`);
+    await ev(() => window.BMNative.event('pip', { on: true }));
+    ok(await until(() => document.getElementById('vp').classList.contains('pip') && !document.getElementById('vp').classList.contains('ui') && getComputedStyle(document.getElementById('vp-ui')).display === 'none'), 'in the small window only the picture shows');
+    await ev(() => { window.__bmMpv.commands = []; window.BMNative.event('remote', { action: 'toggle' }); });
+    ok(await until(() => window.__bmMpv.commands.some(c => c.join(' ') === 'set pause yes') && window.__bmPip.playing === false), 'its play and pause button pauses the film, and Android hears it is paused');
+    await ev(() => { window.__bmMpv.commands = []; window.BMNative.event('remote', { action: 'seekBy', value: 10 }); });
+    ok(await until(() => window.__bmMpv.commands.some(c => c.join(' ') === 'seek 10 relative')), 'and its skip goes ten seconds on');
+    await ev(() => window.BMNative.event('pip', { on: false }));
+    ok(await until(() => !document.getElementById('vp').classList.contains('pip') && document.getElementById('vp').classList.contains('ui')), 'back full size: the controls again');
+    await ev(() => document.getElementById('vp-play').click());
+    await until(() => window.__bmPip.playing === true);
+    await ev(() => { window.__bmMpv.commands = []; window.BMNative.event('pip', { on: true }); window.BMNative.event('pip', { on: false, closed: true }); });
+    ok(await until(() => window.__bmMpv.commands.some(c => c.join(' ') === 'set pause yes')), 'the small window closed: the film pauses');
     await sleep(300); await shot('09-video-mpv');
     ok(await ev(() => window.BMNative.back()) === 'handled' && await ev(() => window.__bmMpv.closed === true && !document.documentElement.classList.contains('mpv-on')), 'Back closes it: mpv stops and the page is solid again');
+    ok(await until(() => window.__bmPip?.film === false), 'and Android is told no film is open');
 
     await ev(() => localStorage.setItem('mock_mpv_fail', '1'));
     await page.tap('#vd-list .vrow[data-i="0"] .txt');
@@ -895,6 +1075,19 @@ try {
     await page.tap('#mini-close');
     await ev(() => { localStorage.removeItem('mock_sdk'); localStorage.removeItem('mock_delete'); });
   }
+
+  // v3.48.0: the page started again lighter, after Android stopped its
+  // process three times in a few minutes (MainActivity.restartPage)
+  step = 'started lighter';
+  console.log('\n' + step);
+  await page.goto(URL0 + '?light=1');
+  await until(() => window.__bmStarted === true, null, 20000);
+  ok(await until(() => document.getElementById('toast').classList.contains('on') && /runs lighter/.test(document.getElementById('toast').textContent), null, 6000), 'it says why it runs lighter');
+  await page.tap('#nav button[data-tab="settings"]');
+  ok(await until(() => document.querySelector('#st-quality button.on')?.dataset.v === 'low'), 'and runs on Low, for this run only');
+  ok(await ev(() => localStorage.getItem('bm_perf_quality_user') !== 'low'), 'with nothing kept for the next start');
+  await page.goto(URL0);
+  await until(() => window.__bmStarted === true, null, 20000);
 
   step = 'a long library';
   console.log('\n' + step);

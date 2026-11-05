@@ -79,6 +79,7 @@
   <link rel="modulepreload" href="js/viz-beat.js">
   <link rel="modulepreload" href="js/app/tv-tab.js">
   <link rel="modulepreload" href="js/neon-gl.js">
+  <link rel="modulepreload" href="js/scenes/runner.js">
   <link rel="modulepreload" href="js/app/keyboard.js">
   <link rel="modulepreload" href="js/app/theme-customizer.js">
   <link rel="modulepreload" href="js/play/sfx.js">
@@ -692,6 +693,8 @@
 <div id="welcome-screen" class="active" data-play="fox">
   <canvas id="theme-fx-canvas" class="theme-fx-canvas"></canvas>
   <canvas id="aurora-canvas"   class="aurora-canvas"></canvas>
+  <!-- v3.48.0: a scene chosen on Home (scenes/*.js), instead of the theme's own -->
+  <canvas id="scene-canvas"    class="scene-canvas"></canvas>
   <!-- v3.42.0: three ways to play on the welcome screen (play/*.js) -->
   <div class="play-modes welcome-modes" id="welcome-modes" role="group" aria-label="Play"></div>
   <div class="flow-surface" id="flow-surface"></div>
@@ -1072,9 +1075,31 @@
       <button class="eq-preset-btn" data-p="classical">Classical</button>
     </div>
     <div class="eq-bands" id="eq-bands"></div>
+    <!-- v3.49.0: the preamp, the whole sound up or down before the bands -->
+    <label class="eq-preamp" for="eq-preamp"><span>Preamp</span><input type="range" id="eq-preamp" min="-12" max="12" step="0.5" value="0" aria-label="Preamp"><span class="eq-band-val" id="eq-preamp-val">0 dB</span></label>
     <button class="btn-reset-eq" id="btn-reset-eq">Reset EQ</button>
     <!-- v3.46.0: sound.js -->
     <div class="snd-section" id="snd-section">
+      <!-- v3.49.0, Sound lab: one tap for a whole sound -->
+      <div class="ctx-section-label">Sound mode</div>
+      <p class="snd-note">One tap for a whole sound, in films and songs. Slowed and Nightcore play songs slower or faster, lower or higher, as a record would. A film keeps its own speed.</p>
+      <div class="eq-presets snd-chips" role="group" aria-label="Sound mode">
+        <button class="eq-preset-btn" data-snd-mode="off">Off</button>
+        <button class="eq-preset-btn" data-snd-mode="slowed">Slowed + reverb</button>
+        <button class="eq-preset-btn" data-snd-mode="nightcore">Nightcore</button>
+        <button class="eq-preset-btn" data-snd-mode="8d" aria-label="8D, the sound going round your head">8D</button>
+        <button class="eq-preset-btn" data-snd-mode="bass">Bass boost</button>
+        <button class="eq-preset-btn" data-snd-mode="karaoke">Vocal remover</button>
+        <button class="eq-preset-btn" data-snd-mode="hall">Concert hall</button>
+        <button class="eq-preset-btn" data-snd-mode="lofi">Lo-fi</button>
+        <button class="eq-preset-btn" data-snd-mode="wide">Wider stereo</button>
+      </div>
+      <div class="ctx-section-label">Clear voice</div>
+      <p class="snd-note">Brings the words forward over the music and the bangs, for films.</p>
+      <div class="eq-presets snd-chips" role="group" aria-label="Clear voice">
+        <button class="eq-preset-btn" data-snd-voice="off">Off</button>
+        <button class="eq-preset-btn" data-snd-voice="on">On</button>
+      </div>
       <div class="ctx-section-label">Night mode</div>
       <p class="snd-note">Quiet voices come up and loud bangs come down, for a film late at night.</p>
       <div class="eq-presets snd-chips" role="group" aria-label="Night mode">

@@ -700,6 +700,69 @@ if (PART === 'a') {
     console.log(`      (${r.facets} facets, the 3D fox's mesh, blinking, not floating)`);
   });
 
+  // v3.48.0: every scene Home can show, drawn at three window sizes, with
+  // what a frame costs and how many it got a second. On the laptop the check
+  // runs on, so the numbers are a real machine's (the frame gap keeps a scene
+  // to about 72 a second, 30 with the battery saver).
+  await step('every scene, drawn at three window sizes, with its frame rate', async () => {
+    const r = await page.evaluate(async () => {
+      const { SceneRunner } = await import('./js/scenes/runner.js');
+      const { themeScene, SCENE_THEMES } = await import('./js/theme-scenes.js');
+      const aurora = (await import('./js/scenes/aurora.js')).default;
+      const jellyfish = (await import('./js/scenes/jellyfish.js')).default;   // v3.49.0
+      const defs = [aurora, jellyfish, ...SCENE_THEMES.map(themeScene)];
+      const sizes = [[640, 360], [1280, 720], [1920, 1080]], out = [];
+      for (const [W, H] of sizes) {
+        for (const def of defs) {
+          const c = document.createElement('canvas');
+          c.style.cssText = `position:fixed;left:0;top:0;width:${W}px;height:${H}px;visibility:hidden;pointer-events:none`;
+          document.body.append(c);
+          const run = new SceneRunner(c);
+          run.run(def, { colour: 'both' });
+          // the first frame draws a scene's layers for the size (Aurora Lake's land): timed on its own
+          const t0 = performance.now();
+          while (!run.cost().frames && performance.now() - t0 < 5000) await new Promise(z => setTimeout(z, 5));
+          const first = run.cost(), t1 = performance.now();
+          await new Promise(z => setTimeout(z, 600));
+          const c2 = run.cost(), secs = (performance.now() - t1) / 1000, n = c2.frames - first.frames;
+          const cost = { frames: n, msPerFrame: n ? (c2.frames * c2.msPerFrame - first.frames * first.msPerFrame) / n : 0, errors: c2.errors };
+          // something drawn: a pixel lit somewhere along the middle row
+          const g = c.getContext('2d'), row = g.getImageData(0, Math.floor(c.height * 0.4), c.width, 1).data;
+          let lit = 0; for (let i = 3; i < row.length; i += 4) if (row[i] > 8) lit++;
+          out.push({ id: def.id, size: W + 'x' + H, first: Math.round(first.msPerFrame), fps: +(cost.frames / secs).toFixed(0), ms: +cost.msPerFrame.toFixed(1), errors: cost.errors, lit: lit > 0 });
+          run.destroy(); c.remove();
+        }
+      }
+      return out;
+    });
+    const bad = r.filter(x => x.errors || x.fps < 1 || ((x.id === 'aurora' || x.id === 'jellyfish') && !x.lit));
+    if (r.length !== 36 || bad.length) throw new Error(JSON.stringify(bad.length ? bad : r));
+    for (const size of ['640x360', '1280x720', '1920x1080']) {
+      console.log(`      (${size}: ` + r.filter(x => x.size === size).map(x => `${x.id.replace('theme:', '')} ${x.fps}/s ${x.ms} ms` + (x.first > 20 ? ` (first ${x.first} ms)` : '')).join(', ') + ')');
+    }
+  });
+
+  // In Lite (this part runs as Lite) a scene is a still that moves when touched.
+  await step('in Lite, Aurora Lake is a still picture that moves for a while when touched', async () => {
+    await page.click('#scene-btn');
+    await page.click('#scene-menu [data-scene="aurora"]');
+    await page.waitForFunction(() => window.__bmScene?.def?.id === 'aurora' && window.__bmScene.cost().frames >= 1, null, { timeout: 15000 });
+    await page.keyboard.press('Escape');
+    const f0 = await page.evaluate(() => window.__bmScene.cost().frames);
+    await page.waitForTimeout(1000);
+    const f1 = await page.evaluate(() => window.__bmScene.cost().frames);
+    const box = await page.evaluate(() => { const r = document.getElementById('welcome-screen').getBoundingClientRect(); return { x: r.left + r.width * 0.82, y: r.top + r.height * 0.3 }; });
+    await page.mouse.click(box.x, box.y);
+    await page.waitForTimeout(900);
+    const f2 = await page.evaluate(() => window.__bmScene.cost().frames);
+    const picked = await page.evaluate(() => document.getElementById('welcome-screen').classList.contains('scene-picked') && localStorage.getItem('bm_home_scene') === 'aurora');
+    await page.evaluate(() => window.bmApp.setScene('theme'));
+    if (!picked) throw new Error('the scene was not shown or kept');
+    if (f1 !== f0) throw new Error(`a still went on drawing: ${f0} frames, then ${f1}`);
+    if (!(f2 > f1 + 5)) throw new Error(`touched, it did not move: ${f1} frames, then ${f2}`);
+    console.log(`      (${f0} frame for the still, ${f2 - f1} in the moment after a touch)`);
+  });
+
   // Last in part A: it plays a song, and the checks before it want an app
   // with nothing loaded.
   // The sound chain in real Web Audio (v3.47.0, sound-chain.js). The other
@@ -724,7 +787,7 @@ if (PART === 'a') {
         for (let k = 0; k < 6; k++) { ears.forEach((a, i) => { a.getFloatTimeDomainData(buf); let s = 0; for (const v of buf) s += v * v; sum[i] += Math.sqrt(s / buf.length); }); await new Promise(z => setTimeout(z, 40)); }
         return sum.map(x => +(x / 6).toFixed(4));
       };
-      const off = { eq: new Array(10).fill(0), channels: 'stereo', night: false, boost: 1 };
+      const off = { eq: new Array(10).fill(0), channels: 'stereo', night: false, boost: 1, mode: 'off', voice: false, preamp: 0 };
       const out = {};
       eng.setVolume(100); eng.setMuted(false);
       eng.setSound(off); out.off = await level();
@@ -733,6 +796,13 @@ if (PART === 'a') {
       eng.setSound({ ...off, boost: 2 }); out.boost = await level();
       eng.setSound({ ...off, night: true }); out.night = await level();
       eng.setSound(off); await new Promise(z => setTimeout(z, 300)); out.again = await level(); out.live = eng.chain.live.join(',');
+      // v3.49.0: Nightcore plays the song a quarter faster, the pitch following
+      eng.setSound({ ...off, mode: 'nightcore' });
+      const t0 = eng.currentTime, w0 = performance.now();
+      await new Promise(z => setTimeout(z, 1200));
+      out.nightcore = { pace: +((eng.currentTime - t0) / ((performance.now() - w0) / 1000)).toFixed(3), pitchKept: eng.el.preservesPitch, speed: eng.speed };
+      eng.setSound(off);
+      out.paceAfter = eng.el.playbackRate;
       eng.gain.disconnect(both);
       bmApp._applyEQ();
       return out;
@@ -748,15 +818,17 @@ if (PART === 'a') {
     if (!quiet(r.right[0]) || !quiet(r.right[1])) throw new Error('right only (silent here) was not silent: ' + JSON.stringify(r.right));
     if (!near(r.mono[0], L / 2) || !near(r.mono[1], L / 2)) throw new Error('mono is not half in each ear: ' + JSON.stringify(r.mono));
     if (!(r.eq[0] > L * 2.5)) throw new Error('the equalizer at +12 around the tone did not lift it: ' + JSON.stringify(r.eq));
-    // A 200% boost is a little over double here: the limiter after it is a
-    // Web Audio compressor, which adds a make-up gain of its own (about
-    // +0.9 dB at its settings). Night mode lifts a quiet tone a long way for
-    // the same reason. Both are as 3.46.0 had them; mpv's forms have no
-    // automatic make-up, and Sound lab (3.49) evens the two out.
-    if (!(r.boost[0] > L * 1.9 && r.boost[0] < L * 2.4)) throw new Error('a 200% boost did not double the sound: ' + JSON.stringify(r.boost));
+    // A 200% boost doubles the sound. Until v3.49.0 it was a little over
+    // double, and night mode lifted a quiet tone some 9 dB more than mpv's:
+    // a Web Audio compressor adds a make-up gain of its own, which mpv's do
+    // not. Sound lab takes it off again (sound-chain.js makeup), and
+    // scripts/sound-check.mjs holds the two players to each other.
+    if (!(r.boost[0] > L * 1.9 && r.boost[0] < L * 2.15)) throw new Error('a 200% boost did not double the sound: ' + JSON.stringify(r.boost));
     if (!(r.night[0] > L * 1.5) || !(r.night[0] < 0.65)) throw new Error('night mode did not lift the quiet tone, or it went past the limiter: ' + JSON.stringify(r.night));
     if (!near(r.again[0], L, 0.06) || !quiet(r.again[1]) || r.live !== '') throw new Error('with all off again the sound is not as it was: ' + JSON.stringify({ again: r.again, live: r.live }));
-    console.log(`      (left ear: off ${L}, equalizer ${r.eq[0]}, boost ${r.boost[0]}, night ${r.night[0]}, all off again ${r.again[0]})`);
+    const nc = r.nightcore;
+    if (!(nc.pace > 1.15 && nc.pace < 1.35) || nc.pitchKept !== false || nc.speed !== 1 || r.paceAfter !== 1) throw new Error('Nightcore did not play a quarter faster with the pitch following, and the speed shown left as it was: ' + JSON.stringify({ nc, after: r.paceAfter }));
+    console.log(`      (left ear: off ${L}, equalizer ${r.eq[0]}, boost ${r.boost[0]}, night ${r.night[0]}, all off again ${r.again[0]}; Nightcore ran at ${nc.pace} times)`);
   });
 }
 
@@ -1706,6 +1778,32 @@ if (PART === 'c') {
   // runner and its adapter is the same picture as drawn the way ThemeFX
   // draws it, pixel for pixel. The two are given the same random numbers (a
   // seeded Math.random for the moment of each) and the same clock.
+  await step('Aurora Lake runs instead of the theme\'s own, and rests away from Home', async () => {
+    await page.evaluate(() => { window.bmApp.applyTheme('ocean'); window.bmApp.switchDest?.('video'); });
+    await page.click('#scene-btn');
+    await page.click('#scene-menu [data-scene="aurora"]');
+    await page.waitForFunction(() => window.__bmScene?.def?.id === 'aurora' && window.__bmScene.cost().frames > 10, null, { timeout: 15000 });
+    await page.keyboard.press('Escape');
+    const on = await page.evaluate(() => ({ theme: !!window.bmApp.themeFX?.running, picked: document.getElementById('welcome-screen').classList.contains('scene-picked'), still: window.__bmScene.still }));
+    // away from Home: the music tab
+    await page.evaluate(() => window.bmApp.switchDest('music'));
+    await page.waitForTimeout(400);
+    const a0 = await page.evaluate(() => window.__bmScene.cost().frames);
+    await page.waitForTimeout(700);
+    const a1 = await page.evaluate(() => window.__bmScene.cost().frames);
+    await page.evaluate(() => window.bmApp.switchDest('video'));
+    await page.waitForTimeout(700);
+    const back = await page.evaluate(() => ({ frames: window.__bmScene.cost().frames, theme: !!window.bmApp.themeFX?.running }));
+    await page.evaluate(() => window.bmApp.setScene('theme'));
+    await page.waitForTimeout(400);
+    const off = await page.evaluate(() => ({ theme: !!window.bmApp.themeFX?.running, scene: !!window.__bmScene.scene }));
+    if (on.theme || !on.picked || on.still) throw new Error('with Aurora Lake chosen the theme\'s own still ran, or it was not shown: ' + JSON.stringify(on));
+    if (a1 !== a0) throw new Error(`away from Home it went on drawing: ${a0} then ${a1} frames`);
+    if (!(back.frames > a1 + 5) || back.theme) throw new Error('back on Home it did not draw again, or the theme\'s own did too: ' + JSON.stringify(back));
+    if (!off.theme || off.scene) throw new Error('the theme\'s own did not come back: ' + JSON.stringify(off));
+    console.log(`      (one at a time: Aurora Lake drew ${back.frames} frames, none away from Home)`);
+  });
+
   await step('the scene runner draws each theme background exactly as ThemeFX does', async () => {
     const r = await page.evaluate(async () => {
       const { SceneRunner } = await import('./js/scenes/runner.js');

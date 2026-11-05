@@ -191,6 +191,8 @@ const MOCK = {
   openAppSettings () {},
   playback (json) { window.__bmPlayback = JSON.parse(json); },
   orientation (m) { window.__bmOrientation = m; },
+  pip (json) { window.__bmPip = JSON.parse(json); },
+  pipSupported () { return true; },
   immersive (on) { window.__bmImmersive = !!on; },
   keepScreenOn (on) { window.__bmAwake = !!on; },
   bars (c, light) { window.__bmBars = [c, light]; },

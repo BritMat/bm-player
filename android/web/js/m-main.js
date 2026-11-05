@@ -123,6 +123,10 @@ function boot () {
   window.bmApp = { showOSD: text => toast(text, 1600) };     // the desktop's modules show notes through this
   // A phone's graphics are a laptop's at best: High only when chosen in Settings.
   if (!perf.chosen && perf.tier === 'high') perf.setSessionTier('medium');
+  // v3.48.0: Android stopped the page's process three times in a few minutes
+  // to free memory (MainActivity.restartPage): this run is lighter, as Lite.
+  const light = /[?&]light=1/.test(location.search);
+  if (light) perf.setSessionTier('low');
   // MilkDrop starts a size down on a phone, two on a weak one: it steps down
   // further by itself if frames are slow, and the battery saver takes one more.
   MD.set = true;
@@ -152,6 +156,7 @@ function boot () {
   initHome({ open: openEntry, resume: openEntry, openFav, browse });
   homeVisible(true);
   initUpdate();
+  if (light) setTimeout(() => toast('Android stopped BM Player\'s screen several times to free memory, so it runs lighter until you close and reopen the app.', 5000), 1200);
 
   $('nav').addEventListener('click', e => { const b = e.target.closest('button[data-tab]'); if (b) showTab(b.dataset.tab); });
 

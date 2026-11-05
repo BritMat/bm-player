@@ -30,15 +30,31 @@ export default class PanelsFeature {
     // and the picture's, set the equalizer back to flat when pressed.
     const presets=[...document.querySelectorAll('#eq-presets .eq-preset-btn')];
     presets.forEach(btn=>{btn.addEventListener('click',()=>{presets.forEach(b=>b.classList.remove('active'));btn.classList.add('active');const vals=EQ_PRESETS[btn.dataset.p]||EQ_PRESETS.flat;this.eqValues=[...vals];EQ_BANDS.forEach((_,i)=>{const s=el('eq-s-'+i),v=el('eq-val-'+i);if(s)s.value=vals[i];if(v)v.textContent=(vals[i]>0?'+':'')+vals[i];});this._applyEQ();});});
-    el('btn-reset-eq')?.addEventListener('click',()=>document.querySelector('#eq-presets .eq-preset-btn[data-p="flat"]')?.click());
+    el('btn-reset-eq')?.addEventListener('click',()=>{document.querySelector('#eq-presets .eq-preset-btn[data-p="flat"]')?.click();this._setPreamp(0);});
+    // The preamp (v3.49.0): the whole sound up or down before the bands. Kept between runs.
+    this.eqPreamp=Math.max(-12,Math.min(12,+localStorage.getItem('bm_eq_preamp')||0));
+    const pre=el('eq-preamp');
+    if(pre){pre.value=this.eqPreamp;pre.addEventListener('input',e=>this._setPreamp(+e.target.value));pre.addEventListener('dblclick',()=>this._setPreamp(0));}
+    this._showPreamp();
   }
+  _setPreamp(db){
+    this.eqPreamp=Math.max(-12,Math.min(12,+db||0));
+    try{localStorage.setItem('bm_eq_preamp',String(this.eqPreamp));}catch(_){}
+    const pre=el('eq-preamp');if(pre&&+pre.value!==this.eqPreamp)pre.value=this.eqPreamp;
+    this._showPreamp();this._applyEQ();
+  }
+  _showPreamp(){const v=el('eq-preamp-val');if(v)v.textContent=(this.eqPreamp>0?'+':'')+(this.eqPreamp||0)+' dB';}
   _applyEQ(){
     // Two players, one set of sliders and effects: the engine plays the
     // library's songs and mpv everything else, and both are given the same
     // settings, made into each one's form by sound-chain.js (v3.47.0).
+    // v3.49.0: the preamp, the sound mode and clear voice too. Slowed and
+    // Nightcore also change a song's speed: the engine does that itself, and
+    // for a song mpv plays the music view sets mpv's speed (applyRate).
     const fx=this.sound?.fx||{};
-    const s={eq:this.eqValues,night:!!fx.night,channels:fx.channels||'stereo',boost:(fx.boost||100)/100};
+    const s={eq:this.eqValues,preamp:this.eqPreamp||0,night:!!fx.night,channels:fx.channels||'stereo',boost:(fx.boost||100)/100,mode:fx.mode||'off',voice:!!fx.voice};
     window.bmMusic?.engine?.setSound?.(s);
+    window.bmMusic?.applyRate?.();
     this.api?.mpv.cmd('set_property','af',lavfi(s))?.catch?.(()=>{});}
   wirePlaylistPanel(){
     el('pl-add')?.addEventListener('click',()=>this.openDialog(true));

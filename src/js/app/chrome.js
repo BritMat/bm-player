@@ -60,6 +60,7 @@ export default class ChromeFeature {
       }
       this.auroraFX?.setQuality?.(perf.tier);
       this.emitPlugin('theme-change',{theme:name});
+      if(this.isLite&&(this._sceneId||'theme')==='theme') this._applyScene?.();   // Lite: the new theme's still (v3.48.0)
       this._syncEffects();   // a theme change starts loops: settle them (v3.30.0)
     };
     // The effects layer follows the pointer too: snowflakes swirl away from it.

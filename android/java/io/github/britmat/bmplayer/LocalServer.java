@@ -13,7 +13,6 @@ import android.webkit.WebResourceResponse;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.FileNotFoundException;
-import java.io.FilterInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.net.HttpURLConnection;
@@ -28,7 +27,8 @@ import java.util.Map;
  *   /...                      the app's own files (assets/www)
  *   /media/audio/ID           a song, by its MediaStore id, in parts (HTTP
  *   /media/video/ID           ranges), so the player can seek without
- *                             reading the whole file first
+ *                             reading the whole file first (WebView answers
+ *                             the range itself: see RangeStream)
  *   /media/image/ID?fit=N     a picture (v3.42.0); with fit, one larger than
  *                             N pixels comes scaled down to fit N
  *   /opened/N                 a file another app asked BM Player to open
@@ -61,6 +61,8 @@ final class LocalServer {
     LocalServer(Context c) {
         app = c.getApplicationContext();
         cr = app.getContentResolver();
+        // A song's stream that breaks partway is told in the app's log, with where (v3.48.0).
+        RangeStream.log = new RangeStream.Log() { public void w(String s) { BMLog.w(s); } };
     }
 
     /** A file another app gave us to open: the page plays it from /opened/N. */
@@ -177,87 +179,27 @@ final class LocalServer {
         long total = afd.getLength();
         if (total < 0) { try { total = afd.getParcelFileDescriptor().getStatSize(); } catch (Exception ignored) { } }
         InputStream in = afd.createInputStream();
+        String what = req.getUrl().getPath();
         Map<String, String> h = new HashMap<String, String>();
         h.put("Accept-Ranges", "bytes");
         h.put("Cache-Control", "no-store");
         h.put("Access-Control-Allow-Origin", "*");
         String range = header(req, "Range");
         if (range != null && total > 0) {
-            long[] r = parseRange(range, total);
+            long[] r = RangeStream.parse(range, total);
             if (r == null) {
                 in.close();
+                BMLog.w(what + ": asked for " + range + ", past its end (" + total + " bytes)");
                 h.put("Content-Range", "bytes */" + total);
                 return new WebResourceResponse(type, null, 416, "Range Not Satisfiable", h, new ByteArrayInputStream(new byte[0]));
             }
-            skipFully(in, r[0]);
-            long len = r[1] - r[0] + 1;
+            // The file from its start: WebView skips to the range's start itself (RangeStream says why).
             h.put("Content-Range", "bytes " + r[0] + "-" + r[1] + "/" + total);
-            h.put("Content-Length", String.valueOf(len));
-            return new WebResourceResponse(type, null, 206, "Partial Content", h, new Limited(in, len));
+            h.put("Content-Length", String.valueOf(r[1] - r[0] + 1));
+            return new WebResourceResponse(type, null, 206, "Partial Content", h, new RangeStream(in, r[0], r[1], total, what));
         }
         if (total > 0) h.put("Content-Length", String.valueOf(total));
-        return new WebResourceResponse(type, null, 200, "OK", h, in);
-    }
-
-    /** "bytes=START-END", "bytes=START-" or "bytes=-LAST" as { from, to }, or null when it is outside the file. */
-    static long[] parseRange(String v, long total) {
-        String s = v.trim().toLowerCase(Locale.US);
-        if (!s.startsWith("bytes=")) return new long[] { 0, total - 1 };
-        s = s.substring(6);
-        int comma = s.indexOf(',');
-        if (comma >= 0) s = s.substring(0, comma);           // only the first part is answered
-        int dash = s.indexOf('-');
-        if (dash < 0) return new long[] { 0, total - 1 };
-        String a = s.substring(0, dash).trim(), b = s.substring(dash + 1).trim();
-        long from, to;
-        try {
-            if (a.length() == 0) {                             // the last N bytes
-                long n = Long.parseLong(b);
-                from = Math.max(0, total - n);
-                to = total - 1;
-            } else {
-                from = Long.parseLong(a);
-                to = b.length() == 0 ? total - 1 : Math.min(Long.parseLong(b), total - 1);
-            }
-        } catch (NumberFormatException e) { return new long[] { 0, total - 1 }; }
-        if (from >= total || from > to) return null;
-        return new long[] { from, to };
-    }
-
-    private static void skipFully(InputStream in, long n) throws IOException {
-        byte[] buf = null;
-        while (n > 0) {
-            long k = in.skip(n);
-            if (k > 0) { n -= k; continue; }
-            if (buf == null) buf = new byte[8192];
-            int r = in.read(buf, 0, (int) Math.min(buf.length, n));
-            if (r < 0) throw new IOException("the file ended early");
-            n -= r;
-        }
-    }
-
-    /** At most n bytes of a stream. */
-    static final class Limited extends FilterInputStream {
-        private long left;
-        Limited(InputStream in, long n) { super(in); left = n; }
-        @Override public int read() throws IOException {
-            if (left <= 0) return -1;
-            int b = super.read();
-            if (b >= 0) left--;
-            return b;
-        }
-        @Override public int read(byte[] b, int off, int len) throws IOException {
-            if (left <= 0) return -1;
-            int r = super.read(b, off, (int) Math.min(len, left));
-            if (r > 0) left -= r;
-            return r;
-        }
-        @Override public long skip(long n) throws IOException {
-            long k = super.skip(Math.min(n, left));
-            if (k > 0) left -= k;
-            return k;
-        }
-        @Override public int available() throws IOException { return (int) Math.min(super.available(), left); }
+        return new WebResourceResponse(type, null, 200, "OK", h, total > 0 ? new RangeStream(in, 0, total - 1, total, what) : in);
     }
 
     // ── pictures ─────────────────────────────────────────────────────

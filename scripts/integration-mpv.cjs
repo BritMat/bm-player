@@ -55,8 +55,8 @@ function wav(file, seconds) {
   h.write('data', 36); h.writeUInt32LE(data.length, 40);
   fs.writeFileSync(file, Buffer.concat([h, data]));
 }
-const ONE = path.join(TMP, 'one.wav'), TWO = path.join(TMP, 'two.wav');
-wav(ONE, 1.2); wav(TWO, 1.2);
+const ONE = path.join(TMP, 'one.wav'), TWO = path.join(TMP, 'two.wav'), LONG = path.join(TMP, 'long.wav');
+wav(ONE, 1.2); wav(TWO, 1.2); wav(LONG, 8);
 
 /** Run mpv with the app's args, drive it with `script`, return what it said. */
 function session(script, timeoutMs = 5000) {
@@ -85,7 +85,9 @@ function session(script, timeoutMs = 5000) {
       s = net.connect(sock);
       s.on('error', () => n > 0 ? setTimeout(() => tryConnect(n - 1), 100) : finish(new Error('mpv IPC socket never appeared')));
       s.on('connect', () => {
-        const send = c => s.write(JSON.stringify({ command: c }) + '\n');
+        // id: a reply is wanted, kept in seen.replies[id] (its error, 'success' when it worked)
+        const send = (c, id) => s.write(JSON.stringify(id ? { command: c, request_id: id } : { command: c }) + '\n');
+        seen.replies = {}; seen.data = {};
         ['pause', 'eof-reached', 'filename', 'time-pos', 'idle-active']
           .forEach((p, i) => send(['observe_property', 300 + i, p]));
         let buf = '';
@@ -95,6 +97,7 @@ function session(script, timeoutMs = 5000) {
             const line = buf.slice(0, nl).trim(); buf = buf.slice(nl + 1);
             if (!line) continue;
             let m; try { m = JSON.parse(line); } catch { continue; }
+            if (m.request_id) { seen.replies[m.request_id] = m.error; seen.data[m.request_id] = m.data; }
             if (m.event === 'property-change') {
               seen.props[m.name] = m.data;
               if (m.name !== 'time-pos') seen.timeline.push([Date.now() - t0, m.name, m.data]);
@@ -198,6 +201,38 @@ async function main() {
     if (r.props['video-params']?.rotate !== 90 || !(out.rotate === 90 || out.w < out.h)) throw new Error('the picture is not turned: ' + JSON.stringify({ in: r.props['video-params']?.rotate, out }));
     pass('mpv turns and mirrors the picture with the app\'s own commands');
   } catch (e) { fail('mpv turns and mirrors the picture with the app\'s own commands', e); }
+
+  // 5. Sound lab (v3.49.0): every sound mode's filters, clear voice, the
+  // preamp and all of them at once, as sound-chain.js writes them, are taken
+  // by mpv while a file plays. The modes use labelled filter graphs inside
+  // af's lavfi=[...] (a reverb beside the sound, the vocal remover's two
+  // paths), which must get through mpv's own option parsing whole. An af it
+  // cannot make is refused, and the one before it stays.
+  try {
+    const { lavfi, MODES } = await import(require('url').pathToFileURL(path.join(ROOT, 'src/js/sound-chain.js')).href);
+    const asks = [...MODES.filter(([m]) => lavfi({ mode: m })).map(([m, name]) => [name, lavfi({ mode: m })]),
+      ['Clear voice', lavfi({ voice: true })], ['Preamp', lavfi({ preamp: -4, eq: [0, 3] })],
+      ['All at once', lavfi({ preamp: 2, eq: [0, 3], voice: true, channels: 'mono', night: true, mode: 'karaoke', boost: 1.5 })]];
+    const gap = 300, end = 600 + asks.length * gap;
+    const r = await session({
+      start: send => {
+        send(['loadfile', LONG, 'replace']); send(['set_property', 'pause', false]);
+        asks.forEach(([, af], i) => setTimeout(() => send(['set_property', 'af', af], 900 + i), 600 + i * gap));
+        setTimeout(() => send(['get_property', 'af'], 990), end);
+        setTimeout(() => send(['set_property', 'af', 'lavfi=[nosuchfilter=1]'], 991), end + 150);
+        setTimeout(() => { send(['get_property', 'af'], 992); send(['get_property', 'time-pos'], 993); }, end + 450);
+      },
+      stopAfter: end + 900,
+    }, end + 3000);
+    const refused = asks.filter((_, i) => r.replies[900 + i] !== 'success').map(([n], i) => n + ' (' + r.replies[900 + asks.indexOf(asks.find(a => a[0] === n))] + ')');
+    if (refused.length) throw new Error('mpv refused: ' + refused.join(', '));
+    const last = r.data[990], after = r.data[992];
+    if (!Array.isArray(last) || !last.length || last[0].name !== 'lavfi') throw new Error('af after the last one is ' + JSON.stringify(last));
+    if (r.replies[991] === 'success') console.log('  note: this mpv took an af with a filter that does not exist; it reports the failure only in its log');
+    else if (JSON.stringify(after) !== JSON.stringify(last)) throw new Error('a refused af did not leave the one before: ' + JSON.stringify(after));
+    if (!(r.data[993] > 1)) throw new Error('the file stopped playing with the filters: time-pos ' + r.data[993]);
+    pass(`mpv takes every sound mode's filters, clear voice and the preamp (${asks.length} filter chains), and plays on`);
+  } catch (e) { fail('mpv takes every sound mode\'s filters', e); }
 
   try { fs.rmSync(TMP, { recursive: true, force: true }); } catch {}
   const bad = results.filter(r => !r).length;

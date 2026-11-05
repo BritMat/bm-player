@@ -14,6 +14,12 @@
  *   Fruit  a fruit slicing game, the juice pouring into the fluid behind
  *          (play/slice-game.js)
  *
+ * v3.48.0: a scene for Home instead of the theme's own (the scene button at
+ * the top): Aurora Lake, a mountain lake under the northern lights, from the
+ * desktop's scene kit (scenes/runner.js), loaded the first time it is
+ * chosen. Tap the sky for a star, the lake for ripples; its lights sway with
+ * the music. On Low quality it is a still picture that moves when touched.
+ *
  * Everything here draws only while it can be seen: the Home tab showing,
  * nothing over it (Now Playing, a video, a picture, a document), the app in
  * front, and in Fox mode not resting (two minutes untouched, power.js). The
@@ -26,6 +32,8 @@ import { createFox } from './fox3d.js';
 import { FluidFX } from './fluid.js';
 import { ThemeFX } from './theme-fx.js';
 import { SCENE_THEMES } from './theme-scenes.js';
+import { SceneRunner } from './scenes/runner.js';
+import { beatMeter } from './scenes/kit.js';
 import { flowSettings } from './flow-settings.js';
 import { perf } from './perf.js';
 import { power, onPower } from './power.js';
@@ -41,7 +49,15 @@ import { lib } from './m-library.js';
 import { THEMES, applyTheme } from './m-settings.js';
 
 const h = { visible: false, fg: true, mode: 'fox', fox: null, fluid: null, theme: null, play: null, voice: null, toy: null, game: null,
-  opts: null, musicT: 0, hintT: 0, plays: 0 };
+  opts: null, musicT: 0, hintT: 0, plays: 0, scene: null, sceneId: 'theme', sceneTok: 0 };
+
+// v3.48.0: the scenes Home can show instead of the theme's own, loaded when chosen
+const SCENES = [['theme', 'The theme\'s own', 'Its colours\' own background'], ['aurora', 'Aurora Lake', 'A mountain lake under the northern lights'],
+  ['jellyfish', 'Jellyfish Drift', 'Jellyfish pulsing in deep water, in time with the music']];
+const LOOKS = [['natural', 'Natural'], ['glow', 'Glow']];       // v3.49.0: Jellyfish Drift's (scenes/jellyfish.js)
+const COLOURS = [['green', 'Green'], ['violet', 'Violet'], ['both', 'Both']];
+const store = (k, v) => { try { if (v === undefined) return localStorage.getItem(k); localStorage.setItem(k, v); } catch (_) { return null; } return null; };
+const loadScene = id => ({ aurora: () => import('./scenes/aurora.js'), jellyfish: () => import('./scenes/jellyfish.js') }[id]?.() || Promise.resolve(null));
 
 const MODE_ICON = {
   fox: '<svg viewBox="0 0 24 24"><path d="M4 3l4.2 4.6h7.6L20 3l-.9 9.2L12 21l-7.1-8.8z" fill="currentColor"/></svg>',
@@ -73,6 +89,7 @@ export function initHome (opts) {
   modes.innerHTML = [['fox', 'Fox'], ['flow', 'Flow'], ['fruit', 'Fruit']].map(([k, l]) => `<button type="button" data-m="${k}" class="${k === 'fox' ? 'on' : ''}" aria-pressed="${k === 'fox'}">${MODE_ICON[k]}<span>${l}</span></button>`).join('');
   modes.addEventListener('click', e => { const b = e.target.closest('button[data-m]'); if (b) setMode(b.dataset.m); });
   $('home-theme').addEventListener('click', themeSheet);
+  $('home-scene-btn')?.addEventListener('click', sceneSheet);
   const snd = $('home-sound');
   const markSound = () => { snd.classList.toggle('off', !sfx.on); snd.setAttribute('aria-label', sfx.on ? 'Sounds on' : 'Sounds off'); snd.innerHTML = ICONS[sfx.on ? 'volHigh' : 'volMuted'] || ''; };
   markSound();
@@ -119,7 +136,61 @@ export function initHome (opts) {
   player.on?.('track', () => renderResume());
   renderResume();
   hint();
+  h.sceneId = SCENES.some(x => x[0] === store('bm_m_scene')) ? store('bm_m_scene') : 'theme';
+  applyScene();
   window.__bmHome = h;      // for the page checks (scripts/android-page.mjs)
+}
+
+// ── v3.48.0: the scene on Home ───────────────────────────────────────
+function sceneSheet () {
+  const items = SCENES.map(([k, l, sub]) => ({ label: l, note: sub, on: h.sceneId === k, action: () => setScene(k) }));
+  if (h.sceneId === 'aurora') {
+    const c = store('bm_m_aurora_colour') || 'green', shoot = store('bm_m_aurora_shoot') !== '0';
+    items.push(...COLOURS.map(([k, l]) => ({ label: 'Lights: ' + l, on: c === k, action: () => { store('bm_m_aurora_colour', k); h.scene?.set('colour', k); } })));
+    items.push({ label: 'Shooting stars', note: shoot ? 'On' : 'Off', on: shoot, action: () => { store('bm_m_aurora_shoot', shoot ? '0' : '1'); h.scene?.set('shoot', !shoot); } });
+  }
+  if (h.sceneId === 'jellyfish') {
+    const look = store('bm_m_jelly_look') || 'natural';
+    items.push(...LOOKS.map(([k, l]) => ({ label: 'Look: ' + l, on: look === k, action: () => { store('bm_m_jelly_look', k); h.scene?.set('look', k); } })));
+  }
+  sheet({ title: 'Scene', sub: 'What is behind the fox. A scene of its own, or the theme\'s.', items });
+}
+
+export function setScene (id) {
+  h.sceneId = SCENES.some(x => x[0] === id) ? id : 'theme';
+  store('bm_m_scene', h.sceneId);
+  return applyScene();
+}
+
+async function applyScene () {
+  const tok = ++h.sceneTok, id = h.sceneId, home = $('v-home'), cv = $('home-scene');
+  if (!home || !cv) return;
+  let def = null;
+  if (id !== 'theme') {
+    try { def = (await loadScene(id))?.default || null; }
+    catch (e) { console.warn('[BM Player] the scene ' + id + ' could not be loaded:', e); toast('That scene could not be loaded'); }
+  }
+  if (tok !== h.sceneTok) return;
+  home.classList.toggle('has-scene', !!def);
+  if (!def) { h.scene?.stop(); sync(); return; }
+  if (!h.scene) {
+    const meter = beatMeter();
+    // the music's beat, while a song plays; a still on a weak phone, moving when touched
+    h.scene = new SceneRunner(cv, { still: perf.tier === 'low', level: () => meter(player.paused ? null : player.engine?.getAnalyser?.()) });
+    wireScene();
+  }
+  if (h.scene.def?.id !== def.id) { h.scene.rest(true); h.scene.run(def, { colour: store('bm_m_aurora_colour') || 'green', shoot: store('bm_m_aurora_shoot') !== '0', look: store('bm_m_jelly_look') || 'natural' }); }
+  sync();
+}
+
+// a touch on the sky or the water, not on the fox or a button
+function wireScene () {
+  const host = $('home-main');
+  if (!host) return;
+  const free = e => h.scene?.scene && h.mode === 'fox' && !e.target.closest('button, a, input, .fox-stage, .home-recent, .home-favs');
+  host.addEventListener('pointerdown', e => { if (free(e)) h.scene.pointer('down', e.clientX, e.clientY); });
+  host.addEventListener('pointermove', e => { if (free(e) && !h.scene.still) h.scene.pointer('move', e.clientX, e.clientY); }, { passive: true });
+  for (const ev of ['pointerup', 'pointercancel', 'pointerleave']) host.addEventListener(ev, () => h.scene?.pointer('leave', 0, 0));
 }
 
 /** The Home tab shown (true) or another tab (false). */
@@ -142,9 +213,12 @@ function sync () {
   const shown = h.visible && h.fg && !document.hidden && !covered();
   const rest = h.mode === 'fox' && power.idle;
   const on = shown && !rest;
-  const fluidOn = on && (h.mode !== 'fox' || h.fluidTheme);
+  // a scene chosen for Home runs instead of the theme's own (v3.48.0): one at a time
+  const picked = !!h.scene?.scene && h.sceneId !== 'theme';
+  const fluidOn = on && (h.mode !== 'fox' || (h.fluidTheme && !picked));
   try { if (fluidOn) h.fluid?.resume(); else h.fluid?.pause(); } catch (_) {}
-  try { if (on && h.mode === 'fox') h.theme?.resume(); else h.theme?.pause(); } catch (_) {}
+  try { if (on && h.mode === 'fox' && !picked) h.theme?.resume(); else h.theme?.pause(); } catch (_) {}
+  try { h.scene?.rest(!(on && h.mode === 'fox' && picked)); } catch (_) {}
   try { if (on && h.mode === 'fox') { h.fox?.resume(); h.play?.resume(); } else { h.fox?.pause(); h.play?.pause(); } } catch (_) {}
   if (!shown) { h.voice?.on && h.voice.stop(); if (h.game?.busy) h.game.pause(); }
   // the music, to the fox: only while it can be seen and the music plays

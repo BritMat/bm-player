@@ -19,6 +19,9 @@
  *   noise2(x, y), fbm(x, y)   smooth noise on a plane, and four octaves of it
  *   reducedMotion()      the system asks for less motion
  *   scaleFor(w, h)       a size factor for a w x h view (900 px is 1)
+ *   beatMeter()          a function that, given the music's analyser, says
+ *                        how much of a beat there is now: the bass against
+ *                        its own recent level, 0 to 1 (v3.48.0)
  *
  * Nothing here draws or runs anything by itself.
  */
@@ -89,3 +92,21 @@ export const fbm = (x, y) => noise2(x, y) * 0.5 + noise2(x * 2.03, y * 2.03) * 0
 
 export const reducedMotion = () => { try { return matchMedia('(prefers-reduced-motion: reduce)').matches; } catch { return false; } };
 export const scaleFor = (w, h) => clamp(Math.min(w, h) / 900, 0.55, 1.6);
+
+/** The bass against its own recent level: 0 between beats, towards 1 on one. */
+export function beatMeter () {
+  let avg = 0, buf = null;
+  return analyser => {
+    if (!analyser) { avg *= 0.95; return 0; }
+    const n = Math.min(analyser.frequencyBinCount || 0, 512);
+    if (!n) return 0;
+    if (!buf || buf.length !== n) buf = new Uint8Array(n);
+    analyser.getByteFrequencyData(buf);
+    // the lowest bins: below about 200 Hz at 44.1 or 48 kHz with 1024 points
+    const k = Math.max(2, Math.round(n / 64));
+    let sum = 0; for (let i = 1; i <= k; i++) sum += buf[i];
+    const bass = sum / k / 255;
+    avg += (bass - avg) * 0.04;
+    return clamp((bass - avg) / (avg + 0.08) * 1.6, 0, 1);
+  };
+}

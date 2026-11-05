@@ -29,11 +29,14 @@
   <section class="m-view m-home" id="v-home" data-tab="home" data-mode="fox">
     <canvas class="home-bg" id="home-flow" aria-hidden="true"></canvas>
     <canvas class="home-bg" id="home-fx" aria-hidden="true"></canvas>
+    <!-- v3.48.0: a scene chosen for Home (scenes/*.js), in place of the theme's own -->
+    <canvas class="home-bg" id="home-scene" aria-hidden="true"></canvas>
     <div class="home-main" id="home-main">
       <header class="home-top">
         <div class="play-modes" id="home-modes" role="group" aria-label="Play"></div>
         <span class="home-sp"></span>
         <button class="m-ib" id="home-sound" type="button" aria-label="Sounds on"></button>
+        <button class="m-ib" id="home-scene-btn" type="button" data-icon="scene" aria-label="Scene"></button>
         <button class="m-ib" id="home-theme" type="button" data-icon="palette" aria-label="Theme"></button>
       </header>
       <!-- v3.44.0: a newer version on GitHub (m-update.js), until Later -->

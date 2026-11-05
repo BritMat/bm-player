@@ -17,6 +17,7 @@ import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
+import android.os.SystemClock;
 import android.provider.Settings;
 import android.view.View;
 import android.view.Window;
@@ -72,6 +73,7 @@ public class MainActivity extends Activity {
     Screen screen;
     Files files;
     Access access;
+    Pip pip;            // v3.48.0: a film in a small window of its own
     private boolean videoBehind;
     private WebChromeClient chrome;
     private View customView;
@@ -80,6 +82,15 @@ public class MainActivity extends Activity {
     private boolean pageReady;
     private JSONObject pendingOpen;
     private BroadcastReceiver power;
+    // v3.48.0: the page's process stopped by Android again and again. The
+    // phone's log had it started again forty times in a few seconds, with the
+    // app out of sight and Android short of memory: each new one was stopped
+    // as it began. Now it waits until the app is seen again, waits longer
+    // each time it goes on happening, and from the third time in three
+    // minutes the page starts lighter (?light=1: the Lite settings for that run).
+    private final long[] goneAt = new long[8];
+    private int goneN;
+    private boolean pageGone, started;
 
     // The page's file input. Files has 12 to 16 (the picker), Access 7 and 21, MediaDelete its own.
     private static final int REQ_FILE = 11;
@@ -91,6 +102,7 @@ public class MainActivity extends Activity {
         screen = new Screen(this);
         files = new Files(this);
         access = new Access(this);
+        pip = new Pip(this);
         BMLog.init(getApplicationContext());
         BMLog.i("start " + BuildInfo.VERSION_NAME + " (" + BuildInfo.VERSION_CODE + ") on Android " + Build.VERSION.RELEASE
                 + " (API " + Build.VERSION.SDK_INT + "), " + Build.MANUFACTURER + " " + Build.MODEL + ", WebView " + webViewVersion());
@@ -106,7 +118,7 @@ public class MainActivity extends Activity {
         mpv = new MpvPlayer(this);
         deleter = new MediaDelete(this);
         try {
-            makeWeb();
+            makeWeb(false);
         } catch (Throwable t) {
             // No WebView: being updated, turned off, or missing (some phones without Google's apps).
             BMLog.e("no WebView: " + t);
@@ -122,10 +134,11 @@ public class MainActivity extends Activity {
             return;
         }
         listenPower();
+        pip.listen();
         handleIntent(getIntent());
     }
 
-    private void makeWeb() {
+    private void makeWeb(boolean light) {
         web = new WebView(this);
         web.setBackgroundColor(videoBehind ? Color.TRANSPARENT : screen.barColor);
         // Above mpv's picture, when there is one, so the page's controls show over it.
@@ -155,7 +168,29 @@ public class MainActivity extends Activity {
         web.setWebChromeClient(chrome);
         web.addJavascriptInterface(new Bridge(this), "BMAndroid");
         pageReady = false;
-        web.loadUrl(ORIGIN + "/index.html");
+        web.loadUrl(ORIGIN + "/index.html" + (light ? "?light=1" : ""));
+    }
+
+    /** How many times the page's process went in the last three minutes, this time included. */
+    private int goneLately(long now) {
+        int n = 0;
+        for (long t : goneAt) if (t > 0 && now - t < 180000) n++;
+        return n;
+    }
+
+    /** The page again: at once the first time, then after 2, 5 and 15 seconds, lighter from the third time. */
+    private void restartPage() {
+        final int n = goneLately(SystemClock.elapsedRealtime());
+        final boolean light = n >= 3;
+        long wait = n <= 1 ? 0 : n == 2 ? 2000 : n == 3 ? 5000 : 15000;
+        if (wait > 0) BMLog.w("the page starts again in " + (wait / 1000) + " s" + (light ? ", lighter" : ""));
+        ui.postDelayed(new Runnable() {
+            public void run() {
+                if (isFinishing() || web != null) return;
+                if (!started) { pageGone = true; return; }          // gone out of sight meanwhile
+                try { makeWeb(light); } catch (Throwable t) { BMLog.e("could not start the page again: " + t); finish(); }
+            }
+        }, wait);
     }
 
     private class Client extends WebViewClient {
@@ -175,7 +210,12 @@ public class MainActivity extends Activity {
         @Override
         public boolean onRenderProcessGone(WebView view, RenderProcessGoneDetail detail) {
             boolean crashed = Build.VERSION.SDK_INT >= 26 && detail != null && detail.didCrash();
-            BMLog.e("the page's process " + (crashed ? "crashed" : "was stopped by Android to free memory") + ": starting it again");
+            long now = SystemClock.elapsedRealtime();
+            goneAt[goneN++ % goneAt.length] = now;
+            int n = goneLately(now);
+            BMLog.e("the page's process " + (crashed ? "crashed" : "was stopped by Android to free memory")
+                    + (n > 1 ? " (" + n + " times in three minutes)" : "")
+                    + (started ? ": starting it again" : ", out of sight: it starts again when BM Player is opened"));
             PlaybackService.stopAll();
             if (mpv != null) mpv.close();                   // its controls went with the page
             if (web == view) {
@@ -183,12 +223,9 @@ public class MainActivity extends Activity {
                 try { view.destroy(); } catch (Throwable ignored) { }
                 web = null;
             }
-            ui.post(new Runnable() {
-                public void run() {
-                    if (isFinishing() || web != null) return;
-                    try { makeWeb(); } catch (Throwable t) { BMLog.e("could not start the page again: " + t); finish(); }
-                }
-            });
+            // Out of sight, a new page would only be stopped again: it waits to be seen.
+            if (!started) pageGone = true;
+            else restartPage();
             return true;
         }
     }
@@ -443,17 +480,55 @@ public class MainActivity extends Activity {
     // The page is not paused when the app goes behind others: the music
     // plays on, and the playback service keeps the app alive while it does.
     @Override
-    protected void onStart() { super.onStart(); current = this; lifecycle("foreground"); }
+    protected void onStart() {
+        super.onStart();
+        current = this;
+        started = true;
+        if (pageGone && web == null) { pageGone = false; restartPage(); }
+        lifecycle("foreground");
+    }
 
     /** Back from Android's settings, maybe with BM Player allowed to install its update. */
     @Override
     protected void onResume() {
         super.onResume();
+        if (pip != null) pip.back();
         if (pageReady) Updater.get(this).resumed();
     }
 
     @Override
-    protected void onStop() { super.onStop(); lifecycle("background"); }
+    protected void onStop() { super.onStop(); started = false; if (pip != null) pip.stopped(); lifecycle("background"); }
+
+    /**
+     * Every screen of another app the page opens (a share, Open with, a
+     * picker, settings) comes through here: the film is not to go into its
+     * small window for those (Pip.away).
+     */
+    @Override
+    public void startActivityForResult(Intent intent, int requestCode, Bundle options) {
+        if (pip != null) pip.away();
+        super.startActivityForResult(intent, requestCode, options);
+    }
+
+    @Override
+    public void startIntentSenderForResult(android.content.IntentSender intent, int requestCode, Intent fillInIntent, int flagsMask, int flagsValues, int extraFlags, Bundle options)
+            throws android.content.IntentSender.SendIntentException {
+        if (pip != null) pip.away();
+        super.startIntentSenderForResult(intent, requestCode, fillInIntent, flagsMask, flagsValues, extraFlags, options);
+    }
+
+    /** Home pressed with a film playing: into its small window (v3.48.0, Pip). */
+    @Override
+    protected void onUserLeaveHint() {
+        super.onUserLeaveHint();
+        if (pip != null) pip.leaving();
+    }
+
+    @Override
+    public void onPictureInPictureModeChanged(boolean on, android.content.res.Configuration c) {
+        super.onPictureInPictureModeChanged(on, c);
+        if (pip != null) pip.changed(on);
+    }
 
     private void lifecycle(String state) {
         if (!pageReady) return;
@@ -498,6 +573,7 @@ public class MainActivity extends Activity {
     protected void onDestroy() {
         if (current == this) current = null;
         if (power != null) { try { unregisterReceiver(power); } catch (Exception ignored) { } power = null; }
+        if (pip != null) pip.release();
         // The music lives in the page: with the page gone it stops, and the service with it.
         PlaybackService.stopAll();
         if (mpv != null) mpv.destroy();

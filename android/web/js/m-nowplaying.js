@@ -20,6 +20,7 @@ import { $, esc, fmtTime, sheet, toast, artBg, fillRange } from './m-ui.js';
 import { ICONS, setIcon } from './icons.js';
 import { call, on } from './m-android.js';
 import { favItem, songFav } from './m-favs.js';
+import { soundSheet, soundNote } from './m-sound.js';
 import './viz-settings.js';
 import './md-browser.js';
 
@@ -308,6 +309,7 @@ function moreMenu () {
     items: [
       { icon: 'speed', label: 'Speed', note: player.speed === 1 ? 'Normal' : player.speed + '×', action: speedMenu },
       { icon: 'eq', label: 'Equaliser', note: player.engine?.available ? (eq.name || 'Custom') : 'Not on this phone', action: eqSheet },
+      ...(player.engine?.available ? [{ icon: 'wave', label: 'Sound mode', note: soundNote(), action: () => soundSheet() }] : []),
       { icon: 'lyrics', label: 'Lyrics', action: () => { lyrics.showTab('lyrics'); setDrawer(true); } },
       ...[favItem(songFav(s))].filter(Boolean),
       { icon: 'more', label: 'More about this song', action: () => songMenu(s, { fromPlayer: true }) },
@@ -327,22 +329,25 @@ function speedMenu () {
 function eqSheet () {
   if (!player.engine?.available) { toast('The equaliser needs Web Audio, which this phone\'s web engine does not have.'); return; }
   const cur = player.eq();
-  let gains = cur.gains.slice(0, 10);
+  let gains = cur.gains.slice(0, 10), preamp = Math.max(-12, Math.min(12, +cur.preamp || 0));
   while (gains.length < 10) gains.push(0);
   const body = document.createElement('div');
   body.className = 'eq';
   body.innerHTML = `<div class="eq-presets">${EQ_PRESETS.map(([n]) => `<button type="button" class="chip${n === cur.name ? ' on' : ''}" data-p="${n}">${n}</button>`).join('')}</div>` +
-    `<div class="eq-bands">${EQ_BANDS.map((f, i) => `<label class="eq-band"><span class="eq-val" id="eq-v${i}">${gains[i] > 0 ? '+' : ''}${gains[i]}</span><input type="range" min="-12" max="12" step="1" value="${gains[i]}" data-i="${i}" aria-label="${f} Hz"><span class="eq-f">${f}</span></label>`).join('')}</div>`;
-  const set = (g, name) => { gains = g; player.setEQ(gains, name); };
+    `<div class="eq-bands">${EQ_BANDS.map((f, i) => `<label class="eq-band"><span class="eq-val" id="eq-v${i}">${gains[i] > 0 ? '+' : ''}${gains[i]}</span><input type="range" min="-12" max="12" step="1" value="${gains[i]}" data-i="${i}" aria-label="${f} Hz"><span class="eq-f">${f}</span></label>`).join('')}</div>` +
+    // v3.49.0: the preamp, the whole sound up or down before the bands
+    `<label class="eq-pre"><span>Preamp</span><input type="range" min="-12" max="12" step="1" value="${preamp}" data-pre aria-label="Preamp"><span class="eq-val" id="eq-vpre">${preamp > 0 ? '+' : ''}${preamp} dB</span></label>`;
+  const set = (g, name) => { gains = g; player.setEQ(gains, name, preamp); };
   body.addEventListener('click', e => {
     const b = e.target.closest('[data-p]'); if (!b) return;
     const p = EQ_PRESETS.find(x => x[0] === b.dataset.p); if (!p) return;
     set(p[1].slice(), p[0]);
     for (const c of body.querySelectorAll('.chip')) c.classList.toggle('on', c === b);
-    body.querySelectorAll('input[type=range]').forEach((r, i) => { r.value = gains[i]; body.querySelector('#eq-v' + i).textContent = (gains[i] > 0 ? '+' : '') + gains[i]; });
+    body.querySelectorAll('input[type=range][data-i]').forEach((r, i) => { r.value = gains[i]; body.querySelector('#eq-v' + i).textContent = (gains[i] > 0 ? '+' : '') + gains[i]; });
   });
   body.addEventListener('input', e => {
-    const r = e.target.closest('input[type=range]'); if (!r) return;
+    if (e.target.matches('[data-pre]')) { preamp = +e.target.value; body.querySelector('#eq-vpre').textContent = (preamp > 0 ? '+' : '') + preamp + ' dB'; player.setEQ(gains, player.eq().name, preamp); return; }
+    const r = e.target.closest('input[type=range][data-i]'); if (!r) return;
     const i = +r.dataset.i, g = gains.slice(); g[i] = +r.value;
     body.querySelector('#eq-v' + i).textContent = (g[i] > 0 ? '+' : '') + g[i];
     for (const c of body.querySelectorAll('.chip')) c.classList.remove('on');

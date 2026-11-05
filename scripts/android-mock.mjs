@@ -163,12 +163,46 @@ function range (req, res, file, hits) {
   const total = fs.statSync(file).size, type = TYPES[file.split('.').pop()] || 'application/octet-stream';
   const r = /bytes=(\d*)-(\d*)/.exec(req.headers.range || '');
   const head = { 'Content-Type': type, 'Accept-Ranges': 'bytes', 'Cache-Control': 'no-store', 'Access-Control-Allow-Origin': '*' };
-  if (!r) { res.writeHead(200, { ...head, 'Content-Length': total }); fs.createReadStream(file).pipe(res); return; }
-  hits.ranges++;
-  let from = r[1] === '' ? Math.max(0, total - +r[2]) : +r[1], to = r[1] === '' || r[2] === '' ? total - 1 : Math.min(+r[2], total - 1);
-  if (from >= total) { res.writeHead(416, { ...head, 'Content-Range': `bytes */${total}` }); res.end(); return; }
-  res.writeHead(206, { ...head, 'Content-Range': `bytes ${from}-${to}/${total}`, 'Content-Length': to - from + 1 });
-  fs.createReadStream(file, { start: from, end: to }).pipe(res);
+  // A stream lost partway (v3.48.0, the phone's log): hits.cut = { file, share }
+  // sends that share of the song's stream and holds the rest back until
+  // cut.drop() breaks it off (the check calls it once the song is playing).
+  // From then on the browser's own tries to go on with it are refused, until
+  // the page asks for the song afresh (the engine's own address for it, with
+  // ?bmtry=). Only the browser's stream is held: its requests are open-ended
+  // (bytes=N-), the page's own reads of a song (its tags) are not. A read well
+  // past the break (an Ogg's length is found at its end) is let through.
+  const fresh = /[?&]bmtry=/.test(req.url || '');
+  const cut = hits.cut && hits.cut.file === file ? hits.cut : null;
+  const open = !r || r[2] === '';
+  const from0 = r ? (r[1] === '' ? Math.max(0, total - +r[2]) : +r[1]) : 0;
+  if (cut && !fresh && open && cut.phase === 'armed' && from0 === 0) {
+    cut.phase = 'held'; cut.waiting = [res];
+    res.writeHead(r ? 206 : 200, { ...head, ...(r ? { 'Content-Range': `bytes 0-${total - 1}/${total}` } : {}), 'Content-Length': total });
+    const part = fs.readFileSync(file).subarray(0, Math.floor(total * (cut.share || 0.25)));
+    cut.bytes = part.length;
+    res.write(part);
+    cut.drop = () => {
+      if (cut.phase !== 'held') return;
+      cut.phase = 'cut'; cut.at = Date.now();
+      cut.waiting.forEach(w => w.destroy());
+    };
+    setTimeout(cut.drop, cut.hold || 20000);   // never held for good
+    return;
+  }
+  if (cut && !fresh && open && (cut.phase === 'held' || cut.phase === 'cut') && from0 <= cut.bytes + 16384) {
+    if (cut.phase === 'held') { cut.waiting.push(res); res.writeHead(206, { ...head, 'Content-Range': `bytes ${from0}-${total - 1}/${total}`, 'Content-Length': total - from0 }); return; }
+    cut.refused = (cut.refused || 0) + 1; res.writeHead(500); res.end(); return;
+  }
+  if (cut && fresh && cut.phase !== 'over') { cut.phase = 'over'; cut.reloaded = Date.now(); }
+  return range2();
+  function range2 () {
+    if (!r) { res.writeHead(200, { ...head, 'Content-Length': total }); fs.createReadStream(file).pipe(res); return; }
+    hits.ranges++;
+    const from = r[1] === '' ? Math.max(0, total - +r[2]) : +r[1], to = r[1] === '' || r[2] === '' ? total - 1 : Math.min(+r[2], total - 1);
+    if (from >= total) { res.writeHead(416, { ...head, 'Content-Range': `bytes */${total}` }); res.end(); return; }
+    res.writeHead(206, { ...head, 'Content-Range': `bytes ${from}-${to}/${total}`, 'Content-Length': to - from + 1 });
+    fs.createReadStream(file, { start: from, end: to }).pipe(res);
+  }
 }
 
 if (process.argv[1] && fileURLToPath(import.meta.url) === path.resolve(process.argv[1])) {

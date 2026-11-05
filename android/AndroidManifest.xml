@@ -57,11 +57,14 @@
         android:requestLegacyExternalStorage="true"
         android:resizeableActivity="true">
 
+        <!-- supportsPictureInPicture (v3.48.0): a film carries on in a small
+             window when Home is pressed (Pip.java), from Android 8.0. -->
         <activity
             android:name=".MainActivity"
             android:exported="true"
             android:launchMode="singleTask"
             android:windowSoftInputMode="adjustResize"
+            android:supportsPictureInPicture="true"
             android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboard|keyboardHidden|navigation|uiMode|density|fontScale|locale|layoutDirection">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />

@@ -44,6 +44,12 @@ Object.assign(ICONS, {
   rotateL: S(`<path d="M4 12a8 8 0 1 0 2.3-5.6" ${line}/><path d="M4 4v4.5h4.5" ${line}/>`),
   // v3.45.0: several chosen at once (m-select.js)
   selectAll: S(`<rect x="3.5" y="3.5" width="17" height="17" rx="4" ${line}/><path d="M8 12.2l2.8 2.8L16.2 9.5" ${line}/>`),
+  // v3.48.0: the scene on Home (m-home.js)
+  scene: S(`<path d="M2.5 19l6-8.5 4 5.5 2.5-3.5 6.5 6.5z" ${line}/><circle cx="16.5" cy="6.5" r="2" ${line}/>`),
+  // v3.48.0: the picture turned, not the screen (m-vplayer.js)
+  turnPic: S(`<rect x="3" y="9" width="12" height="12" rx="2" ${line}/><path d="M11 3.5a8 8 0 0 1 8.5 7.5" ${line}/><path d="M21.5 8.5l-2 2.5-2.5-2" ${line}/>`),
+  // v3.49.0: the sound modes (m-sound.js)
+  wave: S(`<path d="M3 12h1.5M7 8.5v7M10.5 5v14M14 8v8M17.5 10v4M21 12h0" ${line}/>`),
 });
 applyIcons();
 

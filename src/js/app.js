@@ -169,7 +169,7 @@ class BMPlayer {
     this.wirePanels();this.wireEQ();this.wirePlaylistPanel();this.wireCtxPanel();
     this.picture.wire(el('panel-picture'));this.sound.wire(el('snd-section'));this.wireSleep();
     this.wireDialogs();this.wireOverlayKeys();this.wireKeyboard();this.wireDragDrop();this.wireControlsHide();
-    this.wirePiP();this.wireMiniPlayer();this.wireVizOverlay();this.wireCtxMenu();this.wireFluidPointer();this.wirePlayModes();this.wireDiagnostics();
+    this.wirePiP();this.wireMiniPlayer();this.wireVizOverlay();this.wireCtxMenu();this.wireFluidPointer();this.wirePlayModes();this.wireScenes();this.wireDiagnostics();
     this.wireUpdate();this.wireDefaultPrompt();this.listenMpv();this.renderRecent();this.renderTrackMenus([]);
     this.wireABRepeat();this.wireBookmarks();this.wireHistory();this.wireSettings();this.wireSubSearch();this.wireResumePrompt();this.wirePlaylistIO();this.wireBookmarkControls();
     // Power (v3.39.0): the battery, and the home screen's background resting
