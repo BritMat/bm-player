@@ -113,6 +113,8 @@
   <link rel="modulepreload" href="js/range-fill.js">
   <link rel="modulepreload" href="js/app/mixin.js">
   <link rel="modulepreload" href="js/app/eq-bands.js">
+  <link rel="modulepreload" href="js/modules/lyrics-prefs.js">
+  <link rel="modulepreload" href="js/modules/lyrics-saver.js">
   <link rel="stylesheet" href="css/fonts.css">
   <link rel="stylesheet" href="css/style.css">
   <!-- Critical inline styles - MUST override external style.css -->
@@ -1305,6 +1307,14 @@
         <button class="pl-act-btn" id="settings-import">Import</button>
         <button class="pl-act-btn danger" id="settings-reset">Reset</button>
       </div>
+    </div>
+    <!-- v3.50.0: the lyrics saved on this computer (modules/lyrics-prefs.js) -->
+    <div class="ctx-section-label" style="margin-top:16px">Lyrics</div>
+    <p class="set-lyr-note" id="set-lyr-count">No lyrics saved yet.</p>
+    <p class="set-lyr-note" id="set-lyr-save-note" aria-live="polite">Save all looks up every song in your music folders on LRCLIB, one at a time, and keeps the lyrics it finds on this computer, so they show without a connection. Songs done already are skipped, so it can be run again later.</p>
+    <div class="panel-actions">
+      <button class="pl-act-btn" id="set-lyr-save">Save all</button>
+      <button class="pl-act-btn danger" id="set-lyr-clear">Clear saved</button>
     </div>
     <!-- v3.47.0: settings features add for themselves (app/registry.js) -->
     <div id="set-features" hidden></div>

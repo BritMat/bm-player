@@ -127,6 +127,14 @@ read by BM Player's built-in updater. You don't need to download them.
   kept so a song is looked up once, and looking online can be switched off.
   Where none are found you can search and choose, load a file (or drop one
   on the lyrics), and move the timing earlier or later.
+- Lyrics that stay. Lyrics found online are saved on the computer, so the
+  song has them again without a connection. When LRCLIB cannot be reached
+  the song is looked for again by itself once the connection is back, and
+  Try again asks at once. Refresh asks again for lyrics already shown, which
+  stay on screen if LRCLIB cannot be reached. Save as .lrc writes them
+  beside the song. Preferences, Lyrics shows how many songs have lyrics
+  saved, clears them, and has Save all, which looks up every song in your
+  music folders one at a time and saves what it finds.
 - Lyrics in English letters as they sound: a Hindi, Malayalam, Tamil,
   Telugu, Kannada, Bengali, Punjabi, Gujarati, Odia, Korean, Russian,
   Ukrainian or Greek song's words written out for reading along, under the
@@ -245,6 +253,9 @@ phone, and its own testing happens on real phones. What it does:
   the app read it), the words in the song's own tags (MP3, FLAC, Ogg, Opus
   and M4A), then LRCLIB, with search, loading a file, and the timing to
   move. And in English letters, as on the desktop.
+- Lyrics saved on the phone for offline, with Try again and Refresh as on
+  the desktop, and Share to send the words to another app. Settings, Lyrics
+  has the count, Clear, and Save all for every song on the phone.
 - Up Next, shuffle and repeat, Play next and Add to queue, a ten-band
   equaliser, the speed with the pitch kept, and the queue kept for next time
   (Settings can turn that off). The X on the music bar, or Close in the

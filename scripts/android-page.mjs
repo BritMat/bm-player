@@ -470,6 +470,49 @@ try {
     ok(await until(() => document.querySelector('#np-lyrics .lyr-line[data-i="1"]')?.textContent === 'Nee ente koode varumo' && localStorage.getItem('bm_lyrics_script') === 'latin'), 'English letters alone, and the choice kept');
     await page.tap('#np-lyrics .lyr-sbtn[data-v="original"]');
     await ev(() => window.BMNative.back()); await ev(() => window.BMNative.back());
+
+    // v3.50.0: lyrics that stay. Found once, they are kept in the app's own
+    // storage (LyricsStore.java, here the stand-in), and shown without a connection.
+    console.log('\nlyrics that stay');
+    ok(await ev(() => Object.keys(localStorage).some(k => k.startsWith('mock_lyr_sf-')) && !Object.keys(localStorage).some(k => /^bm_ly_/.test(k))), 'the lyrics LRCLIB found are kept in the app\'s storage, not the page\'s');
+    mock.hits.lrclibDown = true;
+    await play('Fast Lane'); await until(() => window.bmLyrics.source === 'file');
+    const askedBefore = mock.hits.lrclib.length;
+    await play('Slow Morning');
+    ok(await until(() => window.bmLyrics.status === 'ready' && window.bmLyrics.source === 'lrclib' && window.bmLyrics.lines.length === 4 && window.bmLyrics.saved) && mock.hits.lrclib.length === askedBefore,
+      'LRCLIB out of reach: the saved lyrics, with nothing asked');
+    ok(/saved for offline/.test(await ev(() => document.querySelector('#np-lyrics .lyr-foot')?.textContent || '')), 'and they say they are saved for offline');
+    await ev(() => document.querySelector('#np-lyrics [data-lyr="refresh"]')?.click());
+    ok(await until(() => window.bmLyrics.lines.length === 4 && /saved ones/.test(document.getElementById('np-lyrics').textContent)) && mock.hits.lrclib.length > askedBefore,
+      'Refresh asks LRCLIB, and with it out of reach the lyrics stay, said to be the saved ones');
+    await ev(() => { window.__bmShared = null; document.querySelector('#np-lyrics [data-lyr="share"]')?.click(); });
+    ok(await until(() => /Sun comes up slow\nCoffee on the stove/.test(window.__bmShared || '')), 'Share hands the words to Android');
+    ok(await ev(() => !document.querySelector('#np-lyrics [data-lyr="save-lrc"]')), 'no Save as .lrc on the phone');
+    await play('Opus Number');
+    ok(await until(() => window.bmLyrics.status === 'offline' && /could not be reached/.test(document.getElementById('np-lyrics').textContent) && !!document.querySelector('#np-lyrics [data-lyr="retry"]')),
+      'a song with none saved, LRCLIB out of reach: said so, with Try again');
+    mock.hits.lrclibDown = false;
+    const askedOnline = mock.hits.lrclib.length;
+    await ev(() => window.dispatchEvent(new Event('online')));
+    ok(await until(() => window.bmLyrics.status === 'none' && !!document.querySelector('#np-lyrics [data-lyr="retry"]')) && mock.hits.lrclib.length > askedOnline,
+      `looked for again by itself when the connection is back (${await ev(() => window.bmLyrics.status)})`);
+    // Settings: how many are saved, every song at once, and clearing them
+    await page.tap('#nav button[data-tab="settings"]');
+    ok(await until(() => /Lyrics for 1 song are saved on the phone/.test(document.getElementById('st-lyr-count').textContent)), `Settings counts the songs with lyrics saved (${await ev(() => document.getElementById('st-lyr-count').textContent)})`);
+    await ev(() => document.getElementById('st-lyr-save').scrollIntoView({ block: 'center' }));
+    await page.tap('#st-lyr-save');
+    await until(() => /^Done: /.test(document.getElementById('st-lyr-save-note').textContent), null, 30000);
+    const saveNote = await ev(() => document.getElementById('st-lyr-save-note').textContent);
+    const sn = /^Done: (\d+) of (\d+) songs have lyrics\.(?: LRCLIB had none for (\d+) songs?\.)?/.exec(saveNote) || [];
+    const listedMusic = mock.lib.audio.filter(x => x.mu && x.d >= 15000 && !/WhatsApp|Ringtones/.test(x.p)).length;
+    ok(+sn[2] === listedMusic && +sn[1] >= 3 && +sn[1] + (+sn[3] || 0) === listedMusic && await ev(() => document.getElementById('st-lyr-save').textContent === 'Save all'),
+      `Save all goes through every song: their own lyrics, the saved ones, and LRCLIB for the rest (${saveNote})`);
+    await ev(() => document.getElementById('st-lyr-clear').scrollIntoView({ block: 'center' }));
+    await page.tap('#st-lyr-clear');
+    ok(await until(() => /Clear the saved lyrics/.test(document.getElementById('sheet').textContent)), 'Clear asks first');
+    await page.tap('#sheet .sh-item.danger');
+    ok(await until(() => /None saved yet/.test(document.getElementById('st-lyr-count').textContent) && !Object.keys(localStorage).some(k => k.startsWith('mock_lyr_sf-'))), 'and clears them');
+    await page.tap('#nav button[data-tab="music"]');
   }
 
   step = 'Back';
@@ -1084,8 +1127,18 @@ try {
   // process three times in a few minutes (MainActivity.restartPage)
   step = 'started lighter';
   console.log('\n' + step);
+  // v3.50.0: lyrics kept in the page's storage by an older version, moved to the app's own on this start
+  await ev(() => {
+    localStorage.setItem('bm_ly_pins', JSON.stringify({ 'f:/old/song.mp3': { at: 1, found: { source: 'file', synced: '[00:01.00]an old choice' } } }));
+    localStorage.setItem('bm_ly_0123456789abcdef', JSON.stringify({ at: 1, found: { source: 'lrclib', synced: '[00:01.00]an old answer' } }));
+    localStorage.setItem('bm_ly_NOT A NAME', '{}');
+  });
   await page.goto(URL0 + '?light=1');
   await until(() => window.__bmStarted === true, null, 20000);
+  ok(await until(() => !Object.keys(localStorage).some(k => k.startsWith('bm_ly_'))
+    && JSON.parse(localStorage.getItem('mock_lyr_0123456789abcdef') || 'null')?.found?.synced === '[00:01.00]an old answer'
+    && !!JSON.parse(localStorage.getItem('mock_lyr_pins') || '{}')['f:/old/song.mp3'], null, 10000),
+    'lyrics an older version kept in the page\'s storage are moved to the app\'s, the choices with them');
   ok(await until(() => document.getElementById('toast').classList.contains('on') && /runs lighter/.test(document.getElementById('toast').textContent), null, 6000), 'it says why it runs lighter');
   await page.tap('#nav button[data-tab="settings"]');
   ok(await until(() => document.querySelector('#st-quality button.on')?.dataset.v === 'low'), 'and runs on Low, for this run only');

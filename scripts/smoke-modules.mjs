@@ -338,6 +338,56 @@ async function main() {
     }
   });
 
+  // v3.50.0: the lyrics of every song saved at once (Preferences, Settings).
+  await step('lyrics saver: one song at a time, a pause only after LRCLIB was asked, the same song again when the connection is back, and Stop', async () => {
+    const { LyricsSaver } = await load('src/js/modules/lyrics-saver.js');
+    const asked = [], states = [];
+    let down = false, running = 0, most = 0;
+    const api = { music: { lyrics: async (file, meta, opts) => {
+      running++; most = Math.max(most, running); asked.push({ file, meta, opts });
+      await new Promise(r => setTimeout(r, 2)); running--;
+      if (down) return { source: 'none', offline: true, fetched: true };
+      if (file === 'b') return { source: 'none', fetched: true };
+      if (file === 'c') return { source: 'tags', synced: '[00:01.00]own' };
+      return { source: 'lrclib', synced: '[00:01.00]x', saved: true, fetched: true };
+    } } };
+    const songs = ['a', 'b', 'c', 'd'].map(p => ({ path: p, meta: { title: p.toUpperCase(), artist: 'X' } }));
+    const sv = new LyricsSaver({ api, onChange: st => states.push(st), gap: 15, wait: 60000 });
+    const t0 = Date.now();
+    const end = await sv.start(songs);
+    if (most !== 1) throw new Error(most + ' songs looked up at once');
+    if (asked.map(a => a.file).join() !== 'a,b,c,d' || !asked.every(a => a.opts.online === true && a.opts.youtube === false)) throw new Error('asked ' + JSON.stringify(asked.map(a => [a.file, a.opts])));
+    if (end.done !== 4 || end.found !== 3 || end.none !== 1 || end.running) throw new Error('the count: ' + JSON.stringify(end));
+    if (Date.now() - t0 < 2 * 15) throw new Error('no pause after the songs LRCLIB was asked about');
+    if (!states[0].running || states.at(-1).running) throw new Error('running not told: ' + JSON.stringify([states[0], states.at(-1)]));
+    // out of reach: it waits, and goes on with the same song when the connection is back
+    asked.length = 0; down = true;
+    const run = sv.start(songs.slice(0, 2));
+    await new Promise(r => setTimeout(r, 30));
+    if (!sv.state.waiting || asked.length !== 1) throw new Error('not waiting for the connection: ' + JSON.stringify(sv.state) + ' asked ' + asked.length);
+    down = false; window.dispatchEvent(new Event('online'));
+    const back = await run;
+    if (asked.map(a => a.file).join() !== 'a,a,b' || back.done !== 2) throw new Error('after the connection came back: ' + asked.map(a => a.file) + ' ' + JSON.stringify(back));
+    // Stop: after the song being looked up, nothing more asked
+    asked.length = 0;
+    const long = Array.from({ length: 50 }, (_, i) => ({ path: 'a' + i, meta: { title: 'T' + i } }));
+    const r2 = sv.start(long);
+    await new Promise(r => setTimeout(r, 25));
+    sv.stop();
+    const st = await r2, n = asked.length;
+    await new Promise(r => setTimeout(r, 40));
+    if (!st.stopped || st.running || asked.length !== n || n >= 50) throw new Error('Stop: ' + JSON.stringify(st) + ', asked ' + n + ' then ' + asked.length);
+    // a song that keeps failing while the device is online: left for next time, the rest go on
+    const sv3 = new LyricsSaver({ api: { music: { lyrics: async f => f === 'x' ? { source: 'none', offline: true, fetched: true } : { source: 'lrclib', synced: 'y', fetched: true } } }, gap: 0, wait: 1 });
+    const e3 = await sv3.start([{ path: 'x', meta: {} }, { path: 'y', meta: {} }]);
+    if (e3.missed !== 1 || e3.found !== 1 || e3.none !== 0 || e3.done !== 2) throw new Error('a song that keeps failing: ' + JSON.stringify(e3));
+    // a second start while running is not a second run
+    const sv2 = new LyricsSaver({ api, gap: 0 });
+    const p1 = sv2.start(songs), p2 = await sv2.start(songs);
+    if (!p2.running) throw new Error('a second start ran alongside the first');
+    await p1;
+  });
+
   const bad = results.filter(r => !r).length;
   console.log(`\n${results.length - bad}/${results.length} checks passed.\n`);
   process.exit(bad ? 1 : 0);

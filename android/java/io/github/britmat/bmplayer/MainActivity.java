@@ -11,6 +11,8 @@ import android.content.pm.PackageManager;
 import android.graphics.Bitmap;
 import android.graphics.Color;
 import android.media.AudioManager;
+import android.net.ConnectivityManager;
+import android.net.Network;
 import android.net.Uri;
 import android.os.BatteryManager;
 import android.os.Build;
@@ -134,8 +136,31 @@ public class MainActivity extends Activity {
             return;
         }
         listenPower();
+        watchNetwork();
         pip.listen();
         handleIntent(getIntent());
+    }
+
+    // The page told when the phone goes on and off line (v3.50.0), so its
+    // online and offline events happen: WebView leaves navigator.onLine true
+    // otherwise. The lyrics look again when the connection comes back.
+    private ConnectivityManager.NetworkCallback netWatch;
+    private boolean netOn = true;
+    private void watchNetwork() {
+        try {
+            ConnectivityManager cm = (ConnectivityManager) getSystemService(Context.CONNECTIVITY_SERVICE);
+            if (cm == null) return;
+            netWatch = new ConnectivityManager.NetworkCallback() {
+                @Override public void onAvailable(Network n) { tell(true); }
+                @Override public void onLost(Network n) { tell(false); }
+                private void tell(final boolean on) {
+                    ui.post(new Runnable() { public void run() { netOn = on; if (web != null) web.setNetworkAvailable(on); } });
+                }
+            };
+            cm.registerDefaultNetworkCallback(netWatch);
+            // started with no network: Android calls back only when one comes
+            if (cm.getActiveNetwork() == null) { netOn = false; if (web != null) web.setNetworkAvailable(false); }
+        } catch (Exception e) { BMLog.w("network state: " + e); netWatch = null; }
     }
 
     private void makeWeb(boolean light) {
@@ -167,6 +192,7 @@ public class MainActivity extends Activity {
         chrome = new Chrome();
         web.setWebChromeClient(chrome);
         web.addJavascriptInterface(new Bridge(this), "BMAndroid");
+        if (!netOn) web.setNetworkAvailable(false);
         pageReady = false;
         web.loadUrl(ORIGIN + "/index.html" + (light ? "?light=1" : ""));
     }
@@ -573,6 +599,10 @@ public class MainActivity extends Activity {
     protected void onDestroy() {
         if (current == this) current = null;
         if (power != null) { try { unregisterReceiver(power); } catch (Exception ignored) { } power = null; }
+        if (netWatch != null) {
+            try { ((ConnectivityManager) getSystemService(Context.CONNECTIVITY_SERVICE)).unregisterNetworkCallback(netWatch); } catch (Exception ignored) { }
+            netWatch = null;
+        }
         if (pip != null) pip.release();
         // The music lives in the page: with the page gone it stops, and the service with it.
         PlaybackService.stopAll();

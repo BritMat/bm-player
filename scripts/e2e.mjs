@@ -2118,6 +2118,35 @@ if (PART === 'd') {
     if (r.roman[0] !== 'Innu nalla mazhayaanu') throw new Error('in English letters: ' + JSON.stringify(r.roman));
   });
 
+  // v3.50.0: Save as .lrc, through the real app and file system, beside a
+  // song whose name has Devanagari, % { } ; = and +. The words are invented.
+  await step('lyrics saved beside a song with a hard name (Save as .lrc), found there the next time, never written over', async () => {
+    const lrc = GOOD[1].replace(/\.wav$/, '.lrc');
+    const r = await page.evaluate(async f => {
+      const L = window.bmLyrics, wait = async c => { for (let i = 0; i < 50 && !c(); i++) await new Promise(z => setTimeout(z, 100)); };
+      bmMusic.play(f, 0);
+      await wait(() => L.path === f && L.status !== 'loading');
+      L._apply({ source: 'lrclib', synced: '[00:00.50]invented words to keep\n[00:03.00]and a second line', plain: null }); L._render();
+      const btn = document.querySelector('#np-lyrics [data-lyr="save-lrc"]');
+      if (!btn) return { error: 'no Save as .lrc button' };
+      btn.click();
+      await wait(() => L.source === 'file');
+      const first = { source: L.source, note: L.note };
+      await L.song(f, { title: 'x' });
+      const again = { source: L.source, lines: L.lines.map(l => l.text) };
+      L._apply({ source: 'lrclib', synced: '[00:00.50]other words', plain: null }); L._render();
+      document.querySelector('#np-lyrics [data-lyr="save-lrc"]')?.click();
+      await wait(() => /already/.test(L.note));
+      return { first, again, twice: L.note, saved: (await bmApp.api.music.lyricsSaved())?.count };
+    }, GOOD[1]);
+    if (r.error) throw new Error(r.error);
+    if (r.first.source !== 'file' || !/Saved beside the song as गाना 100% \{mix\}; a=b\+c\.lrc/.test(r.first.note)) throw new Error('saved: ' + JSON.stringify(r.first));
+    if (!fs.existsSync(lrc) || fs.readFileSync(lrc, 'utf8') !== '[00:00.50]invented words to keep\n[00:03.00]and a second line\n') throw new Error('the file beside the song: ' + (fs.existsSync(lrc) ? JSON.stringify(fs.readFileSync(lrc, 'utf8')) : 'none'));
+    if (r.again.source !== 'file' || r.again.lines.join('|') !== 'invented words to keep|and a second line') throw new Error('the next time: ' + JSON.stringify(r.again));
+    if (!/already/.test(r.twice) || !/invented words/.test(fs.readFileSync(lrc, 'utf8'))) throw new Error('written over: ' + r.twice);
+    if (typeof r.saved !== 'number') throw new Error('the saved count did not come back: ' + r.saved);
+  });
+
   if (VID) {
     await step('a film with a hard name plays', async () => {
       await page.evaluate(v => bmApp.playMedia([v]), VID);

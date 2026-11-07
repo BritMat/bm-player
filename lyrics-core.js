@@ -94,7 +94,11 @@
       .replace(/\s+/g, ' ').trim();
   }
 
-  const norm = s => String(s || '').toLowerCase().normalize('NFKD').replace(/[̀-ͯ]/g, '').replace(/&/g, ' and ').replace(/[^a-z0-9]+/g, ' ').trim();
+  // Names compared with case, accents and punctuation set aside. v3.50.0:
+  // letters of every script are kept. Only a to z and digits were, so a title
+  // in Malayalam or Hindi came out empty and was never matched.
+  const norm = s => String(s || '').toLowerCase().normalize('NFKD').replace(/[\u0300-\u036f]/g, '').replace(/&/g, ' and ')
+    .replace(/[\s!-\/:-@[-`{-~\u00a0-\u00bf\u2000-\u206f\u3000-\u303f\uff01-\uff0f]+/g, ' ').trim();
 
   /** The song as it is looked for: titles cleaned, "Artist - Title" read as such when the tags have no artist. */
   function songOf(meta) {
@@ -140,6 +144,60 @@
     const pins = () => store.read('pins') || {};
     const pinKey = (file, m) => (typeof file === 'string' && file) ? 'f:' + file : 'm:' + keyOf(m);
 
+    /*
+     * Saved lyrics (v3.50.0). Lyrics found online, on LRCLIB or YouTube,
+     * are kept on the device under two more names than the song's exact one
+     * (its artist, title, album and length): the song's file, and the song
+     * loosely (its artist and title). A song is looked for online only when
+     * none of the three has words for it, so lyrics found once are there
+     * without a connection, even when the length or the album reads a
+     * little differently another time (a song started before its tags were
+     * read). Loosely, a different length (another version of the song)
+     * does not count. Kept until the person clears them.
+     */
+    const fileKey = file => (typeof file === 'string' && file) ? 'sf-' + hash('file|' + file) : '';
+    const looseKey = m => m.artist && norm(m.title) ? 'sl-' + hash('song|' + norm(m.artist) + '|' + norm(m.title)) : '';
+    const entry = (m, found) => ({ at: Date.now(), found, duration: Math.round(m.duration || 0), artist: m.artist || '', title: m.title || '' });
+    function save(file, m, found) {
+      if (!found || (!found.synced && !found.plain && !found.instrumental)) return;
+      const v = entry(m, found);
+      for (const k of [fileKey(file), looseKey(m)]) if (k) store.write(k, v);
+    }
+    /*
+     * How the song some lyrics were saved for compares with this one, by its
+     * title and artist: 2 the same song (or known better then), 1 known
+     * better now (its artist was not known then, a song started before its
+     * tags were read), 0 another song. A file can be given other tags, or
+     * be another song by now.
+     */
+    function agree(v, m) {
+      if (norm(v.title) !== norm(m.title)) return 0;
+      const a = norm(v.artist), ma = norm(m.artist);
+      if (a === ma || !ma) return 2;
+      return a ? 0 : 1;
+    }
+    /**
+     * The saved lyrics for this song, as { found, sure }, or null. YouTube's
+     * only when YouTube is on (opts.youtube). Found under the song or
+     * loosely, they are saved under its file too, so the next time is one
+     * look (and lyrics kept before v3.50.0, under the song alone, are
+     * counted as saved). Not sure: saved for the song when less was known
+     * about it, so they are only for when LRCLIB cannot be asked.
+     */
+    function saved(file, m, opts) {
+      const ok = f => f && (f.synced || f.plain || f.instrumental) && (f.source !== 'youtube' || (opts && opts.youtube));
+      const fk = fileKey(file), byFile = fk && store.read(fk);
+      const how = byFile && ok(byFile.found) ? agree(byFile, m) : 0;
+      if (how === 2) return { found: byFile.found, sure: true };
+      let found = null;
+      const exact = m.title && store.read(keyOf(m));
+      if (exact && exact.found && exact.found.source === 'lrclib' && ok(exact.found)) found = exact.found;
+      const lk = !found && looseKey(m), loose = lk && store.read(lk);
+      if (loose && ok(loose.found) && !(m.duration && loose.duration && Math.abs(loose.duration - m.duration) > NEAR)) found = loose.found;
+      if (found) { if (fk) store.write(fk, entry(m, found)); return { found, sure: true }; }
+      return how === 1 ? { found: byFile.found, sure: false } : null;
+    }
+
     const fromRecord = r => {
       if (!r) return null;
       if (r.instrumental) return { source: 'lrclib', synced: null, plain: null, instrumental: true };
@@ -156,9 +214,11 @@
     const whyOf = r => (r && r.error) || 'no answer';
 
     async function online(m) {
-      let reached = false, failed = false;
+      let reached = false, failed = false, lost = false;
       why = '';
-      const ask = async url => { const r = await fetchJson(url, ua); if (unreached(r)) { failed = true; why = whyOf(r); return null; } reached = true; return r; };
+      // Once a question goes unanswered the rest are not asked (v3.50.0):
+      // with the network down each waited its full time, one after another.
+      const ask = async url => { if (lost) return null; const r = await fetchJson(url, ua); if (unreached(r)) { failed = true; lost = true; why = whyOf(r); return null; } reached = true; return r; };
       // The exact song first: it needs all four.
       if (m.artist && m.album && m.duration) {
         const r = await ask(`${LRCLIB}/api/get?${q({ artist_name: m.artist, track_name: m.title, album_name: m.album, duration: Math.round(m.duration) })}`);
@@ -179,13 +239,25 @@
       if (!best()) await search({ q: [m.artist, m.title].filter(Boolean).join(' ') });
       const got = fromRecord(best());
       if (got) return got;
-      return failed && !reached ? undefined : (failed && !seen.size ? undefined : null);
+      // v3.50.0: nothing found while any question went unanswered is not
+      // "nothing found": it was kept as that for a week when the network
+      // dropped between two searches, and the song's lyrics stayed away.
+      return failed ? undefined : null;
     }
 
-    /** file: the song. meta: { artist, title, album, duration }. opts: { online }. */
+    /**
+     * file: the song. meta: { artist, title, album, duration }.
+     * opts: { online, youtube, fresh }. fresh (v3.50.0, Try again and
+     * Refresh): LRCLIB is asked again, past the saved lyrics and past a week's
+     * "nothing found". If it cannot be reached then, the saved lyrics are
+     * the answer still, with offline set, so nothing on screen is lost.
+     * Answers carry saved: true when the words are kept on the device, and
+     * fetched: true when LRCLIB was asked just now (lyrics-saver.js waits a
+     * moment after those, to ask LRCLIB gently).
+     */
     async function get(file, meta, opts) {
       if (typeof file !== 'string' || !file) return { source: 'none' };
-      const m = songOf(meta);
+      const m = songOf(meta), fresh = !!(opts && opts.fresh);
       const pin = pins()[pinKey(file, m)];
       if (pin && pin.found) return Object.assign({}, pin.found, { pinned: true });
       if (local(file)) {
@@ -193,15 +265,21 @@
         const a = beside ? await beside(file) : null; if (a) return a;
         const b = inTags ? await inTags(file) : null; if (b) return b;
       }
-      if (!(opts && opts.online) || !m.title) return { source: 'none' };
+      const have = saved(file, m, opts);
+      const keep = extra => have ? Object.assign({}, have.found, { saved: true }, extra) : null;
+      if (have && have.sure && !fresh) return keep();
+      if (!(opts && opts.online) || !m.title) return keep() || { source: 'none' };
       const k = keyOf(m), kept = store.read(k);
-      if (kept && kept.found && kept.found.source === 'lrclib') return kept.found;
-      if (kept && !kept.found && Date.now() - kept.at < AGAIN_AFTER) return { source: 'none' };
+      if (!fresh && kept && !kept.found && Date.now() - kept.at < AGAIN_AFTER) return { source: 'none' };
       let found;
       try { found = await online(m); } catch (_) { found = undefined; }
-      if (found === undefined) return { source: 'none', offline: true, why };   // not kept: the network, not the song
+      // not kept: the network, not the song
+      if (found === undefined) return keep({ offline: true, why, fetched: true }) || { source: 'none', offline: true, why, fetched: true };
       store.write(k, { at: Date.now(), found });
-      return found || { source: 'none' };
+      if (found) { save(file, m, found); return Object.assign({}, found, { saved: true, fetched: true }); }
+      // asked again, and LRCLIB has nothing now: the saved lyrics stay (gone
+      // says so), unless they were saved when less was known about the song
+      return (have && have.sure ? keep({ fetched: true, gone: true }) : null) || { source: 'none', fetched: true };
     }
 
     /** LRCLIB searched by the person: { q } or { artist, title }. Up to 20 results, those that fit the song first. */
@@ -273,7 +351,8 @@
       const lrc = got && got.vtt ? subsToLrc(got.vtt) : '';
       const found = lrc ? { source: 'youtube', synced: lrc, plain: null, auto: !!got.auto, video: got.video || null } : null;
       store.write(k, { at: Date.now(), found });
-      return found || { source: 'none' };
+      if (found) { save(file, m, found); return Object.assign({}, found, { saved: true }); }
+      return { source: 'none' };
     }
 
     return { get, search, pick, load, loadText, unpin, youtube: fromYoutube };

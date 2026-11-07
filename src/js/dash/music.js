@@ -284,6 +284,31 @@ async _loadTags(tracks){
     else this._buildQueue();          // Up next in the order the list now shows
   }
 }
+// Every song in the music folders, each as its lyrics are looked for when it
+// plays (play() above), for saving the lyrics of them all at once
+// (Preferences, v3.50.0). Tags not read yet are read first, so each song is
+// looked up by its artist and title rather than its file name.
+async lyricsSongs(){
+  const seen=new Set(),list=[];
+  for(const f of this.folders){
+    let files=[];
+    try{ files=await this.api?.gallery?.scan(f)||[]; }catch(_){}
+    for(const t of files){
+      if(!AUDIO.has(String(t.name||'').split('.').pop().toLowerCase())||seen.has(t.path))continue;
+      seen.add(t.path); list.push(t);
+    }
+  }
+  const need=list.filter(t=>!this.tags[t.path]).map(t=>t.path);
+  for(let i=0;i<need.length&&this.api?.music?.tags;i+=60){
+    let res=[];
+    try{ res=await this.api.music.tags(need.slice(i,i+60))||[]; }catch(_){ break; }
+    res.forEach(r=>{ if(r&&r.path){ this.tags[r.path]=r; if(r.duration)this._dur[r.path]=r.duration; } });
+  }
+  return list.map(t=>{
+    const g=this.tags[t.path]||{};
+    return { path:t.path, meta:{ title:g.title||cleanTitle(t.name), artist:g.artist||null, album:g.album||null, duration:g.duration||this._dur[t.path]||null } };
+  });
+}
 _meta(t){
   const g=this.tags?.[t.path]||{};
   const title=g.title||cleanTitle(t.name);

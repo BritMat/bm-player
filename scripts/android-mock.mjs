@@ -139,6 +139,8 @@ export function startMock ({ www = path.join(ROOT, 'dist', 'android-build', 'ass
       }
       if (p.startsWith('/net/lrclib/')) {
         const q = u.searchParams; hits.lrclib.push(p + u.search);
+        // v3.50.0: LRCLIB out of reach, as LocalServer.java answers then
+        if (hits.lrclibDown) return send(599, 'text/plain', 'LRCLIB could not be reached.');
         const api = p.slice('/net/lrclib'.length);
         if (api === '/api/get') return send(404, 'application/json', JSON.stringify({ code: 404, name: 'TrackNotFound' }));
         if (api === '/api/search') {

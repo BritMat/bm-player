@@ -189,7 +189,10 @@ final class Updater {
                 save();
             }
             BMLog.i("update check" + (manual ? " (asked for)" : "") + ": " + (code == 304 ? "nothing new on GitHub, " : "")
-                    + (apk != null ? apk.version + " is out, " + apk.size + " bytes" : "this is the newest (" + (latest == null ? "no APK on GitHub" : latest) + ")"));
+                    + (apk != null ? apk.version + " is out, " + apk.size + " bytes"
+                        // v3.50.0: it said "this is the newest (3.47.0)" on 3.49.0, with GitHub's older one in brackets
+                        : "nothing newer than this " + BuildInfo.VERSION_NAME + (latest == null ? ", no APK on GitHub"
+                            : ", GitHub's newest APK is " + latest + (Releases.compare(latest, BuildInfo.VERSION_NAME) < 0 ? ", older than this one" : ""))));
             cleanup();
         } catch (IOException e) {
             fail("network", "GitHub could not be reached. Is the phone online?");

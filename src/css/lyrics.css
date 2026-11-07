@@ -27,6 +27,9 @@
 .lyr-tools { display: flex; flex-wrap: wrap; gap: 6px; }
 .lyr-btn { padding: 4px 10px; border-radius: 7px; border: 1px solid var(--border, rgba(255,255,255,.12)); background: transparent; color: var(--text); font: inherit; font-size: 11.5px; cursor: pointer; }
 .lyr-btn:hover, .lyr-btn:focus-visible { border-color: var(--accent); color: var(--accent); outline: none; }
+.lyr-btn:disabled { opacity: .5; cursor: default; border-color: var(--border, rgba(255,255,255,.12)); color: var(--text); }
+/* v3.50.0: Try again, under the note when none were found or the site could not be reached */
+.lyr-again { display: block; margin: 4px 4px 10px; }
 .lyr-sq { width: 26px; padding: 4px 0; text-align: center; }
 .lyr-timing { display: flex; align-items: center; gap: 6px; }
 .lyr-timing-label { margin-right: 2px; }

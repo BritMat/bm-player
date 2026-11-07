@@ -82,6 +82,10 @@ function makeApi() {
       lyricsLoad: async (file, meta, path) => { (bridge.lyr ||= {}).loaded = { file, path }; return bridge.lyr.load || { source: 'none', canceled: true }; },
       lyricsUnpin: async file => { (bridge.lyr ||= {}).unpinned = file; return true; },
       lyricsYoutube: async (file, meta) => { (bridge.lyr ||= {}).youtube = (bridge.lyr.youtube || 0) + 1; return bridge.lyr.yt || { source: 'none' }; },
+      // v3.50.0: saved lyrics counted and cleared, and written beside the song
+      lyricsSaved: async () => ({ count: bridge.lyrSaved || 0 }),
+      lyricsClearSaved: async () => { const n = bridge.lyrSaved || 0; bridge.lyrSaved = 0; return { removed: n }; },
+      lyricsSaveLrc: async (file, text) => { (bridge.lyr ||= {}).savedLrc = { file, text }; return bridge.lyr.saveLrc || { ok: true, path: file.replace(/\.[^.]+$/, '.lrc') }; },
       ytdlp: async () => ({ available: true, installed: !!bridge.lyr?.ytInstalled }) },
     files: { pathOf: f => (bridge.pathOf ? bridge.pathOf(f) : (f && f.fakePath) || '') },
     power: { battery: async () => !!bridge.battery, onBattery: cb => { bridge.batteryCb = cb; } },
@@ -2066,6 +2070,84 @@ async function main() {
         await ly.song('/fixtures/music/song & co.ogg', meta);
         if (bridge.lyr.youtube !== 1) throw new Error('YouTube was asked for a song that had lyrics');
       } finally { m.engineOwns = realOwns; delete eng.currentTime; ly.youtube = false; localStorage.removeItem('bm_lyrics_offsets'); localStorage.removeItem('bm_lyrics_youtube'); bridge.lyrics = null; bridge.lyr = null; ly.clear(); ly.showTab('queue'); }
+    });
+
+    // v3.50.0: lyrics that stay, looked for again after a network drop.
+    await step('lyrics: Try again asks afresh, the site out of reach is said and asked again when the connection is back, Refresh keeps them on screen, Save as .lrc', async () => {
+      const ly = window.bmLyrics, song = '/fixtures/music/01 - track.mp3', meta = { title: 'T', artist: 'A', duration: 183 };
+      const pane = () => doc.getElementById('np-lyrics');
+      try {
+        ly.showTab('lyrics'); ly.online = true; ly.youtube = false;
+        bridge.lyrics = { source: 'none' }; bridge.lyricsAsked = [];
+        await ly.song(song, meta);
+        const again = pane().querySelector('[data-lyr="retry"]');
+        if (!again) throw new Error('no Try again when none were found');
+        bridge.lyrics = { source: 'lrclib', synced: '[00:01.00]found now', saved: true, fetched: true };
+        click(again); await tick(10);
+        if (!bridge.lyricsAsked.at(-1).opts?.fresh) throw new Error('Try again did not ask afresh: ' + JSON.stringify(bridge.lyricsAsked.at(-1).opts));
+        if (ly.status !== 'ready' || !/saved for offline/.test(pane().querySelector('.lyr-foot')?.textContent || '')) throw new Error('found on Try again: ' + ly.status + ' / ' + pane().querySelector('.lyr-foot')?.textContent);
+        // out of reach: said, Try again there, and asked again by itself when the connection is back
+        bridge.lyrics = { source: 'none', offline: true };
+        await ly.song('/fixtures/music/02 - another.flac', meta);
+        if (ly.status !== 'offline' || !/could not be reached/.test(pane().textContent) || !pane().querySelector('[data-lyr="retry"]')) throw new Error('out of reach: ' + ly.status + ' / ' + pane().textContent);
+        if (!ly._retryT) throw new Error('not set to look again by itself');
+        bridge.lyrics = { source: 'lrclib', synced: '[00:01.00]back again', saved: true };
+        const n = bridge.lyricsAsked.length;
+        window.dispatchEvent(new window.Event('online')); await tick(10);
+        if (bridge.lyricsAsked.length !== n + 1 || ly.status !== 'ready') throw new Error('not looked for again when the connection came back: ' + ly.status);
+        if (bridge.lyricsAsked.at(-1).opts?.fresh) throw new Error('looked for afresh by itself: saved lyrics would be passed over');
+        // Refresh, the site out of reach: what is on screen stays, said to be the saved ones
+        const refresh = pane().querySelector('[data-lyr="refresh"]');
+        if (!refresh) throw new Error('no Refresh for lyrics from LRCLIB');
+        bridge.lyrics = { source: 'lrclib', synced: '[00:01.00]back again', saved: true, offline: true };
+        click(refresh); await tick(10);
+        if (ly.status !== 'ready' || !pane().querySelector('.lyr-line') || !/saved ones/.test(pane().textContent)) throw new Error('Refresh out of reach: ' + ly.status + ' / ' + pane().textContent);
+        // and LRCLIB with nothing now: they stay, and that is said
+        bridge.lyrics = { source: 'lrclib', synced: '[00:01.00]back again', saved: true, gone: true, fetched: true };
+        click(pane().querySelector('[data-lyr="refresh"]')); await tick(10);
+        if (!pane().querySelector('.lyr-line') || !/nothing for this song now/.test(pane().textContent)) throw new Error('Refresh, LRCLIB has nothing now: ' + pane().textContent);
+        // a file's own lyrics: nothing to refresh or save
+        bridge.lyrics = { source: 'file', synced: '[00:01.00]from the file' };
+        await ly.song(song, meta);
+        if (pane().querySelector('[data-lyr="refresh"]') || pane().querySelector('[data-lyr="save-lrc"]')) throw new Error('Refresh or Save as .lrc offered for lyrics from a file');
+        bridge.lyrics = { source: 'lrclib', synced: '[00:01.00]to keep', saved: true };
+        await ly.song(song, meta);
+        click(pane().querySelector('[data-lyr="save-lrc"]')); await tick(10);
+        if (bridge.lyr?.savedLrc?.text !== '[00:01.00]to keep' || !/Saved beside the song as 01 - track\.lrc/.test(pane().textContent) || ly.source !== 'file') throw new Error('Save as .lrc: ' + JSON.stringify(bridge.lyr?.savedLrc) + ' / ' + pane().textContent);
+        bridge.lyr.saveLrc = { error: 'exists', path: '/fixtures/music/02 - another.lrc' };
+        await ly.song('/fixtures/music/02 - another.flac', meta);
+        click(pane().querySelector('[data-lyr="save-lrc"]')); await tick(10);
+        if (!/There is a 02 - another\.lrc beside the song already/.test(pane().textContent)) throw new Error('a .lrc there already: ' + pane().textContent);
+        if (pane().querySelector('[data-lyr="share"]')) throw new Error('Share offered on the desktop, which has nothing to share to');
+      } finally { bridge.lyrics = null; bridge.lyr = null; ly.clear(); ly.showTab('queue'); }
+    });
+
+    await step('Preferences, lyrics: the saved count, Save all over the music folders one song at a time as each would play, and Clear when confirmed', async () => {
+      const realFolders = m.folders, realConfirm = window.confirm;
+      try {
+        bridge.lyrSaved = 3;
+        app.openPanel('settings'); await tick(10);
+        if (!/Lyrics for 3 songs are saved/.test(doc.getElementById('set-lyr-count').textContent)) throw new Error('the count: ' + doc.getElementById('set-lyr-count').textContent);
+        m.folders = ['/fixtures/music'];
+        bridge.lyricsAsked = []; bridge.lyrics = { source: 'lrclib', synced: '[00:01.00]x', saved: true };
+        click(doc.getElementById('set-lyr-save')); await tick(80);
+        const asked = bridge.lyricsAsked;
+        if (asked.length !== 3 || !asked.every(a => a.opts?.online === true && a.opts.youtube === false)) throw new Error('asked ' + JSON.stringify(asked.map(a => [a.file, a.opts])));
+        if (asked[0].meta.artist !== 'Artist A' || !/^Title /.test(asked[0].meta.title) || asked[0].meta.duration !== 183) throw new Error('not as the song plays: ' + JSON.stringify(asked[0].meta));
+        if (!/Done: 3 of 3 songs have lyrics/.test(doc.getElementById('set-lyr-save-note').textContent)) throw new Error('the note: ' + doc.getElementById('set-lyr-save-note').textContent);
+        // online off: nothing asked
+        localStorage.setItem('bm_lyrics_online', '0'); bridge.lyricsAsked = [];
+        click(doc.getElementById('set-lyr-save')); await tick(20);
+        localStorage.removeItem('bm_lyrics_online');
+        if (bridge.lyricsAsked.length || !/Looking online is off/.test(doc.getElementById('set-lyr-save-note').textContent)) throw new Error('saved with looking online off');
+        // Clear: asked first
+        let q = ''; window.confirm = t => { q = t; return false; };
+        click(doc.getElementById('set-lyr-clear')); await tick(20);
+        if (bridge.lyrSaved !== 3 || !/3 songs/.test(q)) throw new Error('cleared without asking, or asked ' + q);
+        window.confirm = () => true;
+        click(doc.getElementById('set-lyr-clear')); await tick(20);
+        if (bridge.lyrSaved !== 0 || !/No lyrics saved yet/.test(doc.getElementById('set-lyr-count').textContent)) throw new Error('clear: ' + doc.getElementById('set-lyr-count').textContent);
+      } finally { m.folders = realFolders; window.confirm = realConfirm; bridge.lyrSaved = 0; bridge.lyrics = null; bridge.lyricsAsked = []; doc.querySelectorAll('.side-panel').forEach(p => p.classList.remove('open')); }
     });
 
     await step('subtitles: a thin outline by default, the edge a choice sent in an order both old and new mpv take, the settings colour the same colour', async () => {

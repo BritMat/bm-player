@@ -203,6 +203,16 @@ const MOCK = {
   share (t) { window.__bmShared = t; },
   log (t) { console.log('[log]', t); },
   logText: () => '(The Android app keeps its log. This is a desktop browser.)',
+  // v3.50.0: lyrics kept on the phone (LyricsStore.java), here in the browser's storage
+  lyricsRead: n => ls('mock_lyr_' + n),
+  lyricsWrite (n, json) { if (!/^[a-z0-9-]{1,96}$/.test(n)) return false; ls('mock_lyr_' + n, json); return true; },
+  lyricsCount () { let c = 0; for (let i = 0; i < localStorage.length; i++) if (/^mock_lyr_sf-/.test(localStorage.key(i) || '')) c++; return c; },
+  lyricsClear () {
+    const keys = []; let c = 0;
+    for (let i = 0; i < localStorage.length; i++) { const k = localStorage.key(i) || ''; if (k.startsWith('mock_lyr_') && k !== 'mock_lyr_pins') keys.push(k); }
+    for (const k of keys) { if (k.startsWith('mock_lyr_sf-')) c++; localStorage.removeItem(k); }
+    return c;
+  },
   background () {},
   exit () {},
 };

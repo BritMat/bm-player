@@ -10,6 +10,7 @@ import settings from '../modules/settings.js';
 import liteMode from '../modules/lite-mode.js';
 import { el } from '../util.js';
 import { settingList, settingValue, setSetting } from './registry.js';
+import { wireLyricsPrefs } from '../modules/lyrics-prefs.js';   // v3.50.0: saved lyrics
 
 export default class PreferencesFeature {
   wirePerfPanel(){
@@ -119,9 +120,11 @@ export default class PreferencesFeature {
       this.showOSD('Settings reset');
     });
     this._renderFeatureSettings();
+    this._lyrPrefs = wireLyricsPrefs({ api: this.api, osd: t => this.showOSD(t) });
   }
   _syncSettingsPanel(){
     this._renderFeatureSettings();   // the settings features added (registry.js)
+    this._lyrPrefs?.refresh();       // how many songs have lyrics saved (v3.50.0)
     const fields = [
       ['set-resume', 'playback.resumePrompt'],
       ['set-resume-rewind', 'playback.resumeRewindSec'],

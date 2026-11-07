@@ -10,9 +10,10 @@ import { $, esc, sheet, toast } from './m-ui.js';
 import { call, info, permission } from './m-android.js';
 import { power, setSaverMode } from './power.js';
 import { perf } from './perf.js';
-import { showAll, setShowAll } from './m-library.js';
+import { showAll, setShowAll, lib } from './m-library.js';
 import { awakeOn, setAwake } from './m-nowplaying.js';
-import { savedCount, clearSaved } from './m-lyrics.js';
+import { savedCount, clearSaved, lyricsApi, lyricsKey } from './m-lyrics.js';
+import { LyricsSaver } from './modules/lyrics-saver.js';
 import { applySubStyle, playerNote } from './m-video.js';
 import { mpv, setChoice } from './m-mpv.js';
 import { gestures, setGesture } from './m-vgest.js';
@@ -70,7 +71,8 @@ export function initSettings ({ onShowAll, onRescan }) {
     localStorage.setItem('bm_lyrics_online', on ? '1' : '0');
     if (window.bmLyrics) { window.bmLyrics.online = on; if (on && window.bmLyrics.status === 'none') window.bmLyrics.reload(); else window.bmLyrics._render(); }
   });
-  $('st-lyr-clear').addEventListener('click', () => { const n = clearSaved(); toast(n ? `${n} saved answers cleared. Your own choices are kept.` : 'Nothing to clear.'); counts(); });
+  $('st-lyr-clear').addEventListener('click', clearLyrics);
+  $('st-lyr-save').addEventListener('click', saveLyrics);
   // The video player: mpv where it can run, the web engine where it cannot or when chosen.
   const vp = $('st-vplayer');
   vp.querySelector('[data-v="mpv"]').disabled = !mpv.info.available;
@@ -124,8 +126,56 @@ export function refresh () {
   counts();
 }
 
+// ── saved lyrics (v3.50.0) ─────────────────────────────────────────────
+const num = x => Number(x || 0).toLocaleString();
+const songsN = x => `${num(x)} song${x === 1 ? '' : 's'}`;
+let saver = null;
+
+/** Every song on the phone looked up, one at a time, its lyrics kept (lyrics-saver.js). */
+function saveLyrics () {
+  if (saver?.running) { saver.stop(); return; }
+  const note = $('st-lyr-save-note');
+  if (localStorage.getItem('bm_lyrics_online') === '0') { note.textContent = 'Looking online is off. Turn on Look online above, then Save all.'; return; }
+  if (!lib.songs.length) { note.textContent = 'There are no songs to look up yet.'; return; }
+  const list = lib.songs.map(s => ({ path: lyricsKey(s), meta: { title: s.title, artist: s.artist, album: s.album, duration: s.duration } }));
+  saver = new LyricsSaver({ api: lyricsApi, onChange: showSaving });
+  saver.start(list);
+}
+function showSaving (st) {
+  const note = $('st-lyr-save-note');
+  $('st-lyr-save').textContent = st.running ? 'Stop' : 'Save all';
+  if (st.running) {
+    note.textContent = st.waiting ? `LRCLIB cannot be reached just now. It goes on by itself when the connection is back (${num(st.done)} of ${songsN(st.total)} done).`
+      : `Looking: ${num(st.done)} of ${songsN(st.total)}. Lyrics for ${num(st.found)} so far.`;
+    if (st.done && st.done % 10 === 0) counts();
+    return;
+  }
+  note.textContent = st.stopped ? `Stopped after ${num(st.done)} of ${songsN(st.total)}. ${num(st.found)} of them have lyrics. Save all again skips the songs done already.`
+    : `Done: ${num(st.found)} of ${songsN(st.total)} have lyrics.` + (st.none ? ` LRCLIB had none for ${songsN(st.none)}.` : '')
+      + (st.missed ? ` ${songsN(st.missed)} could not be looked up just now. Save all again tries them.` : '');
+  counts();
+}
+function clearLyrics () {
+  const n = savedCount();
+  const go = () => {
+    if (saver?.running) saver.stop();
+    const c = clearSaved();
+    toast(c ? `Saved lyrics cleared for ${songsN(c)}. Your own choices are kept.` : 'There were no saved lyrics.');
+    counts();
+  };
+  if (!n) { go(); return; }
+  sheet({
+    title: 'Clear the saved lyrics?',
+    sub: `The lyrics saved for ${songsN(n)} go from the phone. Your own choices are kept, and lyrics files beside songs are not touched.`,
+    items: [
+      { icon: 'trash', label: 'Clear', danger: true, action: go },
+      { icon: 'x', label: 'Keep them' },
+    ],
+  });
+}
+
 function counts () {
-  const n = savedCount(); $('st-lyr-count').textContent = n ? `Answers for ${n} song${n === 1 ? '' : 's'} are kept, so each song is looked up once.` : 'None kept yet.';
+  const n = savedCount(); $('st-lyr-count').textContent = n ? `Lyrics for ${songsN(n)} are saved on the phone, so they show without a connection.` : 'None saved yet. A song\'s lyrics are saved the first time they are found online.';
   const r = recent().length; $('st-recent-n').textContent = r ? `${r} thing${r === 1 ? '' : 's'} opened lately.` : 'Nothing yet.';
   const f = favs().length; $('st-fav-n').textContent = f ? `${f} starred.` : 'Nothing starred yet.';
 }

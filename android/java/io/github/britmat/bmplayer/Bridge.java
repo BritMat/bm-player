@@ -22,6 +22,23 @@ final class Bridge {
 
     private void onUi(Runnable r) { a.ui.post(r); }
 
+    // Lyrics kept on the phone (v3.50.0, LyricsStore): read and written from
+    // the page's thread, a small file at a time.
+    private LyricsStore lyrics;
+    private synchronized LyricsStore lyrics() { if (lyrics == null) lyrics = new LyricsStore(a); return lyrics; }
+
+    @JavascriptInterface
+    public String lyricsRead(String name) { return lyrics().read(name); }
+
+    @JavascriptInterface
+    public boolean lyricsWrite(String name, String json) { return lyrics().write(name, json); }
+
+    @JavascriptInterface
+    public int lyricsCount() { return lyrics().count(); }
+
+    @JavascriptInterface
+    public int lyricsClear() { return lyrics().clear(); }
+
     @JavascriptInterface
     public String info() {
         try {

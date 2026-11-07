@@ -94,6 +94,8 @@ const MPV = {
 const FROM_DESKTOP = [
   'js/visualizer.js', 'js/fluid.js', 'js/viz-art.js', 'js/viz-beat.js', 'js/neon-gl.js', 'js/perf.js', 'js/power.js',
   'js/md-browser.js', 'js/viz-settings.js', 'js/icons.js', 'js/audio-engine.js', 'js/modules/lyrics.js', 'js/translit.js',
+  // v3.50.0: saving lyrics for every song (Settings)
+  'js/modules/lyrics-saver.js',
   // v3.47.0: the equalizer and the sound effects, which audio-engine.js loads
   'js/sound-chain.js',
   // v3.42.0: the home screen's fox, backgrounds and play, and the PDF reader

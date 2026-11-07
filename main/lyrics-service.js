@@ -7,7 +7,7 @@ const { app, dialog, net: electronNet } = require('electron');
 const path = require('path');
 const S = require('./state');
 const { cacheDir } = require('./caches');
-const { makeLyrics } = require('../lyrics');   // v3.38.0
+const { makeLyrics, savedCount, clearSaved, saveBeside } = require('../lyrics');   // v3.38.0; saved lyrics v3.50.0
 const { makeYtdlp } = require('../ytdlp');     // v3.39.0: YouTube captions as lyrics
 
 function register(ipcMain) {
@@ -56,6 +56,10 @@ function register(ipcMain) {
   ipcMain.handle('lyrics:pick', (_, file, meta, id) => lyrics.pick(songArg(file), meta, id));
   ipcMain.handle('lyrics:unpin', (_, file, meta) => lyrics.unpin(songArg(file), meta));
   ipcMain.handle('lyrics:youtube', (_, file, meta) => lyrics.youtube(songArg(file), meta));
+  // Saved lyrics (v3.50.0): how many songs have some, cleared, and a song's written beside it as .lrc.
+  ipcMain.handle('lyrics:saved', () => ({ count: savedCount(cacheDir('lyrics')) }));
+  ipcMain.handle('lyrics:clearSaved', () => ({ removed: clearSaved(cacheDir('lyrics')) }));
+  ipcMain.handle('lyrics:saveLrc', (_, file, text) => saveBeside(songArg(file), text));
   ipcMain.handle('lyrics:ytdlp', () => ytdlp.status());
   // A lyrics file for this song: the one dropped on the lyrics (only these
   // kinds of file), or one chosen in a dialog.

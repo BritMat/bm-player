@@ -32,6 +32,10 @@
  * Answers { source: 'pin' | 'file' | 'tags' | 'lrclib' | 'youtube' | 'none',
  * synced, plain, instrumental }. synced is LRC text, plain is text without
  * times.
+ *
+ * v3.50.0: lyrics found online are saved on this computer, under the song's
+ * file and the song itself (lyrics-core.js), so they are there without a
+ * connection, and can be written beside the song as a .lrc (saveBeside).
  */
 const fs = require('fs');
 const path = require('path');
@@ -110,4 +114,54 @@ function makeLyrics({ fetchJson, cacheDir, ua, youtube = null }) {
   });
 }
 
-module.exports = { makeLyrics, besideFile, shape, subsToLrc, cleanTitle, songOf, fit, tagText, inTags };
+/**
+ * Saved lyrics on this computer (v3.50.0): how many songs have some, kept
+ * in the lyrics folder under the song's file (lyrics-core.js saved()).
+ */
+function savedCount(dir) {
+  try { return fs.readdirSync(dir).filter(n => /^sf-[0-9a-f]+\.json$/.test(n)).length; } catch (_) { return 0; }
+}
+
+/**
+ * All that is kept from LRCLIB and YouTube, found or not, cleared: the
+ * person's own choices (pins.json) stay. Gives how many songs had lyrics.
+ */
+function clearSaved(dir) {
+  let n = 0;
+  try {
+    for (const name of fs.readdirSync(dir)) {
+      if (name === 'pins.json' || !/\.json$/.test(name)) continue;
+      if (/^sf-/.test(name)) n++;
+      try { fs.unlinkSync(path.join(dir, name)); } catch (_) {}
+    }
+  } catch (_) {}
+  return n;
+}
+
+const SONG = /\.(mp3|flac|aac|ogg|oga|wav|m4a|m4b|wma|opus|ape|mka|aiff?|alac|webm|wv|dsf|dff|mpc)$/i;
+
+/**
+ * The song's lyrics written beside it, as song.lrc (v3.50.0), so they are
+ * the song's own from now on: found first, by this player and by others.
+ * Only beside a song that is there, and never over a file that is there
+ * already. text: LRC, or words without times. Gives { ok, path } or
+ * { error }.
+ */
+function saveBeside(file, text) {
+  const words = String(text || '').replace(/\r\n?/g, '\n').trim();
+  if (typeof file !== 'string' || !path.isAbsolute(file) || /^https?:/i.test(file)) return { error: 'not a file on this computer' };
+  let isFile = false;
+  try { isFile = SONG.test(file) && fs.statSync(file).isFile(); } catch (_) {}
+  if (!isFile) return { error: 'not a song on this computer' };
+  if (!words) return { error: 'no lyrics to save' };
+  if (words.length > 2 * 1024 * 1024) return { error: 'too long' };
+  const dir = path.dirname(file), base = path.basename(file, path.extname(file));
+  let names = [];
+  try { names = fs.readdirSync(dir).map(n => n.toLowerCase()); } catch (_) { return { error: 'the folder could not be read' }; }
+  const p = path.join(dir, base + '.lrc');
+  if (names.includes((base + '.lrc').toLowerCase())) return { error: 'exists', path: p };
+  try { fs.writeFileSync(p, words + '\n', { flag: 'wx' }); } catch (e) { return { error: e && e.code === 'EEXIST' ? 'exists' : 'the folder may not be written to', path: p }; }
+  return { ok: true, path: p };
+}
+
+module.exports = { makeLyrics, besideFile, shape, subsToLrc, cleanTitle, songOf, fit, tagText, inTags, savedCount, clearSaved, saveBeside };

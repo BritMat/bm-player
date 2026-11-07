@@ -15,6 +15,9 @@
  * sound-chain.js makes, for each sound mode and setting, is handed to it
  * here and must get through, and filters that open files must not.
  *
+ * v3.50.0: and LyricsStore.java, the lyrics kept on the phone, with a
+ * stand-in for the one thing it asks of Android (android/test/stub).
+ *
  *   node scripts/stream-check.mjs
  */
 import fs from 'node:fs';
@@ -43,6 +46,9 @@ try {
   }
   all.delete('');
   execFileSync('java', ['-cp', out, 'io.github.britmat.bmplayer.TestAfGuard'], { input: [...all].join('\n') + '\n', stdio: ['pipe', 'inherit', 'inherit'] });
+  // the lyrics kept on the phone (v3.50.0), with a stand-in for Android's Context
+  execFileSync('javac', ['-encoding', 'UTF-8', '-d', out, path.join(pkg, 'LyricsStore.java'), path.join(ROOT, 'android', 'test', 'stub', 'android', 'content', 'Context.java'), path.join(ROOT, 'android', 'test', 'TestLyricsStore.java')], { stdio: 'inherit' });
+  execFileSync('java', ['-cp', out, 'io.github.britmat.bmplayer.TestLyricsStore'], { stdio: 'inherit' });
 } catch (e) {
   console.log('stream-check: FAILED');
   process.exitCode = 1;

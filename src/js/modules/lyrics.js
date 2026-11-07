@@ -28,6 +28,16 @@
  * more) can be shown in English letters, spelled as they sound
  * (translit.js), or both, the English letters under each line. The choice
  * is kept, and offered only where the lyrics are in a script it can spell.
+ *
+ * v3.50.0, lyrics that stay. Lyrics found online are saved on the device
+ * (lyrics-core.js), so a song has them again without a connection. When
+ * the lyrics site cannot be reached, the song is looked for again by itself:
+ * when the connection comes back, and after a while (8 s, 20 s, 45 s, then
+ * every few minutes) while the song plays. Try again asks at once, past a
+ * week's "nothing found", and Refresh asks again for lyrics already shown,
+ * which stay on screen if the site cannot be reached. Save as .lrc writes
+ * them beside the song (the desktop), Share hands them to another app (the
+ * phone).
  */
 import { setIcon } from '../icons.js';
 import { romanize, canRomanize } from '../translit.js';
@@ -63,6 +73,8 @@ export function lineAt(lines, t) {
 const el = id => document.getElementById(id);
 const OFFSETS = 'bm_lyrics_offsets';
 const fmtLen = s => s > 0 ? `${Math.floor(s / 60)}:${String(Math.round(s % 60)).padStart(2, '0')}` : '';
+// How long to wait before looking again for a song whose lyrics site could not be reached, in seconds.
+const RETRY = [8, 20, 45, 90, 180];
 const LYRIC_FILE = /\.(lrc|srt|vtt|txt)$/i;
 // A touch screen with no mouse (the Android app, v3.40.0): nothing is dropped there.
 const TOUCH = typeof matchMedia === 'function' && matchMedia('(pointer: coarse)').matches && !matchMedia('(pointer: fine)').matches;
@@ -80,8 +92,10 @@ export class Lyrics {
     try { this.offsets = JSON.parse(localStorage.getItem(OFFSETS) || '{}') || {}; } catch (_) { this.offsets = {}; }
     this.path = null; this.lines = []; this.plain = null; this.status = 'idle'; this.source = null;
     this.pinned = false; this.auto = false; this.video = null; this.note = '';
+    this.saved = false; this.raw = ''; this.looking = false;
     this.searching = false; this.results = null; this.query = '';
     this._req = 0; this._cur = -2; this._userScroll = 0; this._timer = null; this._meta = {};
+    this._retryN = 0; this._retryT = 0;
     this._wire();
   }
 
@@ -104,6 +118,8 @@ export class Lyrics {
     });
     const b = el('viz-btn-lyrics');
     if (b) { setIcon(b, 'lyrics'); b.addEventListener('click', () => this.setOverlay(!this.overlay)); }
+    // The connection is back (v3.50.0): a song whose lyrics site could not be reached is looked for again.
+    try { window.addEventListener('online', () => { if (this.status === 'offline' && this.path) this._lookAgain(false); }); } catch (_) {}
     this.showTab(this.tab, true);
     this.setOverlay(this.overlay, true);
   }
@@ -121,6 +137,9 @@ export class Lyrics {
     e.preventDefault();
     if (act === 'script') { this.setScript(t.closest('[data-v]')?.dataset.v); return; }
     if (act === 'search') this._openSearch();
+    else if (act === 'retry' || act === 'refresh') this._lookAgain(true);
+    else if (act === 'save-lrc') this._saveLrc();
+    else if (act === 'share') this._share();
     else if (act === 'search-close') { this.searching = false; this.results = null; this._render(); }
     else if (act === 'load') this._load();
     else if (act === 'unpin') this._unpin();
@@ -180,6 +199,7 @@ export class Lyrics {
   /** What the main process answered, put on screen. True when there are words (or an instrumental). */
   _apply (r) {
     this.lines = []; this.plain = null; this.source = r?.source || null; this.pinned = !!r?.pinned; this.auto = !!r?.auto; this.video = r?.video || null;
+    this.saved = !!r?.saved; this.raw = r?.synced || r?.plain || '';
     if (r?.instrumental) { this.status = 'instrumental'; return true; }
     if (r?.synced) { this.lines = parseLRC(r.synced); if (!this.lines.length && r.plain) this.plain = r.plain; }
     else if (r?.plain) this.plain = r.plain;
@@ -192,15 +212,87 @@ export class Lyrics {
   /** A song started (MusicDash.play). meta: { title, artist, album, duration }. */
   async song (path, meta) {
     const id = ++this._req;
+    this._stopRetry(); this._retryN = 0;
     this.path = path; this._meta = meta || {}; this.lines = []; this.plain = null; this.source = null; this.status = 'loading'; this._cur = -2;
-    this.note = ''; this.noteTitle = ''; this.searching = false; this.results = null; this.query = '';
+    this.note = ''; this.noteTitle = ''; this.searching = false; this.results = null; this.query = ''; this.looking = false;
     this._render();
     let r = null;
-    try { r = await this.api?.music?.lyrics?.(path, meta || {}, { online: this.online }); } catch (_) { r = null; }
+    try { r = await this.api?.music?.lyrics?.(path, meta || {}, this._opts()); } catch (_) { r = null; }
     if (id !== this._req) return;                                        // another song has started since
     const got = this._apply(r);
     this._render(); this._run();
     if (!got && this.youtube) await this._fromYoutube(id);
+    if (id === this._req && this.status === 'offline') this._retryLater();
+  }
+
+  /** What the lyrics are looked for with: online, YouTube's saved captions, and fresh (asked again, v3.50.0). */
+  _opts (fresh) { return { online: this.online, youtube: this.youtube, ...(fresh ? { fresh: true } : {}) }; }
+
+  // ── Looking again (v3.50.0) ─────────────────────────────────────────
+  _stopRetry () { clearTimeout(this._retryT); this._retryT = 0; }
+
+  /** The lyrics site could not be reached: the song is looked for again after a while, while it is the one playing. */
+  _retryLater () {
+    this._stopRetry();
+    if (!this.online || !this.path) return;
+    const s = RETRY[Math.min(this._retryN, RETRY.length - 1)];
+    this._retryN++;
+    const id = this._req;
+    this._retryT = setTimeout(() => { this._retryT = 0; if (id === this._req && this.status === 'offline') this._lookAgain(false); }, s * 1000);
+  }
+
+  /**
+   * The song looked for again, without clearing what is on screen. fresh:
+   * asked for by the person (Try again, Refresh), so LRCLIB is asked again
+   * past what is saved and past a week's "nothing found". Lyrics on screen
+   * stay when the site cannot be reached, with a word that they are the
+   * saved ones.
+   */
+  async _lookAgain (fresh) {
+    if (!this.path || this.looking) return;
+    const id = this._req, had = this.status === 'ready' || this.status === 'instrumental';
+    this._stopRetry();
+    this.looking = true;
+    if (fresh) { this.note = had ? 'Looking for them again…' : ''; if (!had) this.status = 'loading'; this._render(); }
+    let r = null;
+    try { r = await this.api?.music?.lyrics?.(this.path, this._meta, this._opts(fresh)); } catch (_) { r = null; }
+    this.looking = false;
+    if (id !== this._req) return;
+    const words = r && (r.synced || r.plain || r.instrumental);
+    if (r?.offline && had) {
+      // what is on screen stays
+      this.note = 'The lyrics site could not be reached just now. These are the saved ones.';
+      if (words) { const at = el('np-lyrics')?.scrollTop || 0; this._apply(r); this._render(); const p = el('np-lyrics'); if (p) p.scrollTop = at; }
+      else this._render();
+      return;
+    }
+    if (r?.gone && had) { this.note = 'LRCLIB has nothing for this song now. These are the saved ones.'; this._render(); return; }
+    if (words) { this.note = fresh && had ? 'Up to date.' : ''; this._retryN = 0; }
+    else if (had && !r?.offline) { this.note = 'LRCLIB has nothing more for this song.'; this._render(); return; }
+    else this.note = fresh && !r?.offline ? 'Asked LRCLIB again just now.' : '';
+    this._apply(r);
+    this._render(); this._run();
+    if (this.status === 'offline') this._retryLater();
+    else if (!words && this.youtube && fresh) await this._fromYoutube(id);
+  }
+
+  /** Written beside the song as a .lrc (the desktop, v3.50.0): the song's own lyrics from now on. */
+  async _saveLrc () {
+    if (!this.path || !this.raw || !this.api?.music?.lyricsSaveLrc) return;
+    let r = null;
+    try { r = await this.api.music.lyricsSaveLrc(this.path, this.raw); } catch (e) { r = { error: String(e?.message || e) }; }
+    const name = String(r?.path || '').split(/[\\/]/).pop();
+    if (r?.ok) { this.source = 'file'; this.pinned = false; this.saved = false; this.note = 'Saved beside the song as ' + name + '.'; }
+    else this.note = r?.error === 'exists' ? 'There is a ' + (name || '.lrc file') + ' beside the song already.' : 'The lyrics could not be saved beside the song' + (r?.error ? ': ' + r.error + '.' : '.');
+    this._render();
+  }
+
+  /** Handed to another app (the phone's share sheet, v3.50.0): the words, with the song's name. */
+  _share () {
+    if (!this.raw || !this.api?.music?.lyricsShare) return;
+    const m = this._meta || {}, name = [m.artist, m.title].filter(Boolean).join(' - ');
+    const words = this.lines.length ? this.lines.map(l => l.text).join('\n') : (this.plain || '');
+    try { this.api.music.lyricsShare(words, name); } catch (_) {}
   }
 
   /** YouTube's captions, asked for once all else found nothing (and only if turned on). */
@@ -223,8 +315,9 @@ export class Lyrics {
   reload () { if (this.path) this.song(this.path, this._meta); }
 
   clear () {
-    this._req++; this.path = null; this.lines = []; this.plain = null; this.status = 'idle'; this.source = null;
+    this._req++; this._stopRetry(); this.path = null; this.lines = []; this.plain = null; this.status = 'idle'; this.source = null;
     this.pinned = false; this.auto = false; this.video = null; this.note = ''; this.searching = false; this.results = null; this._cur = -2;
+    this.saved = false; this.raw = ''; this.looking = false;
     this._render(); this._run();
   }
 
@@ -315,8 +408,17 @@ export class Lyrics {
       else if (this.status === 'loading') note('Looking for lyrics…');
       else if (this.status === 'youtube') note(this.note || 'Looking on YouTube…');
       else if (this.status === 'instrumental') note('Instrumental: no words.');
-      else if (this.status === 'none') { note(this.online ? 'No lyrics found for this song.' : 'No lyrics found beside this song or inside it.'); add('div', 'lyr-hint', 'Search for them, or load a .lrc, .srt or .vtt file' + (TOUCH ? '.' : ' (or drop one here).')); }
-      else if (this.status === 'offline') note('No lyrics here, and the lyrics site could not be reached.');
+      else if (this.status === 'none') {
+        note(this.online ? 'No lyrics found for this song.' : 'No lyrics found beside this song or inside it.');
+        add('div', 'lyr-hint', (this.online ? 'Try again, search for them, or load' : 'Search for them, or load') + ' a .lrc, .srt or .vtt file' + (TOUCH ? '.' : ' (or drop one here).'));
+        if (this.online) this._againBtn(pane, 'Try again', 'Ask LRCLIB again for this song');
+      }
+      else if (this.status === 'offline') {
+        // v3.50.0: and looked for again by itself, and at once with Try again
+        note('The lyrics site could not be reached.');
+        add('div', 'lyr-hint', 'They are looked for again by themselves when the connection is back.');
+        this._againBtn(pane, 'Try again', 'Look for this song\'s lyrics again now');
+      }
       else if (this.lines.length || this.plain) {
         if (this.spellable) this._renderScript(pane);
         if (this.lines.length) {
@@ -345,6 +447,14 @@ export class Lyrics {
       if (!this.searching) this._renderFoot(pane);
     }
     this._cur = -2; this._tick(true);
+  }
+
+  /** Try again, under a note (v3.50.0). */
+  _againBtn (pane, text, title) {
+    const b = document.createElement('button');
+    b.type = 'button'; b.className = 'lyr-btn lyr-again'; b.dataset.lyr = 'retry'; b.textContent = text; b.title = title;
+    if (this.looking) b.disabled = true;
+    pane.appendChild(b);
   }
 
   /** Original, English letters or Both: kept at the top of the lyrics while they scroll. */
@@ -387,9 +497,11 @@ export class Lyrics {
     const foot = document.createElement('div'); foot.className = 'lyr-foot';
     const from = { file: 'From a file beside the song', tags: 'From the song file itself', lrclib: 'From LRCLIB (lrclib.net)',
       youtube: this.auto ? 'From YouTube\'s automatic captions (made by speech recognition, so often wrong)' : 'From the captions of a YouTube video' }[this.source];
-    if (this.status === 'ready' || this.status === 'instrumental') {
+    const shown = this.status === 'ready' || this.status === 'instrumental';
+    if (shown) {
       const s = document.createElement('div');
-      s.textContent = (from || '') + (this.pinned ? (from ? ', chosen by you' : 'Chosen by you') : '');
+      // v3.50.0: and whether they are there without a connection
+      s.textContent = (from || '') + (this.pinned ? (from ? ', chosen by you' : 'Chosen by you') : '') + (this.saved && !this.pinned ? ' · saved for offline' : '');
       if (this.source === 'youtube' && this.video?.title) s.title = this.video.title;
       if (s.textContent) foot.appendChild(s);
     }
@@ -397,7 +509,11 @@ export class Lyrics {
       const tools = document.createElement('div'); tools.className = 'lyr-tools';
       const btn = (act, text, title) => { const b = document.createElement('button'); b.type = 'button'; b.className = 'lyr-btn'; b.dataset.lyr = act; b.textContent = text; if (title) b.title = title; tools.appendChild(b); return b; };
       btn('search', 'Search', 'Search LRCLIB for this song\'s lyrics');
+      // v3.50.0: asked again, for lyrics from LRCLIB or YouTube (a file's or a tag's are the song's own)
+      if (shown && this.online && (this.source === 'lrclib' || this.source === 'youtube') && !this.pinned) { const b = btn('refresh', 'Refresh', 'Ask LRCLIB again for this song\'s lyrics. What is shown stays if it cannot be reached.'); if (this.looking) b.disabled = true; }
       btn('load', 'Load file…', 'A .lrc, .srt, .vtt or .txt file for this song');
+      if (shown && this.raw && this.source !== 'file' && this.api?.music?.lyricsSaveLrc) btn('save-lrc', 'Save as .lrc', 'Write these lyrics beside the song as a .lrc file, with the same name. They are the song\'s own from then on, for other players too.');
+      if (shown && this.raw && this.api?.music?.lyricsShare) btn('share', 'Share', 'Send the words to another app');
       if (this.pinned) btn('unpin', 'Undo choice', 'Look for this song\'s lyrics again as before');
       foot.appendChild(tools);
       if (this.lines.length) {

@@ -163,29 +163,42 @@ jobs:
         run: |
           tag="mpv-$MPV_BUILD"
           command -v 7z > /dev/null || { sudo apt-get update -qq && sudo apt-get install -y -qq p7zip-full; }
+          # The build scripts' commit: shinchiro deletes the tag with the build, the commit stays.
+          scripts=$(git ls-remote https://github.com/shinchiro/mpv-winbuild-cmake "refs/tags/$MPV_BUILD" | cut -c1-40)
+          # The notes: what it is, its licence, where its source is, then shinchiro's own notes ($2).
+          notes() {
+            local name="$1" theirs="$2" commit
+            commit=$(echo "$name" | sed -n 's/.*-git-\([0-9a-f]\{7,40\}\)\.7z$/\1/p')
+            echo "The mpv that BM Player's Windows installers download and install, kept here so they keep working. It is a copy, unchanged, of [shinchiro/mpv-winbuild-cmake build $MPV_BUILD](https://github.com/shinchiro/mpv-winbuild-cmake/releases/tag/$MPV_BUILD), which shinchiro removes after about a month."
+            echo
+            echo "mpv is free software under the GNU General Public License, version 2 or later, and the libraries built into it, FFmpeg among them, are under the GPL and the LGPL. Their source code: mpv${commit:+ at commit [$commit](https://github.com/mpv-player/mpv/tree/$commit)}, and the scripts that built it with its libraries, [shinchiro/mpv-winbuild-cmake as it was for $MPV_BUILD](https://github.com/shinchiro/mpv-winbuild-cmake/tree/$scripts). shinchiro's own notes for this build follow."
+            echo
+            echo "Not for installing by hand: the BM Player installer downloads it, checks it against its SHA-256 and puts it in place."
+            echo
+            echo "---"
+            echo
+            printf '%s\n' "$theirs"
+          }
           if gh release view "$tag" > /dev/null 2>&1; then
             echo "Kept already: $tag"
             gh release download "$tag" --pattern 'mpv-x86_64-2*.7z' --dir mpvdl
+            # Notes from before v3.50.0's last change linked the scripts by their tag, which goes with the build: by commit, while the tag can still be read.
+            body=$(gh release view "$tag" --json body -q .body)
+            if [ -n "$scripts" ] && ! printf '%s' "$body" | grep -q "mpv-winbuild-cmake/tree/$scripts"; then
+              notes "$(basename "$(ls mpvdl/*.7z | head -1)")" "$(printf '%s\n' "$body" | sed '1,/^---$/d')" > notes.md
+              gh release edit "$tag" --notes-file notes.md
+              echo "Notes brought up to date: the scripts by commit"
+            fi
           else
+            test -n "$scripts" || { echo "shinchiro/mpv-winbuild-cmake has no build $MPV_BUILD any more (it keeps about a month). Set MPV_BUILD at the top of this file to a newer one."; exit 1; }
             # The plain 64-bit player build (not -v3 or -gcc, not the -dev library).
             if ! gh release download "$MPV_BUILD" --repo shinchiro/mpv-winbuild-cmake --pattern 'mpv-x86_64-2*.7z' --dir mpvdl; then
-              echo "shinchiro/mpv-winbuild-cmake has no build $MPV_BUILD any more (it keeps about a month). Set MPV_BUILD at the top of this file to a newer one."
+              echo "No mpv-x86_64-<date> archive in shinchiro/mpv-winbuild-cmake build $MPV_BUILD."
               exit 1
             fi
             file=$(ls mpvdl/*.7z | head -1); name=$(basename "$file")
             7z l "$file" | grep -qE ' mpv\.exe$' || { echo "mpv.exe is not at the top of $name"; exit 1; }
-            commit=$(echo "$name" | sed -n 's/.*-git-\([0-9a-f]\{7,40\}\)\.7z$/\1/p')
-            {
-              echo "The mpv that BM Player's Windows installers download and install, kept here so they keep working. It is a copy, unchanged, of [shinchiro/mpv-winbuild-cmake build $MPV_BUILD](https://github.com/shinchiro/mpv-winbuild-cmake/releases/tag/$MPV_BUILD), which shinchiro removes after about a month."
-              echo
-              echo "mpv is free software under the GNU General Public License, version 2 or later, and the libraries built into it, FFmpeg among them, are under the GPL and the LGPL. Their source code: mpv${commit:+ at commit [$commit](https://github.com/mpv-player/mpv/tree/$commit)}, and the scripts that built it with its libraries, [shinchiro/mpv-winbuild-cmake at $MPV_BUILD](https://github.com/shinchiro/mpv-winbuild-cmake/tree/$MPV_BUILD). shinchiro's own notes for this build follow."
-              echo
-              echo "Not for installing by hand: the BM Player installer downloads it, checks it against its SHA-256 and puts it in place."
-              echo
-              echo "---"
-              echo
-              gh release view "$MPV_BUILD" --repo shinchiro/mpv-winbuild-cmake --json body -q .body || true
-            } > notes.md
+            notes "$name" "$(gh release view "$MPV_BUILD" --repo shinchiro/mpv-winbuild-cmake --json body -q .body || true)" > notes.md
             gh release create "$tag" "$file" --title "mpv $MPV_BUILD for the Windows installers" --notes-file notes.md --prerelease --target "$GITHUB_SHA"
             echo "Kept: $tag"
           fi

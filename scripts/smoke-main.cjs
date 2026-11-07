@@ -859,6 +859,106 @@ await step('PiP size button cycles three sizes, anchored and on screen', async (
     } finally { electronStub.net.fetch = real; }
   });
 
+  // v3.50.0: lyrics that stay. They went after a network drop: a failure
+  // between two questions was kept as "nothing found" for a week, and a song
+  // found once was looked up again under its exact tags only.
+  await step('lyrics: saved under the file and loosely, kept when offline, only for the same song, asked again when fresh', async () => {
+    const { makeLyrics, norm, fit } = require(path.join(ROOT, 'lyrics-core.js'));
+    if (norm('Mötley Crüe – “Kickstart”') !== 'motley crue kickstart' || norm("Don't Stop") !== 'don t stop') throw new Error('names in Latin letters: ' + norm('Mötley Crüe – “Kickstart”'));
+    if (!norm('മലയാളം പാട്ട്') || norm('तुम ही हो') !== 'तुम ही हो'.normalize('NFKD')) throw new Error('a name in another script came out empty');
+    if (!(fit({ trackName: 'तुम ही हो', artistName: 'अरिजीत सिंह', duration: 262, syncedLyrics: '[00:01.00]x' }, { title: 'तुम ही हो', artist: 'अरिजीत सिंह', duration: 262 }) > 5)) throw new Error('a Hindi title is not matched');
+    if (fit({ trackName: 'ഒന്ന്', artistName: 'X', duration: 200, syncedLyrics: 'x' }, { title: 'രണ്ട്', artist: 'X', duration: 200 }) !== -1) throw new Error('two different Malayalam titles matched');
+    const mem = new Map(), store = { read: n => mem.has(n) ? JSON.parse(mem.get(n)) : null, write: (n, v) => mem.set(n, JSON.stringify(v)) };
+    let mode = 'ok', asked = 0;
+    const fetchJson = async url => {
+      asked++; if (mode === 'down') return null;
+      if (/\/api\/get\?/.test(url)) return { status: 404, json: {} };
+      if (mode === 'none') return { status: 200, json: [] };
+      return { status: 200, json: [{ id: 1, trackName: 'Song', artistName: 'Band', duration: 200, syncedLyrics: '[00:01.00]words' }] };
+    };
+    const L = makeLyrics({ fetchJson, store, ua: 'test' });
+    const meta = { title: 'Song', artist: 'Band', album: 'LP', duration: 200 };
+    const a = await L.get('/m/song.mp3', meta, { online: true });
+    if (a.source !== 'lrclib' || !a.saved || !a.fetched) throw new Error('found online: ' + JSON.stringify(a));
+    mode = 'down';
+    const b = await L.get('/m/song.mp3', { ...meta, album: '', duration: 201 }, { online: true });
+    if (b.synced !== '[00:01.00]words' || !b.saved || b.fetched) throw new Error('offline, read with another album and length: ' + JSON.stringify(b));
+    const c = await L.get('/m/copy.mp3', { title: 'Song', artist: 'Band', duration: 199 }, { online: true });
+    if (c.synced !== '[00:01.00]words') throw new Error('another file of the same song, offline: ' + JSON.stringify(c));
+    const d = await L.get('/m/copy2.mp3', { title: 'Song', artist: 'Band', duration: 260 }, { online: true });
+    if (d.synced || !d.offline) throw new Error('another version of the song (its length) took these lyrics: ' + JSON.stringify(d));
+    const e = await L.get('/m/song.mp3', { title: 'Other Song', artist: 'Band', duration: 200 }, { online: true });
+    if (e.synced || !e.offline) throw new Error('the same file with another title now took the old lyrics: ' + JSON.stringify(e));
+    // saved when less was known (no artist yet): only while LRCLIB cannot be asked
+    mem.clear(); mode = 'ok';
+    await L.get('/m/early.mp3', { title: 'Song', duration: 200 }, { online: true });
+    mode = 'down';
+    const f = await L.get('/m/early.mp3', { title: 'Song', artist: 'Band', duration: 200 }, { online: true });
+    if (f.synced !== '[00:01.00]words' || !f.offline) throw new Error('known better now, offline: ' + JSON.stringify(f));
+    mode = 'none'; const n0 = asked;
+    const g = await L.get('/m/early.mp3', { title: 'Song', artist: 'Band', duration: 200 }, { online: true });
+    if (asked === n0 || g.source !== 'none') throw new Error('known better now and online: ' + JSON.stringify(g));
+    // fresh (Try again, Refresh): asked past the saved ones, which stay when it cannot be reached
+    mem.clear(); mode = 'ok';
+    await L.get('/m/song.mp3', meta, { online: true });
+    mode = 'down'; const n1 = asked;
+    const h = await L.get('/m/song.mp3', meta, { online: true, fresh: true });
+    if (asked !== n1 + 1 || h.synced !== '[00:01.00]words' || !h.offline) throw new Error(`fresh and offline: ${asked - n1} questions, ` + JSON.stringify(h));
+    mode = 'none';
+    const i = await L.get('/m/song.mp3', meta, { online: true, fresh: true });
+    if (i.synced !== '[00:01.00]words' || !i.gone) throw new Error('fresh, and LRCLIB has nothing now: ' + JSON.stringify(i));
+    // the network lost between two questions: not "nothing found"
+    mem.clear(); let n = 0;
+    const flaky = makeLyrics({ store, ua: 't', fetchJson: async url => { n++; if (/\/api\/get\?/.test(url)) return { status: 404, json: {} }; return n === 2 ? { status: 200, json: [] } : null; } });
+    const j = await flaky.get('/m/x.mp3', meta, { online: true });
+    const k = n; await flaky.get('/m/x.mp3', meta, { online: true });
+    if (!j.offline || n === k) throw new Error('a failure after an empty search was kept as nothing found: ' + JSON.stringify(j));
+    // songs in another script do not share one loose name
+    mem.clear();
+    const hi = makeLyrics({ store, ua: 't', fetchJson: async url => /\/api\/get\?/.test(url) ? { status: 404, json: {} } : { status: 200, json: [{ id: 5, trackName: 'तुम ही हो', artistName: 'अरिजीत सिंह', duration: 262, syncedLyrics: '[00:01.00]one' }] } });
+    const h1 = await hi.get('/m/h1.mp3', { title: 'तुम ही हो', artist: 'अरिजीत सिंह', duration: 262 }, { online: true });
+    const h2 = await makeLyrics({ store, ua: 't', fetchJson: async () => null }).get('/m/h2.mp3', { title: 'चन्ना मेरेया', artist: 'अरिजीत सिंह', duration: 262 }, { online: true });
+    if (h1.synced !== '[00:01.00]one' || h2.synced) throw new Error('Hindi songs: ' + JSON.stringify([h1, h2]));
+  });
+
+  await step('lyrics: how many songs have lyrics saved, cleared with the choices kept, and written beside the song as .lrc', async () => {
+    const real = electronStub.net.fetch;
+    electronStub.net.fetch = async url => ({ status: /\/api\/get\?/.test(url) ? 404 : 200, json: async () => /\/api\/get\?/.test(url) ? {} : [{ id: 3, trackName: 'Kept', artistName: 'Keeper', duration: 150, syncedLyrics: '[00:01.00]kept words' }] });
+    try {
+      const dir = fs.mkdtempSync(path.join(TMP, 'lyr5-')), song = path.join(dir, 'Kept.mp3'); fs.writeFileSync(song, 'x');
+      const meta = { title: 'Kept', artist: 'Keeper', duration: 150 };
+      const before = (await call('lyrics:saved')).count;
+      const r = await call('lyrics:get', song, meta, { online: true });
+      if (!r.saved || !/kept words/.test(r.synced || '')) throw new Error('found: ' + JSON.stringify(r));
+      const after = (await call('lyrics:saved')).count;
+      if (after !== before + 1) throw new Error(`saved count ${before} then ${after}`);
+      // offline now: the saved ones
+      electronStub.net.fetch = async () => { throw new Error('offline'); };
+      const off = await call('lyrics:get', song, meta, { online: true });
+      if (!/kept words/.test(off.synced || '')) throw new Error('offline, the saved lyrics were not used: ' + JSON.stringify(off));
+      // beside the song, never over a file that is there
+      const w = await call('lyrics:saveLrc', song, '[00:01.00]kept words');
+      if (!w.ok || fs.readFileSync(path.join(dir, 'Kept.lrc'), 'utf8') !== '[00:01.00]kept words\n') throw new Error('save as .lrc: ' + JSON.stringify(w));
+      const twice = await call('lyrics:saveLrc', song, 'other words');
+      if (twice.error !== 'exists' || !/kept words/.test(fs.readFileSync(path.join(dir, 'Kept.lrc'), 'utf8'))) throw new Error('written over a .lrc that was there: ' + JSON.stringify(twice));
+      const bad = await call('lyrics:saveLrc', 'https://example.com/a.mp3', 'x');
+      if (bad.ok) throw new Error('saved beside a web address');
+      const notes = path.join(dir, 'notes.txt'); fs.writeFileSync(notes, 'x');
+      const notSong = await call('lyrics:saveLrc', notes, '[00:01.00]x'), gone = await call('lyrics:saveLrc', path.join(dir, 'Gone.mp3'), '[00:01.00]x');
+      if (notSong.ok || gone.ok || fs.existsSync(path.join(dir, 'notes.lrc')) || fs.existsSync(path.join(dir, 'Gone.lrc'))) throw new Error('saved beside something that is not a song there: ' + JSON.stringify([notSong, gone]));
+      const beside = await call('lyrics:get', song, meta, { online: false });
+      if (beside.source !== 'file') throw new Error('the .lrc written is not the song\'s own now: ' + JSON.stringify(beside));
+      // cleared: the saved ones go, a choice stays
+      const pinned = path.join(dir, 'Pinned.mp3'); fs.writeFileSync(pinned, 'x');
+      const lrc = path.join(dir, 'mine.lrc'); fs.writeFileSync(lrc, '[00:01.00]my own');
+      await call('lyrics:load', pinned, { title: 'Pinned' }, lrc);
+      const c = await call('lyrics:clearSaved');
+      if (c.removed < 1 || (await call('lyrics:saved')).count !== 0) throw new Error('clear: ' + JSON.stringify(c));
+      const still = await call('lyrics:get', pinned, { title: 'Pinned' }, { online: false });
+      if (!still.pinned || !/my own/.test(still.synced || '')) throw new Error('a choice went with the saved lyrics: ' + JSON.stringify(still));
+    } finally { electronStub.net.fetch = real; }
+  });
+
   // yt-dlp, fetched on first use and checked against its published sum (v3.39.0).
   // v3.46.0: the seek bar's pictures, each from an mpv of its own (thumbs.js).
   // A fake mpv writes the JPEG into the folder it is given, as mpv's image
