@@ -118,6 +118,7 @@ page.on('pageerror', e => errors.push(e.message));
 page.on('console', m => { if (m.type() === 'error' && !/Failed to load resource/.test(m.text())) errors.push(m.text()); });
 const shot = async name => { if (SHOTS) { fs.mkdirSync(SHOTS, { recursive: true }); await page.screenshot({ path: path.join(SHOTS, name + '.png') }); } };
 const ev = (fn, a) => page.evaluate(fn, a);
+// A tap's click comes after page.tap() returns (the browser makes it from the touches), so a check after a tap waits for it.
 const until = async (fn, a, ms = 6000) => { const t = Date.now(); while (Date.now() - t < ms) { if (await ev(fn, a)) return true; await sleep(100); } return false; };
 const rowOf = title => ev(t => [...document.querySelectorAll('#mu-list .vrow')].find(r => r.querySelector('.t1')?.textContent === t)?.dataset.i, title);
 const lyr = () => ev(() => ({ status: window.bmLyrics?.status, source: window.bmLyrics?.source, lines: window.bmLyrics?.lines?.length || 0, plain: window.bmLyrics?.plain || '' }));
@@ -202,7 +203,7 @@ try {
   await page.tap('#flow-settings');
   ok(await until(() => document.querySelectorAll('#sheet .fp-row').length >= 12), 'its settings: colours, swirl, glow, lines and more');
   await page.tap('#sheet .fp-seg button[data-v="fire"]');
-  ok(await ev(() => window.__bmHome.toy.settings.colors === 'fire' && JSON.parse(localStorage.getItem('bm_flow_toy')).colors === 'fire'), 'a choice applies and is kept');
+  ok(await until(() => window.__bmHome.toy.settings.colors === 'fire' && JSON.parse(localStorage.getItem('bm_flow_toy')).colors === 'fire'), 'a choice applies and is kept');
   await ev(() => window.BMNative.back());
   await sleep(600); await shot('00-flow');
   ok(await ev(() => window.BMNative.back()) === 'handled' && await until(() => window.__bmHome.toy.on === false && !document.body.classList.contains('home-full')), 'Back: the fox again, the fluid as it was');
@@ -837,7 +838,7 @@ try {
       await t('touchStart', 330, 450); for (let i = 1; i <= 10; i++) { await t('touchMove', 330 - i * 25, 452); await sleep(16); } await t('touchEnd'); }
     ok(await until(() => document.getElementById('iv-count').textContent === '2 / 3'), 'a swipe goes to the next one');
     await page.tap('#iv-share');
-    ok(await ev(() => /^\/media\/image\/30\d$/.test(window.__bmSharedFile?.[0] || '')), 'Share sends the picture itself');
+    ok(await until(() => /^\/media\/image\/30\d$/.test(window.__bmSharedFile?.[0] || '')), 'Share sends the picture itself');
     await page.tap('#iv-fav');
     ok(await until(() => document.getElementById('iv-fav').classList.contains('on') && JSON.parse(localStorage.getItem('bm_m_favs') || '[]').some(f => f.kind === 'image')), 'the star keeps the picture among the favourites');
     ok(await ev(() => window.BMNative.back()) === 'handled' && await until(() => document.getElementById('iv').classList.contains('hidden')), 'Back closes it');
@@ -876,9 +877,9 @@ try {
   console.log('\n' + step);
   await page.tap('#nav button[data-tab="settings"]');
   await page.tap('#st-themes button[data-v="ocean"]');
-  ok(await ev(() => document.documentElement.dataset.theme === 'ocean' && window.__bmBars?.[0] === '#04121c'), 'a theme changes the page and Android\'s bars');
+  ok(await until(() => document.documentElement.dataset.theme === 'ocean' && window.__bmBars?.[0] === '#04121c'), 'a theme changes the page and Android\'s bars');
   await page.tap('#st-saver button[data-v="on"]');
-  ok(await ev(() => document.documentElement.classList.contains('battery-saver')), 'the battery saver turns on');
+  ok(await until(() => document.documentElement.classList.contains('battery-saver')), 'the battery saver turns on');
   await page.tap('#st-saver button[data-v="auto"]');
   await page.tap('#st-log');
   ok(await until(() => !document.getElementById('sheet').classList.contains('hidden') && document.querySelector('.sh-log pre')), 'the log shows');
@@ -916,7 +917,7 @@ try {
   ok(updCard.l >= 0 && updCard.r <= updCard.w && updCard.sw <= updCard.cw, `the card fits the screen (${Math.round(updCard.l)} to ${Math.round(updCard.r)} of ${updCard.w})`);
   await shot('16-update-home');
   await page.tap('#home-upd-x');
-  ok(await ev(() => document.getElementById('home-upd').classList.contains('hidden') && localStorage.getItem('bm_m_upd_later') === '9.9.0'), 'Later hides the card for this version');
+  ok(await until(() => document.getElementById('home-upd').classList.contains('hidden') && localStorage.getItem('bm_m_upd_later') === '9.9.0'), 'Later hides the card for this version');
   // Android has not allowed BM Player to install apps yet: Allow first, then Install.
   await ev(() => { localStorage.setItem('mock_update_perm', '0'); localStorage.removeItem('bm_m_upd_later'); window.__bmInstalled = null; });
   await page.reload();
@@ -955,7 +956,7 @@ try {
   // By itself: once a day, and not at all when switched off
   await ev(() => { localStorage.removeItem('mock_update_fail'); localStorage.setItem('bm_m_upd_last', String(Date.now() - 2 * 864e5)); });
   await page.tap('#st-upd-auto');
-  ok(await ev(() => localStorage.getItem('bm_m_upd_auto') === '0'), 'the switch turns the daily look off');
+  ok(await until(() => localStorage.getItem('bm_m_upd_auto') === '0'), 'the switch turns the daily look off');
   await page.reload();
   await until(() => window.__bmStarted === true, null, 15000);
   await sleep(9000);
