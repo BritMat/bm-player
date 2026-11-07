@@ -14,6 +14,13 @@ on:
         required: false
         default: ''
 
+env:
+  # The mpv the Windows installers download (v3.50.0): one build of
+  # shinchiro/mpv-winbuild-cmake, pinned so a bad nightly cannot slip in, and
+  # kept in this repository's own releases (the mpv-mirror job). Bump it on
+  # purpose: the next push copies the new build there.
+  MPV_BUILD: '20261105'
+
 jobs:
   verify:
     name: Verify (${{ matrix.os }})
@@ -128,6 +135,70 @@ jobs:
           sudo apt-get update -qq && sudo apt-get install -y -qq xvfb
           xvfb-run -a node scripts/smoke-packaged.mjs
 
+  # The mpv the Windows installers download (v3.50.0). shinchiro keeps about
+  # a month of builds and deletes the older ones, and the installers fetched
+  # theirs from there: 3.47.0's could not get mpv once its build was gone,
+  # and 3.49.0's could not be built. So a copy of the pinned build is kept in
+  # this repository, as a pre-release named mpv-<build> (the built-in
+  # updaters look only at BM Player's own versions, so they pass it by),
+  # with shinchiro's notes for it, its licence and where its source is. Made
+  # on the first push that names a new build, checked on every push after
+  # that, and what the installers are pointed at. Nothing in it is changed.
+  mpv-mirror:
+    name: mpv for the Windows installers
+    if: ${{ github.event_name != 'pull_request' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+    outputs:
+      name: ${{ steps.mpv.outputs.name }}
+      sha256: ${{ steps.mpv.outputs.sha256 }}
+      url: ${{ steps.mpv.outputs.url }}
+    steps:
+      - name: The copy of the pinned build
+        id: mpv
+        run: |
+          tag="mpv-$MPV_BUILD"
+          command -v 7z > /dev/null || { sudo apt-get update -qq && sudo apt-get install -y -qq p7zip-full; }
+          if gh release view "$tag" > /dev/null 2>&1; then
+            echo "Kept already: $tag"
+            gh release download "$tag" --pattern 'mpv-x86_64-2*.7z' --dir mpvdl
+          else
+            # The plain 64-bit player build (not -v3 or -gcc, not the -dev library).
+            if ! gh release download "$MPV_BUILD" --repo shinchiro/mpv-winbuild-cmake --pattern 'mpv-x86_64-2*.7z' --dir mpvdl; then
+              echo "shinchiro/mpv-winbuild-cmake has no build $MPV_BUILD any more (it keeps about a month). Set MPV_BUILD at the top of this file to a newer one."
+              exit 1
+            fi
+            file=$(ls mpvdl/*.7z | head -1); name=$(basename "$file")
+            7z l "$file" | grep -qE ' mpv\.exe$' || { echo "mpv.exe is not at the top of $name"; exit 1; }
+            commit=$(echo "$name" | sed -n 's/.*-git-\([0-9a-f]\{7,40\}\)\.7z$/\1/p')
+            {
+              echo "The mpv that BM Player's Windows installers download and install, kept here so they keep working. It is a copy, unchanged, of [shinchiro/mpv-winbuild-cmake build $MPV_BUILD](https://github.com/shinchiro/mpv-winbuild-cmake/releases/tag/$MPV_BUILD), which shinchiro removes after about a month."
+              echo
+              echo "mpv is free software under the GNU General Public License, version 2 or later, and the libraries built into it, FFmpeg among them, are under the GPL and the LGPL. Their source code: mpv${commit:+ at commit [$commit](https://github.com/mpv-player/mpv/tree/$commit)}, and the scripts that built it with its libraries, [shinchiro/mpv-winbuild-cmake at $MPV_BUILD](https://github.com/shinchiro/mpv-winbuild-cmake/tree/$MPV_BUILD). shinchiro's own notes for this build follow."
+              echo
+              echo "Not for installing by hand: the BM Player installer downloads it, checks it against its SHA-256 and puts it in place."
+              echo
+              echo "---"
+              echo
+              gh release view "$MPV_BUILD" --repo shinchiro/mpv-winbuild-cmake --json body -q .body || true
+            } > notes.md
+            gh release create "$tag" "$file" --title "mpv $MPV_BUILD for the Windows installers" --notes-file notes.md --prerelease --target "$GITHUB_SHA"
+            echo "Kept: $tag"
+          fi
+          file=$(ls mpvdl/*.7z | head -1); name=$(basename "$file")
+          7z l "$file" | grep -qE ' mpv\.exe$' || { echo "mpv.exe is not at the top of $name"; exit 1; }
+          sum=$(sha256sum "$file" | cut -c1-64)
+          url="https://github.com/$GH_REPO/releases/download/$tag/$name"
+          # What an installer will fetch: the same file, from where it will fetch it.
+          curl -fsSL --retry 3 -o check.7z "$url"
+          test "$(sha256sum check.7z | cut -c1-64)" = "$sum" || { echo "$url is not the file that was kept"; exit 1; }
+          echo "$url"; echo "SHA-256 $sum"
+          { echo "name=$name"; echo "sha256=$sum"; echo "url=$url"; } >> "$GITHUB_OUTPUT"
+
   # The release, for each new version tag (the checker publishes them), or by
   # hand for an existing one (Actions, CI, Run workflow, with a tag). Windows,
   # Linux and Mac build in parallel, each checked as it will be used, and hand
@@ -139,14 +210,16 @@ jobs:
   # nothing at all.
   release-windows:
     name: Windows installers (full and Lite)
+    needs: mpv-mirror
     if: ${{ startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && inputs.tag != '') }}
     runs-on: windows-latest
     env:
       TAG: ${{ startsWith(github.ref, 'refs/tags/v') && github.ref_name || inputs.tag }}
-      # The mpv the installers download: a shinchiro/mpv-winbuild-cmake
-      # release, pinned so a bad nightly cannot slip in. Bump it on purpose.
-      MPV_BUILD: '20260925'
       GH_TOKEN: ${{ github.token }}
+      # The installers' mpv, as the mpv-mirror job kept it (v3.50.0).
+      MPV_NAME: ${{ needs.mpv-mirror.outputs.name }}
+      MPV_SHA256: ${{ needs.mpv-mirror.outputs.sha256 }}
+      MPV_URL: ${{ needs.mpv-mirror.outputs.url }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -162,20 +235,21 @@ jobs:
         run: npm run lint:syntax && npm run lint:contracts && npm run test:plugins && npm run test:main && npm run test:smoke
 
       # mpv is not inside the installer (it would add about 70 MB): the
-      # installer downloads it at install time. This checks the pinned archive
-      # and writes its exact address and SHA-256 into the installer, so every
-      # installer fetches exactly the file tested here.
+      # installer downloads it at install time. This checks the archive kept
+      # in this repository's mpv-<build> release (the mpv-mirror job) and
+      # writes its exact address and SHA-256 into the installer, so every
+      # installer fetches exactly the file tested here, from a place that
+      # stays (v3.50.0: it was shinchiro's own release, deleted a month on).
       - name: The mpv the installers download
         shell: bash
         run: |
-          # The plain 64-bit player build (not -v3 or -gcc, not the -dev library).
-          if ! gh release download "$MPV_BUILD" --repo shinchiro/mpv-winbuild-cmake --pattern 'mpv-x86_64-2*.7z' --dir mpvdl; then
-            echo "No mpv-x86_64-<date> archive in release $MPV_BUILD. It has:"; gh release view "$MPV_BUILD" --repo shinchiro/mpv-winbuild-cmake --json assets --jq '.assets[].name'; exit 1
-          fi
-          file=$(ls mpvdl/*.7z | head -1); name=$(basename "$file")
-          7z l "$file" | grep -qE ' mpv\.exe$' || { echo "mpv.exe is not at the top of $name"; exit 1; }
-          sum=$(sha256sum "$file" | cut -c1-64)
-          printf '; Written by the release job: the archive it tested.\n!define MPV_BUILD "%s"\n!define MPV_URL "https://github.com/shinchiro/mpv-winbuild-cmake/releases/download/%s/%s"\n!define MPV_SHA256 "%s"\n' "$MPV_BUILD" "$MPV_BUILD" "$name" "$sum" > buildResources/mpv-source.nsh
+          test -n "$MPV_URL" && test -n "$MPV_SHA256" || { echo 'the mpv-mirror job gave no archive'; exit 1; }
+          mkdir -p mpvdl
+          curl -fsSL --retry 3 -o "mpvdl/$MPV_NAME" "$MPV_URL"
+          file="mpvdl/$MPV_NAME"
+          test "$(sha256sum "$file" | cut -c1-64)" = "$MPV_SHA256" || { echo "$MPV_URL did not match its SHA-256"; exit 1; }
+          7z l "$file" | grep -qE ' mpv\.exe$' || { echo "mpv.exe is not at the top of $MPV_NAME"; exit 1; }
+          printf '; Written by the release job: the archive it tested, kept in this repository.\n!define MPV_BUILD "%s"\n!define MPV_URL "%s"\n!define MPV_SHA256 "%s"\n' "$MPV_BUILD" "$MPV_URL" "$MPV_SHA256" > buildResources/mpv-source.nsh
           cat buildResources/mpv-source.nsh
 
       - run: npm run gen-icon
@@ -386,7 +460,6 @@ jobs:
       contents: write
     env:
       TAG: ${{ startsWith(github.ref, 'refs/tags/v') && github.ref_name || inputs.tag }}
-      MPV_BUILD: '20260925'
       GH_TOKEN: ${{ github.token }}
       GH_REPO: ${{ github.repository }}
     steps:
@@ -406,7 +479,7 @@ jobs:
           {
             echo "BM Player $TAG"
             echo
-            echo "**Windows (64-bit):** download **BM-Player-Setup-$ver-x64.exe** and run it. It downloads mpv, the engine BM Player plays video with, from mpv's Windows builds on GitHub while it installs (so it needs an internet connection), and checks it against the build tested for this release. The installer is not code-signed, so Windows SmartScreen may warn: choose **More info**, then **Run anyway**."
+            echo "**Windows (64-bit):** download **BM-Player-Setup-$ver-x64.exe** and run it. It downloads mpv, the engine BM Player plays video with, while it installs (so it needs an internet connection): a copy of mpv's Windows build kept in this repository's [mpv-$MPV_BUILD](https://github.com/$GH_REPO/releases/tag/mpv-$MPV_BUILD) release, checked against the build tested for this release. The installer is not code-signed, so Windows SmartScreen may warn: choose **More info**, then **Run anyway**."
             echo
             echo "**BM Player Lite (Windows, 64-bit):** **BM-Player-Lite-Setup-$ver-x64.exe** is a lighter version for older or low-spec PCs: simpler visuals, one window, and the picture above a fixed control bar. It installs alongside the full version."
             echo
@@ -430,7 +503,7 @@ jobs:
             fi
             echo "You only need one of those files. \`latest.yml\`, \`latest-linux.yml\` and the \`.blockmap\` file are read by BM Player's built-in updater: they tell an installed copy what the newest version is and let it download only the parts that changed."
             echo
-            echo "Built by GitHub Actions from tag $TAG, after every check passed on a real Windows machine and on GitHub. Each installer was installed and started there, and the Windows installers were checked to fetch mpv (shinchiro/mpv-winbuild-cmake release $MPV_BUILD)."
+            echo "Built by GitHub Actions from tag $TAG, after every check passed on a real Windows machine and on GitHub. Each installer was installed and started there, and the Windows installers were checked to fetch mpv (shinchiro/mpv-winbuild-cmake build $MPV_BUILD, from its copy in mpv-$MPV_BUILD)."
             echo
             echo "Marked as a pre-release: installed copies of BM Player do not update to it on their own."
           } > notes.md
