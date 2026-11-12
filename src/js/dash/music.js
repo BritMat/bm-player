@@ -88,6 +88,7 @@ _wire(){
   el('np-btn-shuffle')?.addEventListener('click',()=>this._toggleShuffle());
   el('np-btn-repeat')?.addEventListener('click',()=>this._cycleRepeat());
   // The folder's head (v3.44.0): every song, in order or shuffled.
+  el('music-albums')?.addEventListener('click',e=>{ const b=e.target.closest?.('.mv-album'); if(b) this._pickAlbum(b.dataset.album); });
   el('music-play-all')?.addEventListener('click',()=>this.playAll(false));
   el('music-shuffle-all')?.addEventListener('click',()=>this.playAll(true));
   const fi=el('music-filter');
@@ -256,6 +257,7 @@ async _load(fp){
   this.tags=this.tags||{};
   this._filter='';
   const fi=el('music-filter'); if(fi) fi.value='';
+  this._album='';
   this._renderTracks(this._sorted(this.tracks,this._sortKey()));
   this._buildQueue();
   this._updateHead();
@@ -346,6 +348,8 @@ _sortKey(){ return el('music-sort')?.value||'title'; }
 // is the ordering people actually expect from a music library.
 _sorted(t,by){
   let list=[...t];
+  // v3.51.0: an album tile pressed shows only that album's songs
+  if(this._album) list=list.filter(x=>bare(this._meta(x).album)===this._album);
   const q=(this._filter||'').trim().toLowerCase();
   if(q) list=list.filter(x=>{
     const m=this._meta(x);
@@ -421,7 +425,7 @@ _updateHead(){
     else if(!has) c.textContent='No songs in this folder';
     else{
       const n=this.tracks.length, songs=n===1?'1 song':n+' songs';
-      if((this._filter||'').trim()) c.textContent=(this._visible?.length||0)+' of '+songs;
+      if((this._filter||'').trim()||this._album) c.textContent=(this._visible?.length||0)+' of '+songs;
       else{
         const total=this.tracks.reduce((s,x)=>s+(+this._dur[x.path]||0),0);
         c.textContent=songs+(total>=30?', '+fmtTotal(total):'');
@@ -435,6 +439,47 @@ _updateHead(){
   const sel=el('music-sort');
   if(sel){ sel.disabled=!!this.groupByAlbum; sel.title=this.groupByAlbum?'Grouped by album, so the songs are in album order':''; }
   this._renderCover();
+  this._renderAlbums();
+}
+// The folder's albums as a row of tiles (v3.51.0, Studio): the cover, the
+// album and who it is by. Shown when the folder has two albums or more.
+// Pressing a tile shows only its songs, pressing it again shows them all.
+_renderAlbums(){
+  const box=el('music-albums'); if(!box) return;
+  const albums=new Map();
+  for(const t of this.tracks){
+    const g=this.tags?.[t.path]; if(!g?.album) continue;
+    const k=bare(g.album); if(!k) continue;
+    const a=albums.get(k)||{key:k,name:g.album,artist:g.artist||'',cover:null,n:0,mixed:false};
+    a.n++; if(!a.cover&&g.cover) a.cover=g.cover;
+    if(g.artist&&a.artist&&g.artist!==a.artist) a.mixed=true;
+    albums.set(k,a);
+  }
+  if(this._album&&!albums.has(this._album)) this._album='';
+  const list=[...albums.values()].sort((x,y)=>byText(x.name,y.name)).slice(0,60);
+  const sig=list.map(a=>a.key+':'+a.n+':'+(a.cover||'')).join('|')+'#'+(this._album||'');
+  box.hidden=list.length<2;
+  if(box.dataset.sig===sig) return;
+  box.dataset.sig=sig;
+  box.textContent='';
+  if(list.length<2) return;
+  for(const a of list){
+    const b=document.createElement('button');
+    b.type='button'; b.className='mv-album'+(this._album===a.key?' on':''); b.dataset.album=a.key;
+    b.setAttribute('aria-pressed',String(this._album===a.key));
+    b.title=a.name;
+    const art=document.createElement('span'); art.className='mv-album-art';
+    if(a.cover) art.style.backgroundImage='url("'+fileURL(a.cover)+'")'; else setIcon(art,'music');
+    const name=document.createElement('span'); name.className='mv-album-name'; name.textContent=a.name;
+    const by=document.createElement('span'); by.className='mv-album-by';
+    by.textContent=(a.mixed?'Various artists':a.artist||'Unknown artist')+' \u00b7 '+(a.n===1?'1 song':a.n+' songs');
+    b.append(art,name,by);
+    box.appendChild(b);
+  }
+}
+_pickAlbum(key){
+  this._album=this._album===key?'':key;
+  this._resort();
 }
 // Up to four covers from the folder, one from each album, as a 2 by 2 square.
 _renderCover(){

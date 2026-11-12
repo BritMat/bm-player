@@ -50,6 +50,7 @@ import ThemeCustomizerFeature from './app/theme-customizer.js';
 import TvTabFeature from './app/tv-tab.js';
 import PartsFeature from './app/parts.js';
 import { mixin } from './app/mixin.js';
+import { wireStudio } from './modules/studio.js';
 
 class BMPlayer {
   constructor(){
@@ -412,6 +413,7 @@ window.addEventListener('DOMContentLoaded',()=>{
   window.bmApp._applyEQ?.();   // the sound's kept effects for the engine as well (v3.46.0)
   // Lyrics (v3.38.0), for the music: the Now Playing tab and the visual mode.
   try { window.bmLyrics=new Lyrics({ api: window.api, music: window.bmMusic, app: window.bmApp }); } catch (e) { console.warn('[BM Player] lyrics unavailable:', e); }
+  try { wireStudio(); } catch (e) { console.warn('[BM Player] studio layout:', e); }   // v3.51.0: the themes menu, the panel beside the songs
   // The Gallery (window.bmGallery), the PDF tools (window.bmPDF) and TV are
   // set up the first time their tab opens: app.part() (app/parts.js, v3.47.0).
 });

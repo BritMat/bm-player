@@ -110,7 +110,11 @@ export function applyIcons() {
   const dest2icon = { video:'video', music:'music', images:'images', pdf:'pdf', tv:'tv' };
   document.querySelectorAll('.sidebar-btn[data-dest]').forEach(btn => {
     const ico = ICONS[dest2icon[btn.dataset.dest]];
-    if (ico) btn.innerHTML = ico;
+    // v3.51.0 (Studio): the section's name under its icon
+    if (!ico) return;
+    btn.innerHTML = ico;
+    const label = document.createElement('span'); label.className = 'sb-label'; label.textContent = btn.getAttribute('title') || '';
+    btn.appendChild(label);
   });
   document.querySelectorAll('.panel-close').forEach(b => { b.innerHTML = ICONS.close; });
   // Anything else names its icon in the page: data-icon="name", with an

@@ -2122,6 +2122,61 @@ async function main() {
       } finally { bridge.lyrics = null; bridge.lyr = null; ly.clear(); ly.showTab('queue'); }
     });
 
+    // v3.51.0: Studio. The rail's names, the themes behind one button, the
+    // panel beside the songs, and the folder's albums as tiles.
+    await step('Studio: the rail names its sections, themes open from one button, the side panel opens and closes and is remembered, album tiles show one album', async () => {
+      const labels = [...doc.querySelectorAll('.sidebar-btn[data-dest] .sb-label')].map(x => x.textContent);
+      if (labels.join() !== 'Video,Music,Images,PDF,TV') throw new Error('the rail: ' + labels);
+      const tb = doc.getElementById('theme-menu-btn'), list = doc.getElementById('theme-selector');
+      if (list.classList.contains('open')) throw new Error('the themes list is open at the start');
+      click(tb);
+      if (!list.classList.contains('open') || tb.getAttribute('aria-expanded') !== 'true') throw new Error('the Themes button did not open the list');
+      const names = [...list.querySelectorAll('.tp .tp-name')].map(x => x.textContent);
+      if (names.length !== 14 || names.slice(0, 6).join() !== 'Dark,Light,Glass,Flow,Ocean,Snow') throw new Error('the themes: ' + names);
+      if (/\p{Extended_Pictographic}/u.test(list.textContent)) throw new Error('an emoji in the themes list');
+      click(list.querySelector('.tp[data-theme="ocean"]'));
+      if (doc.documentElement.getAttribute('data-theme') !== 'ocean' || list.classList.contains('open')) throw new Error('choosing a theme: ' + doc.documentElement.getAttribute('data-theme') + ', open ' + list.classList.contains('open'));
+      click(tb); doc.body.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+      if (list.classList.contains('open')) throw new Error('Escape left the themes list open');
+      click(tb); click(doc.body);
+      if (list.classList.contains('open')) throw new Error('a click elsewhere left the themes list open');
+      app.applyTheme('dark');
+      // the panel beside the songs
+      const view = doc.getElementById('music-view'), q = doc.getElementById('np-tab-queue'), ly = doc.getElementById('np-tab-lyrics'), title = doc.getElementById('np-side-title');
+      const open = () => !view.classList.contains('np-side-closed');
+      try {
+        if (!doc.getElementById('np-bar').contains(q) || !doc.getElementById('np-side').contains(doc.getElementById('np-queue')) || !doc.getElementById('np-side').contains(doc.getElementById('np-lyrics'))) throw new Error('the bar and the panel do not hold their parts');
+        if (!open()) click(q);
+        click(ly);
+        if (!open() || !ly.classList.contains('active') || title.textContent !== 'Lyrics') throw new Error('Lyrics did not open in the panel: ' + title.textContent);
+        click(ly);
+        if (open() || localStorage.getItem('bm_np_side') !== '0') throw new Error('pressing the open one again did not close the panel');
+        click(q);
+        if (!open() || !q.classList.contains('active') || title.textContent !== 'Up next' || localStorage.getItem('bm_np_side') !== '1') throw new Error('Up next did not open the panel again');
+        click(doc.getElementById('np-side-close'));
+        if (open()) throw new Error('the close button left the panel open');
+        click(q);
+      } finally { localStorage.removeItem('bm_np_side'); view.classList.remove('np-side-closed'); }
+      // albums as tiles: two albums in the folder, one pressed
+      const realTags = m.tags, realAlbum = m._album, realPath = m._activePath;
+      try {
+        const box = doc.getElementById('music-albums');
+        m.tags = Object.fromEntries(m.tracks.map((t, i) => [t.path, { ...(realTags[t.path] || {}), path: t.path, title: 'Song ' + i, artist: 'Band', album: i === 0 ? 'First <b>Album</b>' : 'Second Album' }]));
+        m._album = ''; m._activePath = m._activePath || '/fixtures/music'; m._resort();
+        const tiles = [...box.querySelectorAll('.mv-album')];
+        if (box.hidden || tiles.length !== 2) throw new Error(`${tiles.length} tiles, hidden ${box.hidden}`);
+        if (tiles[0].querySelector('.mv-album-name').textContent !== 'First <b>Album</b>' || box.querySelector('b')) throw new Error('an album\'s name was read as markup');
+        if (!/Band .* 1 song$/.test(tiles[0].querySelector('.mv-album-by').textContent)) throw new Error('under the tile: ' + tiles[0].querySelector('.mv-album-by').textContent);
+        const all = m._visible.length;
+        click(tiles[0]); m._updateHead();   // the harness has made more than one music screen over this page
+        if (m._visible.length !== 1 || box.querySelector('.mv-album.on')?.dataset.album !== tiles[0].dataset.album || !/^1 of /.test(doc.getElementById('music-count').textContent)) throw new Error(`one album pressed: ${m._visible.length} songs, "${doc.getElementById('music-count').textContent}"`);
+        click(box.querySelector('.mv-album.on'));
+        if (m._visible.length !== all || box.querySelector('.mv-album.on')) throw new Error('pressing it again did not show them all');
+        m.tags = Object.fromEntries(m.tracks.map(t => [t.path, { path: t.path, title: 'x', artist: 'Band', album: 'Only One' }])); m._resort();
+        if (!box.hidden) throw new Error('tiles shown for a folder with one album');
+      } finally { m.tags = realTags; m._album = realAlbum || ''; m._activePath = realPath; m._resort(); }
+    });
+
     await step('Preferences, lyrics: the saved count, Save all over the music folders one song at a time as each would play, and Clear when confirmed', async () => {
       const realFolders = m.folders, realConfirm = window.confirm;
       try {

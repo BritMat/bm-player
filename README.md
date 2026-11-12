@@ -127,6 +127,11 @@ read by BM Player's built-in updater. You don't need to download them.
   kept so a song is looked up once, and looking online can be switched off.
   Where none are found you can search and choose, load a file (or drop one
   on the lyrics), and move the timing earlier or later.
+- The Studio look (3.51.0). The rail names each section under its icon. In
+  Music the player is one bar along the bottom, with Up next and Lyrics in a
+  panel beside the songs that opens and closes, and the folder's albums as a
+  row of tiles: press one to see only its songs. Themes open from one button
+  in the top bar, six first and the rest under More.
 - Lyrics that stay. Lyrics found online are saved on the computer, so the
   song has them again without a connection. When LRCLIB cannot be reached
   the song is looked for again by itself once the connection is back, and

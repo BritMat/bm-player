@@ -5,6 +5,7 @@
  * so `this` is the player, as it was when they were written there.
  */
 import { el, seedGrad, escapeHtml, escapeAttr, basenameOf } from '../util.js';
+import { ICONS } from '../icons.js';
 
 export default class TvTabFeature {
 
@@ -104,7 +105,7 @@ export default class TvTabFeature {
     if (countEl) countEl.textContent = channels.length ? `${channels.length} channel${channels.length !== 1 ? 's' : ''}` : '';
     if (!channels.length) {
       // Show empty state with recent
-      container.innerHTML = `<div class="tv-empty"><div style="font-size:52px;margin-bottom:12px">📺</div><p>No channels match your filter</p></div>`;
+      container.innerHTML = `<div class="tv-empty"><span class="st-empty-ico" aria-hidden="true">${ICONS.tv}</span><p>No channels match your filter</p></div>`;
       return;
     }
     // Virtual render: only render visible chunk for perf

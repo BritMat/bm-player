@@ -388,6 +388,21 @@ async function main() {
     await p1;
   });
 
+  // v3.51.0: the graphics card's name is kept between starts, so a start does not make a WebGL context only to ask it.
+  await step('performance info: the graphics card asked once and kept, not asked again at the next start', async () => {
+    const { liteMode } = await load('src/js/modules/lite-mode.js');
+    const L = liteMode.constructor, realCreate = document.createElement.bind(document);
+    let made = 0;
+    document.createElement = t => { if (t === 'canvas') { made++; return { getContext: () => ({ getExtension: () => ({ UNMASKED_RENDERER_WEBGL: 1 }), getParameter: () => 'Test Card 9000' }) }; } return realCreate(t); };
+    try {
+      localStorage.removeItem('bm_gl_renderer');
+      const first = new L().detectPerfInfo();
+      if (first.webglRenderer !== 'Test Card 9000' || made !== 1 || localStorage.getItem('bm_gl_renderer') !== 'Test Card 9000') throw new Error(`the first start: ${first.webglRenderer}, ${made} contexts`);
+      const next = new L().detectPerfInfo();
+      if (next.webglRenderer !== 'Test Card 9000' || made !== 1) throw new Error(`the next start asked again: ${made} contexts`);
+    } finally { document.createElement = realCreate; localStorage.removeItem('bm_gl_renderer'); }
+  });
+
   const bad = results.filter(r => !r).length;
   console.log(`\n${results.length - bad}/${results.length} checks passed.\n`);
   process.exit(bad ? 1 : 0);

@@ -39,7 +39,7 @@ export default class PreferencesFeature {
           ramEl = el('perf-info-ram'),
           gpuEl = el('perf-info-gpu');
     if (!modeEl) return;
-    modeEl.textContent = this.isLite ? '🟢 Lite' : '🔵 Full';
+    modeEl.textContent = this.isLite ? 'Lite' : 'Full';
     if (reasonEl) reasonEl.textContent = liteMode.getReason();
     const info = liteMode.detectPerfInfo();
     const main = this._mainPerfInfo || {};

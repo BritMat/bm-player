@@ -65,7 +65,29 @@ class LiteMode {
     return this._perfInfo;
   }
 
+  /**
+   * The graphics card's name, as WebGL gives it. Making a WebGL context only
+   * to ask took a tenth of a second or more of every start (v3.51.0), so the
+   * answer is kept from one start to the next and asked for again a few
+   * seconds after the app is up. A changed graphics card is seen one start
+   * later.
+   */
   _probeWebGLRenderer() {
+    let kept = null;
+    try { kept = localStorage.getItem('bm_gl_renderer'); } catch (_) {}
+    if (!kept) return this._askWebGLRenderer(true);
+    const later = () => { const now = this._askWebGLRenderer(true); if (this._perfInfo && now) this._perfInfo.webglRenderer = now; };
+    try { (window.requestIdleCallback || (f => setTimeout(f, 1)))(() => setTimeout(later, 4000), { timeout: 8000 }); } catch (_) {}
+    return kept;
+  }
+
+  _askWebGLRenderer(keep) {
+    const name = this._askWebGL();
+    if (keep && name) { try { localStorage.setItem('bm_gl_renderer', name); } catch (_) {} }
+    return name;
+  }
+
+  _askWebGL() {
     try {
       const c = document.createElement('canvas');
       const gl = c.getContext('webgl') || c.getContext('experimental-webgl');

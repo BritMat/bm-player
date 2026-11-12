@@ -115,6 +115,7 @@
   <link rel="modulepreload" href="js/app/eq-bands.js">
   <link rel="modulepreload" href="js/modules/lyrics-prefs.js">
   <link rel="modulepreload" href="js/modules/lyrics-saver.js">
+  <link rel="modulepreload" href="js/modules/studio.js">
   <link rel="stylesheet" href="css/fonts.css">
   <link rel="stylesheet" href="css/style.css">
   <!-- Critical inline styles - MUST override external style.css -->
@@ -483,6 +484,7 @@
   <link rel="stylesheet" href="css/md-browser.css">
   <link rel="stylesheet" href="css/play.css">
   <link rel="stylesheet" href="css/music.css">
+  <link rel="stylesheet" href="css/studio.css">
 </head>
 <body>
 
@@ -649,21 +651,24 @@
   <span class="toolbar-sep"></span>
 
   <!-- Theme pills -->
+  <button class="tb-tool-btn" id="theme-menu-btn" title="Themes" aria-label="Themes" aria-haspopup="true" aria-expanded="false" aria-controls="theme-selector" data-icon="palette"></button>
   <div class="theme-selector" id="theme-selector">
-    <button class="tp active" data-theme="dark"     title="Dark" aria-label="Dark">🌙</button>
-    <button class="tp"        data-theme="light"    title="Light" aria-label="Light">☀️</button>
-    <button class="tp"        data-theme="glass"    title="Glass" aria-label="Glass">🔮</button>
-    <button class="tp"        data-theme="dracula"  title="Dracula" aria-label="Dracula">🧛</button>
-    <button class="tp"        data-theme="northern" title="Flow" aria-label="Flow">🌌</button>
-    <button class="tp" data-theme="ocean"    title="Ocean" aria-label="Ocean">🌊</button>
-    <button class="tp" data-theme="sunset"   title="Sunset" aria-label="Sunset">🌅</button>
-    <button class="tp" data-theme="sakura"   title="Sakura" aria-label="Sakura">🌸</button>
-    <button class="tp" data-theme="midnight" title="Midnight" aria-label="Midnight">🌙</button>
-    <button class="tp" data-theme="cyberpunk" title="Cyberpunk" aria-label="Cyberpunk">🌆</button>
-    <button class="tp" data-theme="forest"    title="Forest" aria-label="Forest">🌲</button>
-    <button class="tp" data-theme="lavender"  title="Lavender" aria-label="Lavender">💜</button>
-    <button class="tp" data-theme="golden"    title="Golden" aria-label="Golden">🏆</button>
-    <button class="tp" data-theme="snow"     title="Snow" aria-label="Snow">❄️</button>
+    <!-- v3.51.0: a few themes first, the rest under More. A colour dot and a name each, no emoji. -->
+    <button class="tp active" data-theme="dark" title="Dark" aria-label="Dark"><i class="tp-dot" style="background:#6C8CFF" aria-hidden="true"></i><span class="tp-name">Dark</span></button>
+    <button class="tp" data-theme="light" title="Light" aria-label="Light"><i class="tp-dot" style="background:#4757e3" aria-hidden="true"></i><span class="tp-name">Light</span></button>
+    <button class="tp" data-theme="glass" title="Glass" aria-label="Glass"><i class="tp-dot" style="background:#8d7bff" aria-hidden="true"></i><span class="tp-name">Glass</span></button>
+    <button class="tp" data-theme="northern" title="Flow" aria-label="Flow"><i class="tp-dot" style="background:#22e8a8" aria-hidden="true"></i><span class="tp-name">Flow</span></button>
+    <button class="tp" data-theme="ocean" title="Ocean" aria-label="Ocean"><i class="tp-dot" style="background:#00D4FF" aria-hidden="true"></i><span class="tp-name">Ocean</span></button>
+    <button class="tp" data-theme="snow" title="Snow" aria-label="Snow"><i class="tp-dot" style="background:#8fd0ff" aria-hidden="true"></i><span class="tp-name">Snow</span></button>
+    <div class="tp-more" aria-hidden="true">More themes</div>
+    <button class="tp" data-theme="dracula" title="Dracula" aria-label="Dracula"><i class="tp-dot" style="background:#ff4d6d" aria-hidden="true"></i><span class="tp-name">Dracula</span></button>
+    <button class="tp" data-theme="sunset" title="Sunset" aria-label="Sunset"><i class="tp-dot" style="background:#FFB347" aria-hidden="true"></i><span class="tp-name">Sunset</span></button>
+    <button class="tp" data-theme="sakura" title="Sakura" aria-label="Sakura"><i class="tp-dot" style="background:#FF80BF" aria-hidden="true"></i><span class="tp-name">Sakura</span></button>
+    <button class="tp" data-theme="midnight" title="Midnight" aria-label="Midnight"><i class="tp-dot" style="background:#7890FF" aria-hidden="true"></i><span class="tp-name">Midnight</span></button>
+    <button class="tp" data-theme="cyberpunk" title="Cyberpunk" aria-label="Cyberpunk"><i class="tp-dot" style="background:#00FFFF" aria-hidden="true"></i><span class="tp-name">Cyberpunk</span></button>
+    <button class="tp" data-theme="forest" title="Forest" aria-label="Forest"><i class="tp-dot" style="background:#98D85A" aria-hidden="true"></i><span class="tp-name">Forest</span></button>
+    <button class="tp" data-theme="lavender" title="Lavender" aria-label="Lavender"><i class="tp-dot" style="background:#A080E0" aria-hidden="true"></i><span class="tp-name">Lavender</span></button>
+    <button class="tp" data-theme="golden" title="Golden" aria-label="Golden"><i class="tp-dot" style="background:#F0A030" aria-hidden="true"></i><span class="tp-name">Golden</span></button>
   </div>
 
   <!-- Always on top -->
@@ -673,19 +678,19 @@
 <!-- ══ SIDEBAR ════════════════════════════════════════════════════ -->
 <nav class="sidebar" id="sidebar">
   <button class="sidebar-btn active" data-dest="video"  title="Video" aria-label="Video">
-    <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="5" width="15" height="14" rx="2"/><path d="M17 9l5-3v12l-5-3V9z" fill="currentColor"/></svg>
+    <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="5" width="15" height="14" rx="2"/><path d="M17 9l5-3v12l-5-3V9z" fill="currentColor"/></svg><span class="sb-label">Video</span>
   </button>
   <button class="sidebar-btn"        data-dest="music"  title="Music" aria-label="Music">
-    <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18V5l12-2v13" stroke="currentColor" fill="none"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>
+    <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18V5l12-2v13" stroke="currentColor" fill="none"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg><span class="sb-label">Music</span>
   </button>
   <button class="sidebar-btn"        data-dest="images" title="Images" aria-label="Images">
-    <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5" fill="currentColor"/><path d="M21 15l-5-5L5 21"/></svg>
+    <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5" fill="currentColor"/><path d="M21 15l-5-5L5 21"/></svg><span class="sb-label">Images</span>
   </button>
   <button class="sidebar-btn"        data-dest="pdf"    title="PDF" aria-label="PDF">
-    <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="9" y1="13" x2="15" y2="13"/><line x1="9" y1="17" x2="15" y2="17"/></svg>
+    <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="9" y1="13" x2="15" y2="13"/><line x1="9" y1="17" x2="15" y2="17"/></svg><span class="sb-label">PDF</span>
   </button>
   <button class="sidebar-btn"        data-dest="tv"     title="TV" aria-label="TV">
-    <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="4" width="15" height="12" rx="2"/><path d="M17 7l5-2.5v11L17 13V7z" fill="currentColor" opacity=".7"/><line x1="7" y1="18" x2="17" y2="18"/><line x1="12" y1="16" x2="12" y2="18"/></svg>
+    <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="4" width="15" height="12" rx="2"/><path d="M17 7l5-2.5v11L17 13V7z" fill="currentColor" opacity=".7"/><line x1="7" y1="18" x2="17" y2="18"/><line x1="12" y1="16" x2="12" y2="18"/></svg><span class="sb-label">TV</span>
   </button>
   <div class="sidebar-spacer"></div>
   <button class="sidebar-btn sidebar-mini" id="sidebar-mini-btn" title="Mini Player" aria-label="Mini Player" data-icon="miniPlayer"></button>
@@ -823,7 +828,7 @@
 <div id="gallery-view" class="dashboard-view">
   <div class="dash-header">
     <h2 class="dash-title">Gallery</h2>
-    <button class="dash-action-btn" id="btn-gallery-open">+ Open Folder</button>
+    <button class="dash-action-btn" id="btn-gallery-open">Open folder</button>
     <div class="gallery-toolbar">
       <div class="view-mode-group">
         <button class="vm-btn active" data-mode="masonry" title="Masonry" aria-label="Masonry" data-icon="masonry"></button>
@@ -879,6 +884,8 @@
         </div>
         <button class="mv-settings-btn" id="mv-btn-settings" title="Visualiser settings" aria-label="Visualiser settings" data-icon="settings"></button>
       </div>
+      <!-- v3.51.0 (Studio): the folder's albums as tiles. Pressing one shows only its songs. -->
+      <div class="mv-albums" id="music-albums" role="group" aria-label="Albums" hidden></div>
       <div class="music-center-header">
         <label class="mv-search">
           <span class="mv-search-ico" data-icon="search" aria-hidden="true"></span>
@@ -911,6 +918,8 @@
     </section>
     <!-- Right: what is playing, and its controls -->
     <aside class="music-now-playing" aria-label="Now playing">
+      <!-- v3.51.0 (Studio): the player is a bar along the bottom, with Up next and Lyrics in a panel beside the songs -->
+      <div class="np-bar" id="np-bar">
       <div class="np-art-wrap">
         <div class="np-art" id="np-art">
           <div class="np-art-inner" id="np-art-inner"><span class="np-art-placeholder" data-icon="music"></span></div>
@@ -951,15 +960,19 @@
         <button class="np-tab active" id="np-tab-queue" role="tab" aria-selected="true">Up next</button>
         <button class="np-tab" id="np-tab-lyrics" role="tab" aria-selected="false">Lyrics</button>
       </div>
-      <div class="np-queue" id="np-queue"></div>
-      <div class="np-lyrics hidden" id="np-lyrics"></div>
+      </div>
+      <div class="np-side" id="np-side">
+        <div class="np-side-head"><span id="np-side-title">Up next</span><button class="np-side-close" id="np-side-close" title="Close" aria-label="Close the panel" data-icon="close"></button></div>
+        <div class="np-queue" id="np-queue"></div>
+        <div class="np-lyrics hidden" id="np-lyrics"></div>
+      </div>
     </aside>
   </div>
 </div>
 
 <div id="pdf-view" class="dashboard-view">
   <div class="pdf-toolbar">
-    <button class="dash-action-btn" id="btn-pdf-open">+ Open PDF</button>
+    <button class="dash-action-btn" id="btn-pdf-open">Open PDF</button>
     <div class="pdf-ctrl-group">
       <button class="pdf-ctrl-btn" id="pdf-prev" disabled aria-label="Previous page">‹</button>
       <div class="pdf-page-field">
@@ -989,11 +1002,11 @@
       <button class="pdf-ctrl-btn" id="pdf-rotate-right" title="Rotate page right" aria-label="Rotate page right">↻</button>
       <button class="pdf-ctrl-btn" id="pdf-delete-page"  title="Delete current page" aria-label="Delete current page">🗑</button>
     </div>
-    <button class="dash-action-btn pdf-edit-btn" id="btn-pdf-merge">+ Merge PDF…</button>
-    <button class="dash-action-btn pdf-edit-btn" id="btn-pdf-annotate">✎ Add Text/Stamp</button>
+    <button class="dash-action-btn pdf-edit-btn" id="btn-pdf-merge">Merge PDF…</button>
+    <button class="dash-action-btn pdf-edit-btn" id="btn-pdf-annotate">Add text or stamp</button>
     <span class="pdf-edit-hint" id="pdf-edit-hint">Drag thumbnails to reorder pages</span>
     <span class="toolbar-sep"></span>
-    <button class="dash-action-btn pdf-save-btn" id="btn-pdf-save">💾 Save As…</button>
+    <button class="dash-action-btn pdf-save-btn" id="btn-pdf-save">Save as…</button>
   </div>
   <div class="pdf-body">
     <div class="pdf-thumbs-panel" id="pdf-thumbs-panel">
@@ -1013,7 +1026,7 @@
         </div>
       </div>
       <div class="pdf-empty" id="pdf-empty">
-        <div style="font-size:56px;margin-bottom:12px">📄</div>
+        <span class="st-empty-ico" data-icon="pdf" aria-hidden="true"></span>
         <p>Open a PDF to begin reading</p>
         <p style="font-size:11px;margin-top:6px;opacity:.45">Supports text selection, zoom, page thumbnails, search, and editing</p>
       </div>
@@ -1441,10 +1454,10 @@
 <!-- ══ TV DASHBOARD ══════════════════════════════════════════════ -->
 <div id="tv-view" class="dashboard-view">
   <div class="dash-header">
-    <h2 class="dash-title">TV / IPTV</h2>
+    <h2 class="dash-title">TV</h2>
     <div class="tv-toolbar">
-      <button class="dash-action-btn" id="btn-tv-open-m3u">+ Load M3U</button>
-      <button class="dash-action-btn" id="btn-tv-open-url">+ From URL</button>
+      <button class="dash-action-btn" id="btn-tv-open-m3u">Load M3U</button>
+      <button class="dash-action-btn st-quiet" id="btn-tv-open-url">From URL</button>
       <div class="tv-search-wrap">
         <input type="text" class="tv-search-input" id="tv-search" placeholder="Search channels…">
       </div>
@@ -1476,7 +1489,7 @@
   <div class="tv-body">
     <div class="tv-channels" id="tv-channels">
       <div class="tv-empty">
-        <div style="font-size:52px;margin-bottom:12px">📺</div>
+        <span class="st-empty-ico" data-icon="tv" aria-hidden="true"></span>
         <p>Load an M3U playlist to browse TV channels</p>
         <p style="font-size:11px;margin-top:6px;opacity:.45">Supports M3U/M3U8 files and URLs (IPTV lists).<br>Large playlists are loaded progressively to keep the app responsive.</p>
         <div style="margin-top:16px;display:flex;gap:10px;justify-content:center;flex-wrap:wrap">
