@@ -131,7 +131,11 @@ read by BM Player's built-in updater. You don't need to download them.
   Merge, Mines, Pairs), each fetched the first time you want it and kept in
   its own folder, so the app itself stays light. Your own Game Boy Advance
   games play in mGBA, fetched the first time too: no game comes with the
-  app. And a folder of your own HTML games is listed and played. Every game
+  app. Sixteen games by other people under open licences are there to
+  fetch as well: chess, checkers, Go, Reversi, dominoes, two solitaires,
+  sudoku, pool, mini golf and more from Frank Force's LittleJS Arcade, and
+  Jack Rugile's Radius Raid. And a folder of your own HTML games is listed
+  and played. Every game
   runs apart from the app, in a frame with no way to the app's files or to
   the internet, and nothing of the tab is loaded until you open it.
 - TV that keeps up with long playlists (3.52.0). Every channel of a playlist

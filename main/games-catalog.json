@@ -71,6 +71,609 @@
    ]
   }
  ],
+ "open": [
+  {
+   "id": "lj-chess",
+   "version": 1,
+   "name": "Chess",
+   "blurb": "The classic game of kings and pawns.",
+   "entry": "games/chess.html",
+   "by": "Frank Force",
+   "licence": "MIT",
+   "source": "https://github.com/KilledByAPixel/LittleJSArcade",
+   "from": "KilledByAPixel/LittleJSArcade@c14102b",
+   "shared": [
+    "littlejs"
+   ],
+   "query": "engine=min",
+   "files": [
+    {
+     "path": "LICENSE.txt",
+     "size": 1068,
+     "sha256": "c88188d58389fe50cacc713ba867fc9f2f0904de06971af625541388bbd0c162"
+    },
+    {
+     "path": "games/chess.html",
+     "size": 58532,
+     "sha256": "21329d73dc8279a142731c646b43fb5bb1b26349a46adcbb21b803edef503078"
+    }
+   ]
+  },
+  {
+   "id": "lj-checkers",
+   "version": 1,
+   "name": "Checkers",
+   "blurb": "Jump to capture your rival.",
+   "entry": "games/checkers.html",
+   "by": "Frank Force",
+   "licence": "MIT",
+   "source": "https://github.com/KilledByAPixel/LittleJSArcade",
+   "from": "KilledByAPixel/LittleJSArcade@c14102b",
+   "shared": [
+    "littlejs"
+   ],
+   "query": "engine=min",
+   "files": [
+    {
+     "path": "LICENSE.txt",
+     "size": 1068,
+     "sha256": "c88188d58389fe50cacc713ba867fc9f2f0904de06971af625541388bbd0c162"
+    },
+    {
+     "path": "games/checkers.html",
+     "size": 38854,
+     "sha256": "fc306e2a8da8c747a4ac8346dd8fcb88d5ebc6d36b79d6110dbfe17dd818e610"
+    }
+   ]
+  },
+  {
+   "id": "lj-go",
+   "version": 1,
+   "name": "Go",
+   "blurb": "Surround territory on a 9 by 9 board.",
+   "entry": "games/go.html",
+   "by": "Frank Force",
+   "licence": "MIT",
+   "source": "https://github.com/KilledByAPixel/LittleJSArcade",
+   "from": "KilledByAPixel/LittleJSArcade@c14102b",
+   "shared": [
+    "littlejs"
+   ],
+   "query": "engine=min",
+   "files": [
+    {
+     "path": "LICENSE.txt",
+     "size": 1068,
+     "sha256": "c88188d58389fe50cacc713ba867fc9f2f0904de06971af625541388bbd0c162"
+    },
+    {
+     "path": "games/go.html",
+     "size": 40124,
+     "sha256": "7de195bda32ef249d56b10c37a53d25aba778340c988a2c5143c39d02c2d4332"
+    }
+   ]
+  },
+  {
+   "id": "lj-reversi",
+   "version": 1,
+   "name": "Reversi",
+   "blurb": "Flank stones to flip them.",
+   "entry": "games/reversi.html",
+   "by": "Frank Force",
+   "licence": "MIT",
+   "source": "https://github.com/KilledByAPixel/LittleJSArcade",
+   "from": "KilledByAPixel/LittleJSArcade@c14102b",
+   "shared": [
+    "littlejs"
+   ],
+   "query": "engine=min",
+   "files": [
+    {
+     "path": "LICENSE.txt",
+     "size": 1068,
+     "sha256": "c88188d58389fe50cacc713ba867fc9f2f0904de06971af625541388bbd0c162"
+    },
+    {
+     "path": "games/reversi.html",
+     "size": 35738,
+     "sha256": "b6939ba9f9ddea34a7c477923b97d684d1e22365e27ea03190291ee061782c01"
+    }
+   ]
+  },
+  {
+   "id": "lj-dominoes",
+   "version": 1,
+   "name": "Dominoes",
+   "blurb": "Match tiles end to end.",
+   "entry": "games/dominoes.html",
+   "by": "Frank Force",
+   "licence": "MIT",
+   "source": "https://github.com/KilledByAPixel/LittleJSArcade",
+   "from": "KilledByAPixel/LittleJSArcade@c14102b",
+   "shared": [
+    "littlejs"
+   ],
+   "query": "engine=min",
+   "files": [
+    {
+     "path": "LICENSE.txt",
+     "size": 1068,
+     "sha256": "c88188d58389fe50cacc713ba867fc9f2f0904de06971af625541388bbd0c162"
+    },
+    {
+     "path": "games/dominoes.html",
+     "size": 36412,
+     "sha256": "6d05aebb69f51fe2c720bd53b75775865a92d51818eee88604d25d1c6e144feb"
+    }
+   ]
+  },
+  {
+   "id": "lj-klondike",
+   "version": 1,
+   "name": "Klondike Solitaire",
+   "blurb": "Arrange cards into foundation piles.",
+   "entry": "games/klondike.html",
+   "by": "Frank Force",
+   "licence": "MIT",
+   "source": "https://github.com/KilledByAPixel/LittleJSArcade",
+   "from": "KilledByAPixel/LittleJSArcade@c14102b",
+   "shared": [
+    "littlejs"
+   ],
+   "query": "engine=min",
+   "files": [
+    {
+     "path": "LICENSE.txt",
+     "size": 1068,
+     "sha256": "c88188d58389fe50cacc713ba867fc9f2f0904de06971af625541388bbd0c162"
+    },
+    {
+     "path": "games/klondike.html",
+     "size": 44974,
+     "sha256": "6d28e486b829bda19c29db41562eab1e0bf7ec8c077847cacb604348ac15e88d"
+    }
+   ]
+  },
+  {
+   "id": "lj-freecell",
+   "version": 1,
+   "name": "FreeCell Solitaire",
+   "blurb": "Sort every card back home.",
+   "entry": "games/freecell.html",
+   "by": "Frank Force",
+   "licence": "MIT",
+   "source": "https://github.com/KilledByAPixel/LittleJSArcade",
+   "from": "KilledByAPixel/LittleJSArcade@c14102b",
+   "shared": [
+    "littlejs"
+   ],
+   "query": "engine=min",
+   "files": [
+    {
+     "path": "LICENSE.txt",
+     "size": 1068,
+     "sha256": "c88188d58389fe50cacc713ba867fc9f2f0904de06971af625541388bbd0c162"
+    },
+    {
+     "path": "games/freecell.html",
+     "size": 46684,
+     "sha256": "6e3a49a47801d3a632240d0ce1751fa1166973926609abfdc3622b23439faddc"
+    }
+   ]
+  },
+  {
+   "id": "lj-sudoku",
+   "version": 1,
+   "name": "Sudoku",
+   "blurb": "Fill the grid with 1-9.",
+   "entry": "games/sudoku.html",
+   "by": "Frank Force",
+   "licence": "MIT",
+   "source": "https://github.com/KilledByAPixel/LittleJSArcade",
+   "from": "KilledByAPixel/LittleJSArcade@c14102b",
+   "shared": [
+    "littlejs"
+   ],
+   "query": "engine=min",
+   "files": [
+    {
+     "path": "LICENSE.txt",
+     "size": 1068,
+     "sha256": "c88188d58389fe50cacc713ba867fc9f2f0904de06971af625541388bbd0c162"
+    },
+    {
+     "path": "games/sudoku.html",
+     "size": 25242,
+     "sha256": "38dbe13096392f98177be772498d598610a52f079feb15813bf5206e6556ea4c"
+    }
+   ]
+  },
+  {
+   "id": "lj-matchthree",
+   "version": 1,
+   "name": "Match Three",
+   "blurb": "Swap gems to match three.",
+   "entry": "games/matchThree.html",
+   "by": "Frank Force",
+   "licence": "MIT",
+   "source": "https://github.com/KilledByAPixel/LittleJSArcade",
+   "from": "KilledByAPixel/LittleJSArcade@c14102b",
+   "shared": [
+    "littlejs"
+   ],
+   "query": "engine=min",
+   "files": [
+    {
+     "path": "LICENSE.txt",
+     "size": 1068,
+     "sha256": "c88188d58389fe50cacc713ba867fc9f2f0904de06971af625541388bbd0c162"
+    },
+    {
+     "path": "games/matchThree.html",
+     "size": 27808,
+     "sha256": "4c0f631d5df8fff9a58390476c691a0d9c065dca27d057151ac7370d0ef6732c"
+    }
+   ]
+  },
+  {
+   "id": "lj-pool",
+   "version": 1,
+   "name": "Pool",
+   "blurb": "Cue up and sink all the balls.",
+   "entry": "games/pool.html",
+   "by": "Frank Force",
+   "licence": "MIT",
+   "source": "https://github.com/KilledByAPixel/LittleJSArcade",
+   "from": "KilledByAPixel/LittleJSArcade@c14102b",
+   "shared": [
+    "littlejs",
+    "box2d"
+   ],
+   "query": "engine=min",
+   "files": [
+    {
+     "path": "LICENSE.txt",
+     "size": 1068,
+     "sha256": "c88188d58389fe50cacc713ba867fc9f2f0904de06971af625541388bbd0c162"
+    },
+    {
+     "path": "games/pool.html",
+     "size": 44481,
+     "sha256": "2b043d8332925393e60078f6a026bbf10432ca16709ba451f0a41d48302c24b0"
+    }
+   ]
+  },
+  {
+   "id": "lj-minigolf",
+   "version": 1,
+   "name": "Mini Golf",
+   "blurb": "Putt across tricky little courses.",
+   "entry": "games/miniGolf.html",
+   "by": "Frank Force",
+   "licence": "MIT",
+   "source": "https://github.com/KilledByAPixel/LittleJSArcade",
+   "from": "KilledByAPixel/LittleJSArcade@c14102b",
+   "shared": [
+    "littlejs",
+    "box2d"
+   ],
+   "query": "engine=min",
+   "files": [
+    {
+     "path": "LICENSE.txt",
+     "size": 1068,
+     "sha256": "c88188d58389fe50cacc713ba867fc9f2f0904de06971af625541388bbd0c162"
+    },
+    {
+     "path": "games/miniGolf.html",
+     "size": 36172,
+     "sha256": "a8b6e391648795dc5ce6093de2ce212987a43ba299881830157c15ba32e41d73"
+    }
+   ]
+  },
+  {
+   "id": "lj-freethrow",
+   "version": 1,
+   "name": "Free Throw",
+   "blurb": "Sink free throws before time runs out.",
+   "entry": "games/freeThrow.html",
+   "by": "Frank Force",
+   "licence": "MIT",
+   "source": "https://github.com/KilledByAPixel/LittleJSArcade",
+   "from": "KilledByAPixel/LittleJSArcade@c14102b",
+   "shared": [
+    "littlejs"
+   ],
+   "query": "engine=min",
+   "files": [
+    {
+     "path": "LICENSE.txt",
+     "size": 1068,
+     "sha256": "c88188d58389fe50cacc713ba867fc9f2f0904de06971af625541388bbd0c162"
+    },
+    {
+     "path": "games/freeThrow.html",
+     "size": 31345,
+     "sha256": "203cfbb0e2e00eec8ef30032fab5ef5f04d112dfc8804e23a530cb2a5764d976"
+    }
+   ]
+  },
+  {
+   "id": "lj-moonlander",
+   "version": 1,
+   "name": "Moon Lander",
+   "blurb": "Touch down gently.",
+   "entry": "games/moonLander.html",
+   "by": "Frank Force",
+   "licence": "MIT",
+   "source": "https://github.com/KilledByAPixel/LittleJSArcade",
+   "from": "KilledByAPixel/LittleJSArcade@c14102b",
+   "shared": [
+    "littlejs"
+   ],
+   "query": "engine=min",
+   "files": [
+    {
+     "path": "LICENSE.txt",
+     "size": 1068,
+     "sha256": "c88188d58389fe50cacc713ba867fc9f2f0904de06971af625541388bbd0c162"
+    },
+    {
+     "path": "games/moonLander.html",
+     "size": 32899,
+     "sha256": "f3dc6c004716d045875fe336bf9897ae849222edf858d30ac16006d99cd43088"
+    }
+   ]
+  },
+  {
+   "id": "lj-skiing",
+   "version": 1,
+   "name": "Skiing",
+   "blurb": "Carve downhill through the gates.",
+   "entry": "games/skiing.html",
+   "by": "Frank Force",
+   "licence": "MIT",
+   "source": "https://github.com/KilledByAPixel/LittleJSArcade",
+   "from": "KilledByAPixel/LittleJSArcade@c14102b",
+   "shared": [
+    "littlejs"
+   ],
+   "query": "engine=min",
+   "files": [
+    {
+     "path": "LICENSE.txt",
+     "size": 1068,
+     "sha256": "c88188d58389fe50cacc713ba867fc9f2f0904de06971af625541388bbd0c162"
+    },
+    {
+     "path": "games/skiing.html",
+     "size": 21014,
+     "sha256": "b1cd4038b1f704a7aec123f7d88b36c62526f8553266b58de0e5a2bf3ba900ad"
+    }
+   ]
+  },
+  {
+   "id": "lj-speedway",
+   "version": 1,
+   "name": "Speedway",
+   "blurb": "Pass other racers and beat the clock.",
+   "entry": "games/speedway.html",
+   "by": "Frank Force",
+   "licence": "MIT",
+   "source": "https://github.com/KilledByAPixel/LittleJSArcade",
+   "from": "KilledByAPixel/LittleJSArcade@c14102b",
+   "shared": [
+    "littlejs"
+   ],
+   "query": "engine=min",
+   "files": [
+    {
+     "path": "LICENSE.txt",
+     "size": 1068,
+     "sha256": "c88188d58389fe50cacc713ba867fc9f2f0904de06971af625541388bbd0c162"
+    },
+    {
+     "path": "games/speedway.html",
+     "size": 40121,
+     "sha256": "48b19cecdfab576bd2639da954e0bd821704f73d0291f13828d1a071877c20cf"
+    }
+   ]
+  },
+  {
+   "id": "radius-raid",
+   "version": 1,
+   "name": "Radius Raid",
+   "blurb": "A space shoot 'em up: blast away unrelenting enemies before they destroy you.",
+   "keys": "W A S D or arrows to move, mouse to aim and fire, F autofire, P pause, M mute",
+   "by": "Jack Rugile",
+   "licence": "MIT",
+   "source": "https://github.com/jackrugile/radius-raid-js13k",
+   "from": "jackrugile/radius-raid-js13k@361ab51",
+   "entry": "index.html",
+   "files": [
+    {
+     "path": "LICENSE.md",
+     "size": 1077,
+     "sha256": "2b8fb186863beada9769c33b053ce62d2463235fccac3761725f0a04881f7821"
+    },
+    {
+     "path": "index.html",
+     "size": 1633,
+     "sha256": "f4e3c2538ccab04fdc1fcbc22a8ddd176bd434078195783b7f5b9dd02151cb6c"
+    },
+    {
+     "path": "js/audio.js",
+     "size": 910,
+     "sha256": "61844e15d43e00ce6960598e3a97c1b17528250e87c34b9bd91a7841ff22442d"
+    },
+    {
+     "path": "js/bullet.js",
+     "size": 3180,
+     "sha256": "f6204aff4abb0ad58a9e00a65402ce23ca012a3d0cf933cb62e3895eaa3ef55b"
+    },
+    {
+     "path": "js/button.js",
+     "size": 3369,
+     "sha256": "dbf1d7f4505d74c24752a667e30421fe31d8e88a147de36a94a2422be3a9d3ee"
+    },
+    {
+     "path": "js/definitions.js",
+     "size": 18573,
+     "sha256": "bab032691fb2ac16189d9ee0b7f9f33ea73fbe647f2bfd124eea4be9acca7b20"
+    },
+    {
+     "path": "js/enemy.js",
+     "size": 6019,
+     "sha256": "2bf3ea6b5fae1e0b30675837553871c5218fca1a0a1dbc7fd3524e02a017c022"
+    },
+    {
+     "path": "js/explosion.js",
+     "size": 2011,
+     "sha256": "467f0e39ced47e948121eab4f08dada72794a254c6399172f82af87cf70d80f5"
+    },
+    {
+     "path": "js/game.js",
+     "size": 42721,
+     "sha256": "9e8dae395276a8940a5930efd3aea04cb0d73e36b8797af13a12f6dd1ebac4d5"
+    },
+    {
+     "path": "js/hero.js",
+     "size": 7061,
+     "sha256": "71182168f7482206b2ca408cdc05b51f7898261668db39e656d13c1ef79229e7"
+    },
+    {
+     "path": "js/jsfxr.js",
+     "size": 2805,
+     "sha256": "539e17344ed0a728908536a10b3d14d9fe9eef61cc41ba268f7bde2d2f698d51"
+    },
+    {
+     "path": "js/levelpop.js",
+     "size": 1592,
+     "sha256": "8bf049c601c43a7e10b20dcccef78b52a119f0cb8e9426504e46275fe84dc840"
+    },
+    {
+     "path": "js/particle.js",
+     "size": 2045,
+     "sha256": "68250f7e7a83784d5e88711785ebd221461e3f98aaa56b562451eee0d41ad374"
+    },
+    {
+     "path": "js/particleemitter.js",
+     "size": 1560,
+     "sha256": "3e789cb0a11e74f3b6ded2b3d51c20c5de550c68dc77b82a05e8ce4b9cc943d2"
+    },
+    {
+     "path": "js/powerup.js",
+     "size": 3541,
+     "sha256": "0453e671a6650002c3423bf9a14531a0236b841622361a4d661cf5c81686649c"
+    },
+    {
+     "path": "js/storage.js",
+     "size": 852,
+     "sha256": "7cc47502f895e3840bbb27fa731cfbf14e929ae0cb9b9c2c0def7b9c10b63b35"
+    },
+    {
+     "path": "js/text.js",
+     "size": 2270,
+     "sha256": "829355ab9fc9d1544c1250f9d0520b6537de1d23583b609eb58c7e4deea9a42e"
+    },
+    {
+     "path": "js/textpop.js",
+     "size": 1188,
+     "sha256": "2bee6f813ee543be19bc3ff860e0526e37a05d7373bebbe8305d4997f20cd5b5"
+    },
+    {
+     "path": "js/util.js",
+     "size": 3201,
+     "sha256": "641d5c14c79b056629eec133276d59cdcb48d4f235d97d0e4f86853aaf3f84dc"
+    }
+   ]
+  }
+ ],
+ "shared": [
+  {
+   "id": "littlejs",
+   "version": 1,
+   "name": "LittleJS",
+   "by": "Frank Force",
+   "licence": "MIT",
+   "source": "https://github.com/KilledByAPixel/LittleJS",
+   "files": [
+    {
+     "path": "COPYRIGHT.txt",
+     "size": 1545,
+     "sha256": "0c0ddb7994ca28521192df15fd1e5d6160646b005b5c5a182a888dbc5ffa0061"
+    },
+    {
+     "path": "LICENSE.txt",
+     "size": 1068,
+     "sha256": "c88188d58389fe50cacc713ba867fc9f2f0904de06971af625541388bbd0c162"
+    },
+    {
+     "path": "dist/littlejs.min.js",
+     "src": "engine/littlejs.min.js",
+     "size": 488241,
+     "sha256": "79e87cd5566825a2b1e013daabddf77bab2cf3e257bd1a792b447462e7c97d74"
+    },
+    {
+     "path": "templates/cards.js",
+     "size": 34791,
+     "sha256": "2fb4811b2ce7e6b9f35de63b4972a492e7297e06e578cb212ba555c7cdcc592e"
+    },
+    {
+     "path": "templates/engineLoader.js",
+     "size": 5796,
+     "sha256": "1c394a97fabb6312731faab8d4dec876470533194bb27fd75ebd6690fc8c709f"
+    },
+    {
+     "path": "templates/gameAI.js",
+     "size": 16774,
+     "sha256": "1661593e1fd1ef66f8c2298be3ac2eade83add123f5a8a91b66d87cb4be90554"
+    },
+    {
+     "path": "templates/gameFx.js",
+     "size": 22588,
+     "sha256": "bae42bcd56d15f222a332ee53f00b047eee03159eae5958df55d602c5acb83c7"
+    },
+    {
+     "path": "templates/menus.js",
+     "size": 162673,
+     "sha256": "d9146c657de513f05cca1494bb9209020e313912246c18d27276128b3f58676c"
+    },
+    {
+     "path": "templates/textureGenerator.js",
+     "size": 27192,
+     "sha256": "516929481cf5cea676654e2cb8bfa8abba053a1e9f68719e8fa329982cb61e60"
+    }
+   ]
+  },
+  {
+   "id": "box2d",
+   "version": 1,
+   "name": "Box2D",
+   "by": "Erin Catto",
+   "licence": "zlib",
+   "source": "https://github.com/KilledByAPixel/LittleJS",
+   "files": [
+    {
+     "path": "COPYRIGHT.txt",
+     "size": 1545,
+     "sha256": "0c0ddb7994ca28521192df15fd1e5d6160646b005b5c5a182a888dbc5ffa0061"
+    },
+    {
+     "path": "dist/box2d.wasm.js",
+     "src": "engine/box2d.wasm.js",
+     "size": 300422,
+     "sha256": "17ba0a8598dfaa94ce20ccb04358cb226069737c997153ffe0eceb60e43b332f"
+    },
+    {
+     "path": "dist/box2d.wasm.wasm",
+     "src": "engine/box2d.wasm.wasm",
+     "size": 166891,
+     "sha256": "f7ecccdd5460feebc81fdddd1602e82c884149accbd6e1c53fdd18efec2a2852"
+    }
+   ]
+  }
+ ],
  "core": {
   "id": "mgba",
   "version": "1.1.1",

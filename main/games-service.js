@@ -6,6 +6,9 @@
  *
  *   built-in   small games written for BM Player. Each is fetched the first
  *              time it is wanted and kept in userData/games/builtin/<id>/.
+ *   open       games by other people under open licences, unchanged, each
+ *              with its licence. Fetched and kept the same way. Several
+ *              share an engine, kept once in userData/games/shared/.
  *   GBA        your own .gba files, played by mGBA built for the web
  *              (@thenick775/mgba-wasm 1.1.1, MPL-2.0). The core is fetched
  *              the first time too. No game comes with the app.
@@ -55,13 +58,17 @@ const TYPES = {
 // engine that does.
 const OWN = "default-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' data: blob:; font-src 'self' data:; connect-src 'self' data: blob:; worker-src 'self' blob:; frame-src 'none'; form-action 'none'; base-uri 'self'; object-src 'none'";
 const POLICY = {
-  builtin: OWN + "; script-src 'self' 'unsafe-inline'",
+  builtin: OWN + "; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'",
   gba: OWN + "; script-src 'self' 'wasm-unsafe-eval'",
   mine: OWN.replace("frame-src 'none'", "frame-src 'self'") + "; script-src 'self' 'unsafe-inline' 'unsafe-eval' 'wasm-unsafe-eval' blob:",
 };
 
 const home = () => path.join(app.getPath('userData'), 'games');
 const builtinDir = g => path.join(home(), 'builtin', g.id, String(g.version));
+// Every game that is fetched: ours, and the ones by other people (v3.53.0).
+const GAMES = CATALOG.builtin.concat(CATALOG.open);
+const sharedOf = g => (g.shared || []).map(id => CATALOG.shared.find(s => s.id === id)).filter(Boolean);
+const sharedDir = s => path.join(home(), 'shared', s.id, String(s.version));
 const coreDir = () => path.join(home(), 'cores', CATALOG.core.id, String(CATALOG.core.version));
 const libFile = () => path.join(home(), 'library.json');
 const idOf = s => crypto.createHash('sha1').update(String(s)).digest('hex').slice(0, 12);
@@ -118,6 +125,10 @@ function state() {
   const l = library();
   return {
     builtin: CATALOG.builtin.map(g => ({ id: g.id, name: g.name, blurb: g.blurb, keys: g.keys, version: g.version, size: bytesOf(g), installed: installed(builtinDir(g), g) })),
+    // by other people: the size is the game's own, and what it shares with others is said beside it until that is here
+    open: CATALOG.open.map(g => { const need = sharedOf(g).filter(s => !installed(sharedDir(s), s));
+      return { id: g.id, name: g.name, blurb: g.blurb, keys: g.keys || '', by: g.by, licence: g.licence, source: g.source, entry: g.entry, query: g.query || '', version: g.version,
+        size: bytesOf(g), extra: need.reduce((n, s) => n + bytesOf(s), 0), installed: installed(builtinDir(g), g) && !need.length }; }),
     core: { name: CATALOG.core.name, version: CATALOG.core.version, licence: CATALOG.core.licence, source: CATALOG.core.source, size: bytesOf(CATALOG.core), installed: installed(coreDir(), CATALOG.core) },
     roms: l.roms.slice().sort((a, b) => (b.played || b.added) - (a.played || a.added)).map(r => ({ id: r.id, name: r.name, file: r.file, missing: !fs.existsSync(r.file) })),
     folder: l.folder,
@@ -151,7 +162,7 @@ function fetchItem(item, from, dir) {
     try {
       await fs.promises.rm(tmp, { recursive: true, force: true });
       for (const f of item.files) {
-        const buf = await one(from + '/' + f.path);
+        const buf = await one(from + '/' + (f.src || f.path));   // src: kept under another name in the repository
         if (buf.length !== f.size || sha256(buf) !== f.sha256) throw new Error(f.path + ' is not the file this version expects');
         const to = path.join(tmp, ...f.path.split('/'));
         await fs.promises.mkdir(path.dirname(to), { recursive: true });
@@ -217,9 +228,11 @@ async function serve(request) {
       return f ? send(f.file, f.size, POLICY.gba) : refuse(404, 'Not found');
     }
     if (host.startsWith('b-')) {
-      const g = CATALOG.builtin.find(x => 'b-' + x.id === host);
-      if (!g || !g.files.some(f => f.path === rel)) return refuse(404, 'Not found');
-      const f = inside(builtinDir(g), rel);
+      const g = GAMES.find(x => 'b-' + x.id === host);
+      if (!g) return refuse(404, 'Not found');
+      // its own files, or those of what it shares with other games: the ones listed and no others
+      const dir = g.files.some(f => f.path === rel) ? builtinDir(g) : (s => s && sharedDir(s))(sharedOf(g).find(s => s.files.some(f => f.path === rel)));
+      const f = dir && inside(dir, rel);
       return f ? send(f.file, f.size, POLICY.builtin) : refuse(404, 'Not found');
     }
     if (host.startsWith('u-')) {
@@ -239,14 +252,20 @@ function register(ipcMain) {
   const dialogs = require('./dialogs');
   ipcMain.handle('games:list', () => state());
   ipcMain.handle('games:get', async (_, id) => {
-    const g = CATALOG.builtin.find(x => x.id === id);
+    const g = GAMES.find(x => x.id === id);
     if (!g) return { error: 'there is no such game' };
+    for (const s of sharedOf(g)) { const r = await fetchItem(s, s.id + '/' + s.version, sharedDir(s)); if (r.error) return r; }
     return fetchItem(g, g.id + '/' + g.version, builtinDir(g));
   });
   ipcMain.handle('games:remove', async (_, id) => {
-    const g = CATALOG.builtin.find(x => x.id === id);
+    const g = GAMES.find(x => x.id === id);
     if (!g) return { error: 'there is no such game' };
-    try { await fs.promises.rm(path.join(home(), 'builtin', g.id), { recursive: true, force: true }); return { ok: true }; }
+    try {
+      await fs.promises.rm(path.join(home(), 'builtin', g.id), { recursive: true, force: true });
+      // what it shared goes with the last game that used it
+      for (const s of sharedOf(g)) if (!GAMES.some(x => x !== g && sharedOf(x).includes(s) && installed(builtinDir(x), x))) await fs.promises.rm(path.join(home(), 'shared', s.id), { recursive: true, force: true });
+      return { ok: true };
+    }
     catch (e) { return { error: String(e.message || e) }; }
   });
   ipcMain.handle('games:core', () => fetchItem(CATALOG.core, 'cores/' + CATALOG.core.id + '/' + CATALOG.core.version, coreDir()));

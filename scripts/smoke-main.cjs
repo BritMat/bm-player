@@ -1018,6 +1018,12 @@ await step('PiP size button cycles three sizes, anchored and on screen', async (
       if (first.builtin.length < 5 || first.builtin.some(g => g.installed) || first.core.installed) throw new Error('before anything is fetched: ' + JSON.stringify(first.builtin.map(g => [g.id, g.installed])));
       if (first.builtin.some(g => !(g.size > 1000) || !g.name || !g.blurb)) throw new Error('a game with no size, name or line about it');
       if (first.roms.length || first.folder || first.mine.length) throw new Error('lists not empty at first');
+      // games by other people: each says whose it is and under which licence, and comes with that licence
+      if (first.open.length < 10 || first.open.some(g => g.installed || !g.by || !g.licence || !/^https:\/\/github\.com\//.test(g.source) || !g.entry)) throw new Error('the open-source games: ' + JSON.stringify(first.open.map(g => [g.id, g.by, g.licence])));
+      const cat = require(path.join(ROOT, 'main', 'games-catalog.json'));
+      for (const g of cat.open.concat(cat.shared)) if (!g.files.some(f => /^(LICENSE|COPYRIGHT)/i.test(f.path))) throw new Error(g.id + ' is listed without its licence');
+      for (const g of cat.open) if (!g.files.some(f => f.path === g.entry)) throw new Error(g.id + ': its first page is not among its files');
+      if (cat.open.some(g => !/^(MIT|BSD|Apache|ISC|zlib|MPL|CC0)/.test(g.licence))) throw new Error('a game under a licence that is not on the list');
       // run from the source: the copy beside the app, and the web is not asked
       electronStub.net.fetch = async url => { asked.push(url); return answer(local(relOf(url))); };
       const src = await call('games:get', 'trail');
@@ -1043,6 +1049,31 @@ await step('PiP size button cycles three sizes, anchored and on screen', async (
       electronStub.net.fetch = async () => { throw new Error('net::ERR_INTERNET_DISCONNECTED'); };
       if (!(await call('games:get', 'mines')).error) throw new Error('offline gave no reason');
       if ((await call('games:get', 'no-such-game')).ok) throw new Error('a game not in the list was fetched');
+      // a game by someone else that shares an engine: the engine comes with the first, once, and goes with the last
+      electronStub.net.fetch = async url => { asked.push(url); return answer(local(relOf(url))); };
+      const chess0 = (await call('games:list')).open.find(g => g.id === 'lj-chess');
+      if (!(chess0.extra > 400000)) throw new Error('the engine a game needs is not counted in what it will fetch: ' + chess0.extra);
+      let k = asked.length;
+      if (!(await call('games:get', 'lj-chess')).ok) throw new Error('chess was not fetched');
+      const got = asked.slice(k).map(relOf);
+      if (!got.includes('littlejs/1/engine/littlejs.min.js') || !got.includes('lj-chess/1/games/chess.html') || got.some(r => /box2d/.test(r))) throw new Error('fetched for chess: ' + got.join(' '));
+      k = asked.length;
+      if (!(await call('games:get', 'lj-pool')).ok) throw new Error('pool was not fetched');
+      const got2 = asked.slice(k).map(relOf);
+      if (got2.some(r => /^littlejs\//.test(r)) || !got2.includes('box2d/1/engine/box2d.wasm.wasm')) throw new Error('fetched for pool: ' + got2.join(' '));
+      const now = (await call('games:list')).open;
+      if (!now.find(g => g.id === 'lj-chess').installed || !now.find(g => g.id === 'lj-pool').installed || now.find(g => g.id === 'lj-go').installed || now.find(g => g.id === 'lj-go').extra !== 0) throw new Error('what is here now: ' + JSON.stringify(now.filter(g => /chess|pool|-go/.test(g.id))));
+      const sget = (url) => rec.protocols.get('bmgame')({ url, method: 'GET', headers: new Headers() });
+      const pg = await sget('bmgame://b-lj-chess/games/chess.html?engine=min'), eng = await sget('bmgame://b-lj-chess/dist/littlejs.min.js'), tpl = await sget('bmgame://b-lj-chess/templates/menus.js');
+      if (pg.status !== 200 || eng.status !== 200 || tpl.status !== 200) throw new Error('chess and what it shares: ' + [pg.status, eng.status, tpl.status]);
+      if ((await sget('bmgame://b-lj-chess/dist/box2d.wasm.js')).status === 200) throw new Error('a game was served a shared file it does not list');
+      if ((await sget('bmgame://b-lj-pool/dist/box2d.wasm.wasm')).headers.get('content-type') !== 'application/wasm') throw new Error('pool\'s physics was not served as wasm');
+      if ((await sget('bmgame://b-lj-chess/games/go.html')).status === 200 || (await sget('bmgame://b-trail/dist/littlejs.min.js')).status === 200) throw new Error('a game was served another game\'s files');
+      const sdir = path.join(TMP, 'userData', 'games', 'shared');
+      await call('games:remove', 'lj-pool');
+      if (fs.existsSync(path.join(sdir, 'box2d')) || !fs.existsSync(path.join(sdir, 'littlejs'))) throw new Error('after removing pool: ' + fs.readdirSync(sdir));
+      await call('games:remove', 'lj-chess');
+      if (fs.existsSync(path.join(sdir, 'littlejs'))) throw new Error('the engine stayed after the last game that used it went');
       // the GBA core, the same way, with its licence beside it
       electronStub.net.fetch = async url => { asked.push(url); return answer(local(relOf(url))); };
       const core = await call('games:core');
@@ -1060,7 +1091,7 @@ await step('PiP size button cycles three sizes, anchored and on screen', async (
     const ok = await get('bmgame://b-trail/index.html?bg=%230b0f1a');
     if (ok.status !== 200 || !/text\/html/.test(ok.headers.get('content-type'))) throw new Error('the game\'s page: ' + ok.status);
     const csp = ok.headers.get('content-security-policy') || '';
-    if (!/default-src 'self'/.test(csp) || !/connect-src 'self' data: blob:(;|$)/.test(csp) || /https?:|\*|unsafe-eval|bmfile|file:/.test(csp)) throw new Error('a built-in game\'s policy: ' + csp);
+    if (!/default-src 'self'/.test(csp) || !/connect-src 'self' data: blob:(;|$)/.test(csp) || /https?:|\*|(?<!wasm-)unsafe-eval|bmfile|file:/.test(csp)) throw new Error('a built-in game\'s policy: ' + csp);
     if (!/<title>Trail<\/title>/.test(await ok.text())) throw new Error('not the game');
     if ((await get('bmgame://b-trail/')).status !== 200) throw new Error('the bare address does not give the game');
     for (const u of ['bmgame://b-trail/other.html', 'bmgame://b-trail/%2e%2e%2f%2e%2e%2flibrary.json', 'bmgame://b-trail/..%2F..%2F..%2Flibrary.json', 'bmgame://b-mines/index.html', 'bmgame://b-nothing/index.html', 'bmgame://elsewhere/index.html', 'bmgame://b-trail/index.html%00.png']) {

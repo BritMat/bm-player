@@ -37,7 +37,7 @@ export class GamesDash {
   constructor(api, { osd } = {}) {
     this.svc = api?.games;   // the main process's side (main/games-service.js)
     this.osd = osd || (() => {});
-    this.state = { builtin: [], core: null, roms: [], folder: null, mine: [] };
+    this.state = { builtin: [], open: [], core: null, roms: [], folder: null, mine: [] };
     this.playing = null;      // { kind, id, name }
     this._busy = new Set();
     this._wire();
@@ -80,6 +80,15 @@ export class GamesDash {
           ? `<button class="dash-action-btn" type="button" data-act="play" data-id="${g.id}" aria-label="Play ${escapeAttr(g.name)}">Play</button><button class="gm-x" type="button" data-act="remove" data-id="${g.id}" title="Remove from this computer" aria-label="Remove ${escapeAttr(g.name)} from this computer">${ICONS.close || '×'}</button>`
           : `<button class="dash-action-btn st-quiet" type="button" data-act="get" data-id="${g.id}" aria-label="Get ${escapeAttr(g.name)}"${busy ? ' disabled' : ''}>Get</button>` });
     }).join('');
+    // by other people: who, under which licence, and how much comes with the first of a family
+    const open = el('games-open');
+    if (open) open.innerHTML = (s.open || []).map(g => {
+      const busy = this._busy.has('b:' + g.id);
+      return this._tile({ kind: 'open', id: g.id, name: g.name, sub: g.blurb, state: busy ? 'Getting it…' : `by ${g.by}, ${g.licence}` + (g.installed ? '' : `, ${size(g.size + (g.extra || 0))}`),
+        actions: g.installed
+          ? `<button class="dash-action-btn" type="button" data-act="play" data-id="${g.id}" aria-label="Play ${escapeAttr(g.name)}">Play</button><button class="gm-x" type="button" data-act="remove" data-id="${g.id}" title="Remove from this computer" aria-label="Remove ${escapeAttr(g.name)} from this computer">${ICONS.close || '×'}</button>`
+          : `<button class="dash-action-btn st-quiet" type="button" data-act="get" data-id="${g.id}" aria-label="Get ${escapeAttr(g.name)}"${busy ? ' disabled' : ''}>Get</button>` });
+    }).join('');
     const core = s.core, coreNote = el('games-core-note');
     if (coreNote && core) coreNote.textContent = core.installed
       ? `Played with ${core.name} ${core.version}, which is on this computer. Only your own game files: none come with the app.`
@@ -109,9 +118,12 @@ export class GamesDash {
   }
   async _do_remove(id) { await this.svc.remove(id).catch(() => {}); await this.refresh(); }
   async _do_play(id) {
-    const g = this.state.builtin.find(x => x.id === id); if (!g) return;
-    if (!g.installed && !(await this._do_get(id))) return;
-    this._open({ kind: 'builtin', id, name: g.name, keys: g.keys, url: `bmgame://b-${id}/index.html?${colours()}` });
+    const all = () => this.state.builtin.concat(this.state.open || []);
+    let g = all().find(x => x.id === id); if (!g) return;
+    if (!g.installed) { if (!(await this._do_get(id))) return; g = all().find(x => x.id === id); }
+    // one of ours takes the theme's colours; a game by someone else is opened as its author made it
+    const url = g.by ? `bmgame://b-${id}/${g.entry}${g.query ? '?' + g.query : ''}` : `bmgame://b-${id}/index.html?${colours()}`;
+    this._open({ kind: g.by ? 'open' : 'builtin', id, name: g.name, keys: g.keys || (g.by ? `by ${g.by}, ${g.licence}` : ''), url });
   }
   async _do_rom(id) {
     const r = this.state.roms.find(x => x.id === id); if (!r || r.missing) return;

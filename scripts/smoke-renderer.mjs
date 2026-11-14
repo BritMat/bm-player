@@ -106,13 +106,14 @@ function makeApi() {
     games: (() => { const g = bridge.games = { calls: [], state: { builtin: [
         { id: 'trail', name: 'Trail', blurb: 'Steer a line.', keys: 'Arrow keys', version: 1, size: 5232, installed: false },
         { id: 'mines', name: 'Mines', blurb: 'Open every square.', keys: 'Click', version: 1, size: 7401, installed: true }],
+        open: [{ id: 'lj-chess', name: 'Chess', blurb: 'The classic game of kings and pawns.', keys: '', by: 'Frank Force', licence: 'MIT', source: 'https://github.com/KilledByAPixel/LittleJSArcade', entry: 'games/chess.html', query: 'engine=min', version: 1, size: 59000, extra: 760000, installed: false }],
         core: { name: 'mGBA', version: '1.1.1', licence: 'MPL-2.0', size: 2230277, installed: false },
         roms: [{ id: 'aaaaaaaaaaaa', name: 'My Game', file: '/games/My Game.gba', missing: false }, { id: 'bbbbbbbbbbbb', name: 'Lost <b>One</b>', file: '/games/Lost.gba', missing: true }],
         folder: null, mine: [] } };
       const did = (n, f) => async (...a) => { g.calls.push([n, ...a]); return f ? f(...a) : { ok: true }; };
       return { list: did('list', () => JSON.parse(JSON.stringify(g.state))),
-        get: did('get', id => { if (g.fail) return { error: g.fail }; g.state.builtin.find(x => x.id === id).installed = true; return { ok: true }; }),
-        remove: did('remove', id => { g.state.builtin.find(x => x.id === id).installed = false; return { ok: true }; }),
+        get: did('get', id => { if (g.fail) return { error: g.fail }; g.state.builtin.concat(g.state.open).find(x => x.id === id).installed = true; return { ok: true }; }),
+        remove: did('remove', id => { g.state.builtin.concat(g.state.open).find(x => x.id === id).installed = false; return { ok: true }; }),
         core: did('core', () => { if (g.fail) return { error: g.fail }; g.state.core.installed = true; return { ok: true }; }), removeCore: did('removeCore'),
         addRoms: did('addRoms', () => { g.state.roms.push({ id: 'cccccccccccc', name: 'Added', file: '/games/Added.gba', missing: false }); return { added: 1 }; }),
         removeRom: did('removeRom', id => { g.state.roms = g.state.roms.filter(r => r.id !== id); return { ok: true }; }),
@@ -1899,6 +1900,16 @@ async function main() {
       // a game not here yet: Play fetches it first (the tile shows Get, the method is what a key would call)
       await games._do_play('trail'); await tick(10);
       if (!frame() || new URL(frame().src).host !== 'b-trail') throw new Error('Play on a game not fetched yet');
+      games.close();
+    });
+
+    await step('Games: a game by someone else says whose it is, and opens as its author made it', async () => {
+      const t = tile('games-open', 'lj-chess');
+      if (!t || !/by Frank Force, MIT, 800 KB/.test(t.textContent)) throw new Error('whose it is, its licence and what it will fetch: ' + (t && t.textContent));
+      click(t.querySelector('[data-act="get"]')); await tick(20);
+      click(tile('games-open', 'lj-chess').querySelector('[data-act="play"]')); await tick(10);
+      if (frame()?.getAttribute('src') !== 'bmgame://b-lj-chess/games/chess.html?engine=min') throw new Error('the game is at ' + frame()?.getAttribute('src'));
+      if (frame().getAttribute('sandbox') !== 'allow-scripts allow-same-origin allow-pointer-lock' || !/by Frank Force, MIT/.test($('games-playing-keys').textContent)) throw new Error('its frame or its credit');
       games.close();
     });
 

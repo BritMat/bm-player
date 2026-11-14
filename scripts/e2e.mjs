@@ -2050,6 +2050,7 @@ if (PART === 'd') {
   {
     const gameFrame = async host => { for (let i = 0; i < 60; i++) { const f = page.frames().find(x => x.url().startsWith('bmgame://' + host + '/')); if (f) { try { await f.waitForLoadState('load', { timeout: 5000 }); return f; } catch {} } await page.waitForTimeout(100); } throw new Error('no frame at bmgame://' + host); };
     const openGame = async id => {
+      await page.evaluate(() => window.bmGames?.close(true));   // a step that failed may have left its game open
       const t = `#games-builtin .gm-tile[data-id="${id}"]`;
       if (await page.locator(t + ' [data-act="get"]').count()) { await page.click(t + ' [data-act="get"]'); await page.waitForSelector(t + ' [data-act="play"]', { timeout: 15000 }); }
       await page.click(t + ' [data-act="play"]');
@@ -2080,7 +2081,8 @@ if (PART === 'd') {
       if (!fs.existsSync(path.join(PROFILE, 'games', 'builtin', 'trail', '1', 'index.html'))) throw new Error('the game was not put in its own folder');
       const tag = await page.evaluate(() => { const i = document.querySelector('#games-frame-box iframe'); return { sandbox: i.getAttribute('sandbox'), src: i.src }; });
       if (/allow-(top-navigation|popups|forms|modals|downloads)/.test(tag.sandbox) || !/^bmgame:\/\/b-trail\/index\.html\?/.test(tag.src)) throw new Error('the frame: ' + JSON.stringify(tag));
-      await f.locator('#c').click(); await page.keyboard.press('ArrowDown');
+      // The key goes to the frame once it has the keyboard, which a click gives it a moment later on a busy machine.
+      for (let i = 0; i < 8 && !(await f.evaluate(() => alive)); i++) { await f.locator('#c').click(); await page.keyboard.press('ArrowDown'); await page.waitForTimeout(150); }
       await page.waitForTimeout(700);
       const t = await f.evaluate(() => ({ alive, len: snake.length, y: snake[0].y, x: snake[0].x, bg: getComputedStyle(document.documentElement).getPropertyValue('--bg').trim() }));
       if (!t.alive || t.y <= 9) throw new Error('Trail did not start and turn down: ' + JSON.stringify(t));
@@ -2127,6 +2129,25 @@ if (PART === 'd') {
       await f.locator('.k').nth(pair[0]).click(); await f.locator('.k').nth(pair[1]).click();
       const p = await f.evaluate(() => ({ turns, found, done: document.querySelectorAll('.k.done').length })); if (p.turns !== 1 || p.found !== 1 || p.done !== 2) throw new Error('Pairs: ' + JSON.stringify(p));
       await page.click('#btn-games-close');
+    });
+
+    await step('Games: a game by someone else is fetched with the engine it shares, and runs with nothing refused', async () => {
+      const open = async id => { const t = `#games-open .gm-tile[data-id="${id}"]`; await page.evaluate(() => window.bmGames?.close(true)); await page.click(t + ' [data-act="get"]'); await page.waitForSelector(t + ' [data-act="play"]', { timeout: 20000 }); await page.click(t + ' [data-act="play"]'); return gameFrame('b-' + id); };
+      const kept = consoleMsgs.length;
+      let f = await open('lj-chess');
+      await f.waitForFunction(() => document.querySelectorAll('canvas').length >= 1 && /CHESS/i.test(document.body.innerText), null, { timeout: 20000 });
+      for (const d of [['shared', 'littlejs', '1', 'dist', 'littlejs.min.js'], ['shared', 'littlejs', '1', 'LICENSE.txt'], ['builtin', 'lj-chess', '1', 'LICENSE.txt']]) if (!fs.existsSync(path.join(PROFILE, 'games', ...d))) throw new Error('not on the computer: ' + d.join('/'));
+      if (fs.existsSync(path.join(PROFILE, 'games', 'shared', 'box2d'))) throw new Error('chess fetched the physics it does not use');
+      await page.click('#btn-games-close');
+      f = await open('lj-pool');   // WebAssembly, under the same policy
+      await f.waitForFunction(() => /POOL/i.test(document.body.innerText) && typeof Box2D !== 'undefined', null, { timeout: 20000 });
+      await page.click('#btn-games-close');
+      f = await open('radius-raid');
+      await f.waitForFunction(() => document.querySelectorAll('canvas').length >= 1, null, { timeout: 20000 });
+      await page.waitForTimeout(800);
+      await page.click('#btn-games-close');
+      const said = consoleMsgs.slice(kept).filter(m => m.type === 'pageerror' || (m.type === 'error' && !NOISE.test(m.text)));
+      if (said.length) throw new Error('a game was refused something, or failed: ' + said.map(m => m.text).join(' | ').slice(0, 300));
     });
 
     await step('Games: a game cannot reach the app, the network, or any page but its own', async () => {
