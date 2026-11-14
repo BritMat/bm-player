@@ -27,6 +27,11 @@ protocol.registerSchemesAsPrivileged([{
     bypassCSP: false,        // the CSP still applies; it lists bmfile: explicitly
     corsEnabled: true,
   },
+}, {
+  // The Games tab's frames (main/games-service.js, v3.53.0). Listed here
+  // because Electron takes this call once: a second call replaces the first.
+  scheme: 'bmgame',
+  privileges: { standard: true, secure: true, supportFetchAPI: true, stream: true, bypassCSP: false, corsEnabled: false },
 }]);
 
 /**

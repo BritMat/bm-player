@@ -76,7 +76,7 @@ export default class ChromeFeature {
     // Unknown names used to be stored anyway, and every view was hidden
     // before the branch match, so a typo left a blank screen. The gallery is
     // 'images', which is how five tests ended up exercising that blank state.
-    if(!['video','music','images','pdf','tv'].includes(dest)){
+    if(!['video','music','images','pdf','tv','games'].includes(dest)){
       console.warn('[BM Player] switchDest: unknown destination',dest);
       return;
     }
@@ -132,8 +132,11 @@ export default class ChromeFeature {
     }
     else if(dest==='pdf')    el('pdf-view')?.classList.add('active');
     else if(dest==='tv')     el('tv-view')?.classList.add('active');
+    else if(dest==='games')  el('games-view')?.classList.add('active');
+    // A game left open stops taking keys while another tab is shown, and has them back after (v3.53.0).
+    if(dest==='games') window.bmGames?.back(); else window.bmGames?.away();
     // The Gallery, PDF and TV tabs are set up the first time they open (app/parts.js, v3.47.0).
-    if(dest==='images'||dest==='pdf'||dest==='tv') this.part(dest);
+    if(dest==='images'||dest==='pdf'||dest==='tv'||dest==='games') this.part(dest);
     // ── v1.8.0: Smart mini player — shows in pdf/gallery/tv, hidden in music tab ──
     if(dest==='music') this._hideMiniPlayer();
     else this._updateMiniPlayer();

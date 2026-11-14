@@ -127,6 +127,13 @@ read by BM Player's built-in updater. You don't need to download them.
   kept so a song is looked up once, and looking online can be switched off.
   Where none are found you can search and choose, load a file (or drop one
   on the lyrics), and move the timing earlier or later.
+- A Games tab (3.53.0). Five small games made for BM Player (Trail, Bricks,
+  Merge, Mines, Pairs), each fetched the first time you want it and kept in
+  its own folder, so the app itself stays light. Your own Game Boy Advance
+  games play in mGBA, fetched the first time too: no game comes with the
+  app. And a folder of your own HTML games is listed and played. Every game
+  runs apart from the app, in a frame with no way to the app's files or to
+  the internet, and nothing of the tab is loaded until you open it.
 - TV that keeps up with long playlists (3.52.0). Every channel of a playlist
   can be scrolled to, however long it is: only the rows in view are drawn.
   The playlist is fetched by the app, kept for the next start, and read

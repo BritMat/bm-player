@@ -1,0 +1,8 @@
+/* The GBA player's page (v3.53.0). It runs in a frame of its own, on bmgame://gba. */
+:root { --bg: #0B0F1A; --fg: #E8ECF5; --mu: #8A93A8; --ac: #6C8CFF; }
+html, body { height: 100%; margin: 0; }
+body { background: var(--bg); color: var(--fg); font: 14px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif; display: grid; place-items: center; overflow: hidden; }
+#screen { image-rendering: pixelated; background: #000; border-radius: 6px; outline: none; }
+#note { position: fixed; left: 0; right: 0; bottom: 14px; text-align: center; color: var(--mu); pointer-events: none; padding: 0 16px; }
+#note[hidden] { display: none; }
+#note.bad { color: var(--fg); }

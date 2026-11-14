@@ -1,0 +1,98 @@
+{
+ "builtin": [
+  {
+   "id": "trail",
+   "version": 1,
+   "name": "Trail",
+   "blurb": "Steer a line that grows with every dot it reaches.",
+   "keys": "Arrow keys or W A S D, Space to pause",
+   "files": [
+    {
+     "path": "index.html",
+     "size": 5232,
+     "sha256": "11cd462766cb151be9206798c4703bcdb24f5565ae8884834545162b066362da"
+    }
+   ]
+  },
+  {
+   "id": "bricks",
+   "version": 1,
+   "name": "Bricks",
+   "blurb": "A bat, a ball and walls of bricks, each faster than the last.",
+   "keys": "Arrow keys or the mouse, Space to send the ball",
+   "files": [
+    {
+     "path": "index.html",
+     "size": 6763,
+     "sha256": "2818ac3dff5b7fe39e6796888722e80e5028891fb5f7f75789e79148de04740a"
+    }
+   ]
+  },
+  {
+   "id": "merge",
+   "version": 1,
+   "name": "Merge",
+   "blurb": "Slide the numbers. Two alike become one.",
+   "keys": "Arrow keys or W A S D",
+   "files": [
+    {
+     "path": "index.html",
+     "size": 5854,
+     "sha256": "f45a428593ad7391950208dbc008e9526bca9b5ada9f6a824203eab2563a6cf4"
+    }
+   ]
+  },
+  {
+   "id": "mines",
+   "version": 1,
+   "name": "Mines",
+   "blurb": "Open every square that hides no mine.",
+   "keys": "Click to open, right-click or F to mark",
+   "files": [
+    {
+     "path": "index.html",
+     "size": 7401,
+     "sha256": "00f5a7a44fb2dc2343491a7698113a762836209e6e1e4ef38e4b8cf2e2db7ac8"
+    }
+   ]
+  },
+  {
+   "id": "pairs",
+   "version": 1,
+   "name": "Pairs",
+   "blurb": "Turn the cards two at a time and find every pair.",
+   "keys": "Click or Tab and Enter",
+   "files": [
+    {
+     "path": "index.html",
+     "size": 5602,
+     "sha256": "87ed55664beca44f81331296392ca062d6fb2fafbdadf6538189c20b11a3edd5"
+    }
+   ]
+  }
+ ],
+ "core": {
+  "id": "mgba",
+  "version": "1.1.1",
+  "name": "mGBA",
+  "licence": "MPL-2.0",
+  "source": "https://github.com/thenick775/mgba/tree/feature/wasm",
+  "files": [
+   {
+    "path": "LICENSE.txt",
+    "size": 16726,
+    "sha256": "fab3dd6bdab226f1c08630b1dd917e11fcb4ec5e1e020e2c16f83a0a13863e85"
+   },
+   {
+    "path": "mgba.js",
+    "size": 391310,
+    "sha256": "18a379a8a316c58fff601253673862d3c9015adb5adc318e2b395c7cc7ec6c0c"
+   },
+   {
+    "path": "mgba.wasm",
+    "size": 1822241,
+    "sha256": "bed02835f672a48b8be59f4e4cd65594109f2b54f30100539c6fd12c022d4bf9"
+   }
+  ]
+ }
+}

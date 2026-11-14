@@ -149,6 +149,8 @@ function guardPage(w) {
   const outside = u => { const safe = PS.safeExternalUrl(u); if (safe) shell.openExternal(safe).catch(() => {}); };
   wc.on('will-navigate', (e, url) => { if (!ours(url)) { e.preventDefault(); outside(url); } });
   wc.setWindowOpenHandler(({ url }) => { outside(url); return { action: 'deny' }; });
+  // A game's frame (v3.53.0) stays on bmgame://, where it was put: it cannot take itself to the web or to a file.
+  wc.on('will-frame-navigate', e => { if (!e.isMainFrame && !/^bmgame:\/\//i.test(e.url)) e.preventDefault(); });
 }
 
 /** Query string the renderer reads in its boot script. */
@@ -169,10 +171,12 @@ function flagQuery() {
 // contract check. Removing it closes the widest hole in the policy.
 function setCsp(w) {
   w.webContents.session.webRequest.onHeadersReceived((details, callback) => {
+    // A game's frame has a policy of its own, stricter than the page's (main/games-service.js, v3.53.0).
+    if (details.url.startsWith('bmgame:')) return callback({});
     callback({
       responseHeaders: {
         ...details.responseHeaders,
-        'Content-Security-Policy': ["default-src 'self' 'unsafe-inline' data: blob: bmfile:; script-src 'self' 'unsafe-inline' bmfile:; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: bmfile: file: https:; media-src 'self' bmfile: file: data: blob:; connect-src 'self' bmfile: file: http: https: ws: wss:; font-src 'self' data:;"]
+        'Content-Security-Policy': ["default-src 'self' 'unsafe-inline' data: blob: bmfile:; script-src 'self' 'unsafe-inline' bmfile:; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: bmfile: file: https:; media-src 'self' bmfile: file: data: blob:; connect-src 'self' bmfile: file: http: https: ws: wss:; font-src 'self' data:; frame-src bmgame:;"]
       }
     });
   });

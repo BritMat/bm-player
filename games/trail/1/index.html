@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="en">
+<head>
+<title>Trail</title>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<style>
+:root{--bg:#0B0F1A;--fg:#E8ECF5;--mu:#8A93A8;--ac:#6C8CFF;--pn:#151B2B}
+*{box-sizing:border-box}
+html,body{height:100%;margin:0}
+body{background:var(--bg);color:var(--fg);font:15px/1.4 system-ui,-apple-system,"Segoe UI",sans-serif;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;padding:12px;-webkit-user-select:none;user-select:none;overflow:hidden}
+.bar{display:flex;align-items:center;gap:18px;flex-wrap:wrap;justify-content:center}
+.bar b{font-size:18px;letter-spacing:.02em}
+.stat{color:var(--mu);font-variant-numeric:tabular-nums}
+.stat span{color:var(--fg);font-weight:600}
+button,select{font:inherit;color:var(--fg);background:var(--pn);border:1px solid color-mix(in srgb,var(--fg) 18%,transparent);border-radius:9px;padding:6px 14px;cursor:pointer}
+button:hover{border-color:var(--ac)}
+button:focus-visible,select:focus-visible{outline:2px solid var(--ac);outline-offset:2px}
+canvas{background:var(--pn);border-radius:12px;display:block;max-width:100%}
+.msg{min-height:22px;color:var(--mu);text-align:center}
+.msg strong{color:var(--fg)}
+</style>
+<script>
+// The app's colours, given in the address (only plain colour codes are taken).
+const Q=new URLSearchParams(location.search);
+for(const k of ['bg','fg','mu','ac','pn']){const v=Q.get(k);if(v&&/^#[0-9a-f]{3,8}$/i.test(v))document.documentElement.style.setProperty('--'+k,v)}
+const css=k=>getComputedStyle(document.documentElement).getPropertyValue('--'+k).trim();
+// Kept on this computer, for this game only. A game still plays where nothing can be kept.
+const store={get(k,d){try{const v=localStorage.getItem(k);return v==null?d:JSON.parse(v)}catch(e){return d}},set(k,v){try{localStorage.setItem(k,JSON.stringify(v))}catch(e){}}};
+const $=id=>document.getElementById(id);
+</script>
+</head>
+<body>
+<div class="bar"><b>Trail</b><span class="stat">Score <span id="score">0</span></span><span class="stat">Best <span id="best">0</span></span><button id="new" type="button">New game</button></div>
+<canvas id="c" width="480" height="360" tabindex="0" aria-label="Trail: steer the line to the dots"></canvas>
+<div class="msg" id="msg"></div>
+<script>
+// Trail: a line that grows with every dot it reaches. The walls and its own tail end the game.
+const W=24,H=18,C=$('c'),g=C.getContext('2d');
+let cell=20,snake=[],dir={x:1,y:0},turns=[],food={x:0,y:0},score=0,best=store.get('trail.best',0),alive=false,paused=false,delay=140,timer=0;
+$('best').textContent=best;
+function fit(){cell=Math.max(8,Math.floor(Math.min((innerWidth-28)/W,(innerHeight-130)/H)));C.width=W*cell;C.height=H*cell;draw()}
+function place(){do{food={x:Math.random()*W|0,y:Math.random()*H|0}}while(snake.some(s=>s.x===food.x&&s.y===food.y))}
+function say(t){$('msg').innerHTML=t}
+function start(){snake=[{x:8,y:9},{x:7,y:9},{x:6,y:9}];dir={x:1,y:0};turns=[];score=0;delay=140;alive=true;paused=false;place();$('score').textContent=0;say('');clearTimeout(timer);timer=setTimeout(step,delay);draw()}
+function over(){alive=false;if(score>best){best=score;store.set('trail.best',best);$('best').textContent=best}say('<strong>Game over.</strong> Press Enter for another.');draw()}
+function step(){
+  if(!alive||paused)return;
+  if(turns.length)dir=turns.shift();
+  const h={x:snake[0].x+dir.x,y:snake[0].y+dir.y};
+  if(h.x<0||h.y<0||h.x>=W||h.y>=H||snake.some((s,i)=>i<snake.length-1&&s.x===h.x&&s.y===h.y))return over();
+  snake.unshift(h);
+  if(h.x===food.x&&h.y===food.y){score++;$('score').textContent=score;delay=Math.max(60,140-score*3);if(snake.length===W*H)return over();place()}else snake.pop();
+  draw();timer=setTimeout(step,delay);
+}
+function draw(){
+  g.clearRect(0,0,C.width,C.height);
+  g.fillStyle=css('ac');
+  snake.forEach((s,i)=>{g.globalAlpha=i?Math.max(.35,1-i*.03):1;const p=i?2:1;g.beginPath();g.roundRect(s.x*cell+p,s.y*cell+p,cell-2*p,cell-2*p,cell*.28);g.fill()});
+  g.globalAlpha=1;
+  if(snake.length){g.fillStyle=css('fg');g.beginPath();g.arc(food.x*cell+cell/2,food.y*cell+cell/2,cell*.3,0,7);g.fill()}
+}
+function turn(x,y){if(!alive)return;const last=turns.length?turns[turns.length-1]:dir;if(last.x===-x&&last.y===-y||last.x===x&&last.y===y)return;if(turns.length<2)turns.push({x,y})}
+function pause(on){if(!alive)return;paused=on;clearTimeout(timer);if(paused)say('Paused. Press Space to go on.');else{say('');timer=setTimeout(step,delay)}}
+const KEYS={ArrowUp:[0,-1],ArrowDown:[0,1],ArrowLeft:[-1,0],ArrowRight:[1,0],w:[0,-1],s:[0,1],a:[-1,0],d:[1,0]};
+addEventListener('keydown',e=>{
+  const k=KEYS[e.key]||KEYS[e.key.toLowerCase()];
+  if(k){e.preventDefault();if(!alive&&!snake.length)start();turn(k[0],k[1])}
+  else if(e.key===' '){e.preventDefault();if(alive)pause(!paused);else start()}
+  else if(e.key==='Enter'){e.preventDefault();start()}
+});
+$('new').onclick=()=>{start();C.focus()};
+addEventListener('resize',fit);
+document.addEventListener('visibilitychange',()=>{if(document.hidden&&alive&&!paused)pause(true)});
+addEventListener('blur',()=>{if(alive&&!paused)pause(true)});
+fit();say('Arrow keys or W A S D to steer. Space to pause.');
+</script>
+</body>
+</html>

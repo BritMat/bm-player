@@ -25,3 +25,6 @@
 *.pdf binary
 *.mp3 binary
 *.mp4 binary
+
+# Fetched by the app and checked against a SHA-256: the bytes must not change on any system.
+games/** -text

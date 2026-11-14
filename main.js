@@ -14,6 +14,7 @@
  *   main/library.js   bmfile://, gallery thumbnails, album art, tags, folder scans
  *   main/lyrics-service.js  lyrics.js and ytdlp.js for the page
  *   main/tv-service.js      playlists for the TV tab, fetched and kept
+ *   main/games-service.js   the Games tab: what is fetched, your lists, bmgame://
  *   main/plugins.js   finding plugins and their saved state
  *   main/appinfo.js   the version, Diagnostics, updates, battery power
  *   main/caches.js, log.js, send.js   small shared helpers
@@ -48,7 +49,8 @@ const mpv = require('./main/mpv');
 const dialogs = require('./main/dialogs');
 const plugins = require('./main/plugins');
 const lyricsService = require('./main/lyrics-service');
-const tvService = require('./main/tv-service');   // v3.52.0: playlists for the TV tab
+const tvService = require('./main/tv-service');
+const gamesService = require('./main/games-service');   // v3.52.0: playlists for the TV tab
 const appinfo = require('./main/appinfo');
 const { pruneCache, pruneCaches } = require('./main/caches');
 
@@ -94,6 +96,8 @@ app.whenReady().then(()=>{
   setTimeout(() => { pruneCache('thumbs'); pruneCache('covers'); pruneCache('lyrics', 20 * 1024 * 1024, 365); }, 30000).unref?.();   // v3.33.0, lyrics v3.38.0
   try { protocol.handle('bmfile', library.serveBmFile); }
   catch (e) { console.error('[main] could not register bmfile://:', e); }
+  try { protocol.handle('bmgame', gamesService.serve); }   // the Games tab's frames (v3.53.0)
+  catch (e) { console.error('[main] could not register bmgame://:', e); }
   registerIpc();
   windows.createWindows(makeBoot);
 });
@@ -135,7 +139,7 @@ let _ipcRegistered = false;
 function registerIpc(){
   if (_ipcRegistered) return;
   _ipcRegistered = true;
-  const parts = { windows, dialogs, plugins, mpv, appinfo, library, lyrics: lyricsService, tv: tvService };
+  const parts = { windows, dialogs, plugins, mpv, appinfo, library, lyrics: lyricsService, tv: tvService, games: gamesService };
   for (const [name, part] of Object.entries(parts)) {
     try { part.register(ipcMain); } catch (e) { logFatal('ipc, ' + name, e); }
   }

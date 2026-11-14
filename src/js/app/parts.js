@@ -19,9 +19,11 @@ const PARTS = {
   images: () => import('../dash/gallery.js').then(m => { window.bmGallery = new m.GalleryDash(window.api); return window.bmGallery; }),
   pdf: () => import('../dash/pdf.js').then(m => { window.bmPDF = new m.PDFViewer(window.api); return window.bmPDF; }),
   tv: app => import('../modules/tv.js').then(m => { app._tvStart(m.TVModule); return app.tvModule; }),
+  // v3.53.0
+  games: app => import('../dash/games.js').then(m => { window.bmGames = new m.GamesDash(window.api, { osd: (t, ms) => app.showOSD?.(t, ms) }); return window.bmGames; }),
 };
-const VIEW = { images: 'gallery-view', pdf: 'pdf-view', tv: 'tv-view' };
-const NAME = { images: 'Gallery', pdf: 'PDF', tv: 'TV' };
+const VIEW = { images: 'gallery-view', pdf: 'pdf-view', tv: 'tv-view', games: 'games-view' };
+const NAME = { images: 'Gallery', pdf: 'PDF', tv: 'TV', games: 'Games' };
 
 export default class PartsFeature {
   /**

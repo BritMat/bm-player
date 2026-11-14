@@ -1007,6 +1007,131 @@ await step('PiP size button cycles three sizes, anchored and on screen', async (
     } finally { electronStub.net.fetch = real; }
   });
 
+  /* ── 7e. Games (v3.53.0) ──────────────────────────────────────── */
+  await step('games: a game is fetched whole and checked, from the web when packaged, and a file that does not match is not kept', async () => {
+    const real = electronStub.net.fetch, asked = [];
+    const local = rel => fs.readFileSync(path.join(ROOT, 'games', ...rel.split('/')));
+    const answer = (buf, status = 200) => ({ ok: status < 400, status, arrayBuffer: async () => buf });
+    const relOf = url => decodeURIComponent(url.replace('https://raw.githubusercontent.com/BritMat/bm-player/main/games/', ''));
+    try {
+      const first = await call('games:list');
+      if (first.builtin.length < 5 || first.builtin.some(g => g.installed) || first.core.installed) throw new Error('before anything is fetched: ' + JSON.stringify(first.builtin.map(g => [g.id, g.installed])));
+      if (first.builtin.some(g => !(g.size > 1000) || !g.name || !g.blurb)) throw new Error('a game with no size, name or line about it');
+      if (first.roms.length || first.folder || first.mine.length) throw new Error('lists not empty at first');
+      // run from the source: the copy beside the app, and the web is not asked
+      electronStub.net.fetch = async url => { asked.push(url); return answer(local(relOf(url))); };
+      const src = await call('games:get', 'trail');
+      if (!src.ok || asked.length) throw new Error('from the source folder: ' + JSON.stringify(src) + ', asked ' + asked.length);
+      await call('games:remove', 'trail');
+      if ((await call('games:list')).builtin.find(g => g.id === 'trail').installed) throw new Error('still there after remove');
+      // packaged: from the repository on GitHub
+      electronStub.app.isPackaged = true;
+      const web = await call('games:get', 'trail');
+      if (!web.ok || asked.length !== 1 || asked[0] !== 'https://raw.githubusercontent.com/BritMat/bm-player/main/games/trail/1/index.html') throw new Error('from the web: ' + JSON.stringify(web) + ' ' + asked.join());
+      const kept = path.join(TMP, 'userData', 'games', 'builtin', 'trail', '1', 'index.html');
+      if (!fs.readFileSync(kept).equals(local('trail/1/index.html'))) throw new Error('what was kept is not the game');
+      const again = asked.length; await call('games:get', 'trail');
+      if (asked.length !== again) throw new Error('a game already here was fetched again');
+      // a file that is not the one expected: refused, and nothing of it is left
+      electronStub.net.fetch = async url => answer(Buffer.concat([local(relOf(url)), Buffer.from('<script>fetch("https://elsewhere.example")</script>')]));
+      const bad = await call('games:get', 'mines');
+      if (!bad.error || !/not the file/.test(bad.error)) throw new Error('a changed file was kept: ' + JSON.stringify(bad));
+      const dir = path.join(TMP, 'userData', 'games', 'builtin', 'mines');
+      if (fs.existsSync(dir) && fs.readdirSync(dir).length) throw new Error('part of a refused game was left: ' + fs.readdirSync(dir));
+      electronStub.net.fetch = async () => answer(Buffer.from('gone'), 404);
+      const none = await call('games:get', 'mines'); if (!/404/.test(none.error || '')) throw new Error('a 404: ' + JSON.stringify(none));
+      electronStub.net.fetch = async () => { throw new Error('net::ERR_INTERNET_DISCONNECTED'); };
+      if (!(await call('games:get', 'mines')).error) throw new Error('offline gave no reason');
+      if ((await call('games:get', 'no-such-game')).ok) throw new Error('a game not in the list was fetched');
+      // the GBA core, the same way, with its licence beside it
+      electronStub.net.fetch = async url => { asked.push(url); return answer(local(relOf(url))); };
+      const core = await call('games:core');
+      if (!core.ok || !(await call('games:list')).core.installed) throw new Error('the core: ' + JSON.stringify(core));
+      const cdir = path.join(TMP, 'userData', 'games', 'cores', 'mgba', '1.1.1');
+      for (const f of ['mgba.js', 'mgba.wasm', 'LICENSE.txt']) if (!fs.existsSync(path.join(cdir, f))) throw new Error('the core came without ' + f);
+      if (!/Mozilla Public License/.test(fs.readFileSync(path.join(cdir, 'LICENSE.txt'), 'utf8'))) throw new Error('the core\'s licence is not its licence');
+    } finally { electronStub.net.fetch = real; electronStub.app.isPackaged = false; }
+  });
+
+  await step('games: bmgame:// serves a game its own files and nothing else, with a policy that keeps it off the network', async () => {
+    if (!rec.protocols.has('bmgame')) throw new Error('protocol.handle("bmgame") was never called');
+    if (!rec.schemes.some(p => p.scheme === 'bmgame' && p.privileges.standard && p.privileges.secure && !p.privileges.bypassCSP)) throw new Error('bmgame is not registered as a scheme of its own');
+    const get = (url, method) => rec.protocols.get('bmgame')({ url, method: method || 'GET', headers: new Headers() });
+    const ok = await get('bmgame://b-trail/index.html?bg=%230b0f1a');
+    if (ok.status !== 200 || !/text\/html/.test(ok.headers.get('content-type'))) throw new Error('the game\'s page: ' + ok.status);
+    const csp = ok.headers.get('content-security-policy') || '';
+    if (!/default-src 'self'/.test(csp) || !/connect-src 'self' data: blob:(;|$)/.test(csp) || /https?:|\*|unsafe-eval|bmfile|file:/.test(csp)) throw new Error('a built-in game\'s policy: ' + csp);
+    if (!/<title>Trail<\/title>/.test(await ok.text())) throw new Error('not the game');
+    if ((await get('bmgame://b-trail/')).status !== 200) throw new Error('the bare address does not give the game');
+    for (const u of ['bmgame://b-trail/other.html', 'bmgame://b-trail/%2e%2e%2f%2e%2e%2flibrary.json', 'bmgame://b-trail/..%2F..%2F..%2Flibrary.json', 'bmgame://b-mines/index.html', 'bmgame://b-nothing/index.html', 'bmgame://elsewhere/index.html', 'bmgame://b-trail/index.html%00.png']) {
+      const r = await get(u); if (r.status === 200) throw new Error('served: ' + u);
+    }
+    if ((await get('bmgame://b-trail/index.html', 'POST')).status !== 405) throw new Error('a POST was answered');
+    // the GBA player: its page from the app, its core from where it was fetched to
+    const page = await get('bmgame://gba/index.html?rom=000000000000');
+    const gcsp = page.headers.get('content-security-policy') || '';
+    if (page.status !== 200 || !/script-src 'self' 'wasm-unsafe-eval'(;|$)/.test(gcsp) || /unsafe-inline'?;? *$|script-src[^;]*unsafe-inline|https?:/.test(gcsp)) throw new Error('the GBA page: ' + page.status + ' ' + gcsp);
+    const wasm = await get('bmgame://gba/core/mgba.wasm');
+    if (wasm.status !== 200 || wasm.headers.get('content-type') !== 'application/wasm') throw new Error('the core: ' + wasm.status + ' ' + wasm.headers.get('content-type'));
+    for (const u of ['bmgame://gba/core/other.js', 'bmgame://gba/core/..%2F..%2F..%2Flibrary.json', 'bmgame://gba/..%2F..%2F..%2Fmain.js', 'bmgame://gba/rom/000000000000', 'bmgame://gba/rom/..%2F..%2Flibrary.json']) {
+      const r = await get(u); if (r.status === 200) throw new Error('served: ' + u);
+    }
+  });
+
+  await step('games: your GBA games are a list of where they are, your HTML games a folder, and neither reaches outside itself', async () => {
+    const realOpen = electronStub.dialog.showOpenDialog;
+    const get = url => rec.protocols.get('bmgame')({ url, method: 'GET', headers: new Headers() });
+    const dir = fs.mkdtempSync(path.join(TMP, 'games-'));
+    try {
+      const rom = path.join(dir, 'My Game (v1).gba'), notRom = path.join(dir, 'notes.txt');
+      fs.writeFileSync(rom, Buffer.from('a game of my own')); fs.writeFileSync(notRom, 'private');
+      let asks = [];
+      electronStub.dialog.showOpenDialog = async (...a) => { asks.push(a.at(-1)); return { canceled: false, filePaths: [rom, notRom, rom] }; };
+      const added = await call('games:addRoms');
+      if (added.added !== 1) throw new Error('added: ' + JSON.stringify(added));
+      if (JSON.stringify(asks[0].filters) !== JSON.stringify([{ name: 'Game Boy Advance games', extensions: ['gba'] }])) throw new Error('the dialog asks for: ' + JSON.stringify(asks[0].filters));
+      if ((await call('games:addRoms')).added !== 0) throw new Error('the same game was listed twice');
+      const l = await call('games:list');
+      if (l.roms.length !== 1 || l.roms[0].name !== 'My Game (v1)' || l.roms[0].missing || !/^[0-9a-f]{12}$/.test(l.roms[0].id)) throw new Error('the list: ' + JSON.stringify(l.roms));
+      const r = await get('bmgame://gba/rom/' + l.roms[0].id);
+      if (r.status !== 200 || (await r.text()) !== 'a game of my own' || r.headers.get('content-type') !== 'application/octet-stream') throw new Error('the game\'s file: ' + r.status);
+      const saved = JSON.parse(fs.readFileSync(path.join(TMP, 'userData', 'games', 'library.json'), 'utf8'));
+      if (saved.roms.length !== 1 || saved.roms[0].file !== rom || !(saved.roms[0].played > 0)) throw new Error('the list was not kept: ' + JSON.stringify(saved));
+      fs.renameSync(rom, rom + '.moved');
+      if (!(await call('games:list')).roms[0].missing || (await get('bmgame://gba/rom/' + l.roms[0].id)).status !== 404) throw new Error('a moved file is not said to be missing');
+      await call('games:removeRom', l.roms[0].id);
+      if ((await call('games:list')).roms.length) throw new Error('still listed');
+      if (!fs.existsSync(rom + '.moved')) throw new Error('taking a game out of the list deleted its file');
+
+      // a folder of HTML games
+      const mine = path.join(dir, 'html games'); fs.mkdirSync(path.join(mine, 'Space Rocks', 'js'), { recursive: true }); fs.mkdirSync(path.join(mine, 'Not a game'));
+      fs.writeFileSync(path.join(mine, 'Space Rocks', 'index.html'), '<!doctype html><title>Rocks</title><script src="js/game.js"></script>');
+      fs.writeFileSync(path.join(mine, 'Space Rocks', 'js', 'game.js'), 'var rocks = 1;');
+      fs.writeFileSync(path.join(mine, 'Loose One.html'), '<!doctype html><title>Loose</title>');
+      fs.writeFileSync(path.join(mine, 'Not a game', 'readme.txt'), 'x'); fs.writeFileSync(path.join(mine, '.hidden.html'), 'x');
+      fs.writeFileSync(path.join(dir, 'secret.txt'), 'outside the folder');
+      let linked = false; try { fs.symlinkSync(path.join(dir, 'secret.txt'), path.join(mine, 'Space Rocks', 'link.txt')); linked = true; } catch (_) {}
+      electronStub.dialog.showOpenDialog = async (...a) => { asks.push(a.at(-1)); return { canceled: false, filePaths: [mine] }; };
+      const picked = await call('games:pickFolder');
+      if (picked.folder !== mine || !asks.at(-1).properties.includes('openDirectory')) throw new Error('the folder: ' + JSON.stringify(picked));
+      const m = (await call('games:list')).mine;
+      if (m.map(g => g.name).join('|') !== 'Loose One|Space Rocks' || m[0].entry !== 'Loose One.html' || m[1].entry !== 'index.html') throw new Error('the games found: ' + JSON.stringify(m));
+      const rocks = 'bmgame://u-' + m[1].id + '/';
+      const pg = await get(rocks + 'index.html'), js = await get(rocks + 'js/game.js');
+      if (pg.status !== 200 || js.status !== 200 || !/javascript/.test(js.headers.get('content-type'))) throw new Error('a game of yours: ' + pg.status + ' ' + js.status);
+      const csp = pg.headers.get('content-security-policy') || '';
+      if (!/connect-src 'self' data: blob:(;|$)/.test(csp) || /https?:|bmfile|file:/.test(csp) || !/form-action 'none'/.test(csp)) throw new Error('its policy: ' + csp);
+      for (const u of [rocks + '..%2F..%2Fsecret.txt', rocks + '..%2FLoose%20One.html', rocks + '%2Fetc%2Fpasswd', rocks + encodeURIComponent(path.join(dir, 'secret.txt')), ...(linked ? [rocks + 'link.txt'] : [])]) {
+        const r2 = await get(u); if (r2.status === 200) throw new Error('reached outside the game: ' + u);
+      }
+      if ((await get('bmgame://u-' + m[0].id + '/Loose%20One.html')).status !== 200) throw new Error('a loose page did not load');
+      electronStub.dialog.showOpenDialog = async () => ({ canceled: true, filePaths: [] });
+      if ((await call('games:pickFolder')).folder !== mine) throw new Error('cancelling forgot the folder');
+      await call('games:clearFolder');
+      if ((await call('games:list')).folder || (await get(rocks + 'index.html')).status === 200) throw new Error('a forgotten folder is still served');
+    } finally { electronStub.dialog.showOpenDialog = realOpen; }
+  });
+
   // yt-dlp, fetched on first use and checked against its published sum (v3.39.0).
   // v3.46.0: the seek bar's pictures, each from an mpv of its own (thumbs.js).
   // A fake mpv writes the JPEG into the folder it is given, as mpv's image

@@ -266,9 +266,10 @@ if (PART === 'a') {
     await cdp.send('Debugger.enable'); await page.waitForTimeout(300);
     await cdp.send('Debugger.disable'); await cdp.detach();
     r.scripts = parsed.size;
-    r.early = [...parsed].filter(n => /dash\/(gallery|pdf)\.js|modules\/tv\.js|play\/(fox-voice|flow-toy|slice-game)\.js|pdf(-lib)?\.min\.js/.test(n));
+    r.early = [...parsed].filter(n => /dash\/(gallery|pdf)\.js|modules\/tv\.js|dash\/games\.js|play\/(fox-voice|flow-toy|slice-game)\.js|pdf(-lib)?\.min\.js/.test(n));
     if (r.scripts < 20) throw new Error('the debugger listed only ' + r.scripts + ' scripts: this check cannot see what loaded');
-    if (r.gallery || r.pdf || r.tv || r.voice || r.reader || r.editor || r.early.length) throw new Error(JSON.stringify(r));
+    r.games = await page.evaluate(() => !!window.bmGames || !!document.querySelector('iframe'));
+    if (r.gallery || r.pdf || r.tv || r.games || r.voice || r.reader || r.editor || r.early.length) throw new Error(JSON.stringify(r));
     console.log(`      (${r.scripts} scripts at start, none of them those)`);
   });
 
@@ -2041,6 +2042,196 @@ if (PART === 'c') {
   }
 }
 if (PART === 'd') {
+  /* ── Games (v3.53.0), in the real app ──────────────────────────
+     Each built-in game is fetched (from games/ beside the app, as a run from
+     the source does), started in its frame and played a little. The GBA
+     player runs a game made here: sixteen instructions that paint the screen
+     red while A is held and blue otherwise. No game of anyone else's is used. */
+  {
+    const gameFrame = async host => { for (let i = 0; i < 60; i++) { const f = page.frames().find(x => x.url().startsWith('bmgame://' + host + '/')); if (f) { try { await f.waitForLoadState('load', { timeout: 5000 }); return f; } catch {} } await page.waitForTimeout(100); } throw new Error('no frame at bmgame://' + host); };
+    const openGame = async id => {
+      const t = `#games-builtin .gm-tile[data-id="${id}"]`;
+      if (await page.locator(t + ' [data-act="get"]').count()) { await page.click(t + ' [data-act="get"]'); await page.waitForSelector(t + ' [data-act="play"]', { timeout: 15000 }); }
+      await page.click(t + ' [data-act="play"]');
+      return gameFrame('b-' + id);
+    };
+    // The colour in the middle of a PNG (8 bits a channel, as Chromium's screenshots are).
+    const midColour = png => {
+      let o = 8, w = 0, h = 0, type = 0; const idat = [];
+      while (o < png.length) { const len = png.readUInt32BE(o), tag = png.toString('ascii', o + 4, o + 8), d = png.subarray(o + 8, o + 8 + len); if (tag === 'IHDR') { w = d.readUInt32BE(0); h = d.readUInt32BE(4); type = d[9]; } else if (tag === 'IDAT') idat.push(d); o += 12 + len; }
+      const bpp = type === 6 ? 4 : 3, raw = zlib.inflateSync(Buffer.concat(idat)), stride = w * bpp, rows = [];
+      for (let y = 0; y <= h >> 1; y++) {
+        const f = raw[y * (stride + 1)], line = Buffer.from(raw.subarray(y * (stride + 1) + 1, (y + 1) * (stride + 1))), up = rows[y - 1];
+        for (let x = 0; x < stride; x++) { const a = x >= bpp ? line[x - bpp] : 0, b = up ? up[x] : 0, c = up && x >= bpp ? up[x - bpp] : 0;
+          line[x] = (line[x] + (f === 1 ? a : f === 2 ? b : f === 3 ? (a + b) >> 1 : f === 4 ? (Math.abs(b - c) <= Math.abs(a - c) && Math.abs(b - c) <= Math.abs(a + b - 2 * c) ? a : Math.abs(a - c) <= Math.abs(a + b - 2 * c) ? b : c) : 0)) & 255; }
+        rows.push(line);
+      }
+      const m = rows[h >> 1], x = (w >> 1) * bpp; return [m[x], m[x + 1], m[x + 2]];
+    };
+
+    await step('Games: each built-in game is fetched when asked for, runs in its own frame and plays', async () => {
+      await page.click('.sidebar-btn[data-dest="games"]');
+      await page.waitForFunction(() => window.bmGames, null, { timeout: 20000 }); await page.evaluate(() => bmGames.ready);
+      const before = await page.evaluate(() => ({ here: bmGames.state.builtin.filter(g => g.installed).length, n: bmGames.state.builtin.length, core: bmGames.state.core.installed, frames: document.querySelectorAll('iframe').length }));
+      if (before.here || before.n < 5 || before.core || before.frames) throw new Error('at first: ' + JSON.stringify(before));
+      if (fs.existsSync(path.join(PROFILE, 'games', 'builtin'))) throw new Error('a game was on the computer before it was asked for');
+
+      let f = await openGame('trail');
+      if (!fs.existsSync(path.join(PROFILE, 'games', 'builtin', 'trail', '1', 'index.html'))) throw new Error('the game was not put in its own folder');
+      const tag = await page.evaluate(() => { const i = document.querySelector('#games-frame-box iframe'); return { sandbox: i.getAttribute('sandbox'), src: i.src }; });
+      if (/allow-(top-navigation|popups|forms|modals|downloads)/.test(tag.sandbox) || !/^bmgame:\/\/b-trail\/index\.html\?/.test(tag.src)) throw new Error('the frame: ' + JSON.stringify(tag));
+      await f.locator('#c').click(); await page.keyboard.press('ArrowDown');
+      await page.waitForTimeout(700);
+      const t = await f.evaluate(() => ({ alive, len: snake.length, y: snake[0].y, x: snake[0].x, bg: getComputedStyle(document.documentElement).getPropertyValue('--bg').trim() }));
+      if (!t.alive || t.y <= 9) throw new Error('Trail did not start and turn down: ' + JSON.stringify(t));
+      const appBg = await page.evaluate(() => { const c = document.createElement('canvas').getContext('2d'); c.fillStyle = getComputedStyle(document.body).getPropertyValue('--bg').trim(); return c.fillStyle; });
+      if (t.bg.toLowerCase() !== appBg.toLowerCase()) throw new Error(`the game is not in the theme's colours: ${t.bg} and ${appBg}`);
+      // another tab: the game waits
+      await page.click('.sidebar-btn[data-dest="music"]'); await page.waitForTimeout(300);
+      if (!(await f.evaluate(() => paused))) throw new Error('Trail went on while another tab was shown');
+      await page.click('.sidebar-btn[data-dest="games"]');
+      await f.evaluate(() => { score = 7; over(); });
+      await page.click('#btn-games-close');
+      if (await page.locator('iframe').count()) throw new Error('the frame stayed after the game was closed');
+
+      f = await openGame('trail');
+      if ((await f.evaluate(() => best)) !== 7) throw new Error('the best score was not kept for the next time');
+      await page.click('#btn-games-close');
+
+      f = await openGame('bricks');
+      await f.locator('#c').click(); await page.waitForTimeout(500);
+      const b = await f.evaluate(() => ({ state, y: ball.y, vy: ball.vy })); if (b.state !== 'play' || !(b.vy < 0) || !(b.y < 400)) throw new Error('Bricks: ' + JSON.stringify(b));
+      await page.keyboard.down('ArrowLeft'); await page.waitForTimeout(300); await page.keyboard.up('ArrowLeft');
+      if (!((await f.evaluate(() => bat.x)) < 320)) throw new Error('the bat did not move');
+      await page.click('#btn-games-close');
+
+      f = await openGame('merge');
+      await f.locator('#grid').click();
+      const was = await f.evaluate(() => cells.join());
+      for (const k of ['ArrowLeft', 'ArrowUp', 'ArrowRight', 'ArrowDown']) await page.keyboard.press(k);
+      const m = await f.evaluate(() => ({ now: cells.join(), n: cells.filter(Boolean).length, sum: cells.reduce((a, v) => a + v, 0), tiles: document.querySelectorAll('#grid .t').length }));
+      if (m.now === was || m.n < 2 || m.tiles !== 16 || m.sum < 8) throw new Error('Merge: ' + JSON.stringify(m));
+      await page.click('#btn-games-close');
+
+      f = await openGame('mines');
+      await f.locator('.c').nth(40).click();
+      const mi = await f.evaluate(() => ({ opened, mines: cells.filter(c => c.mine).length, firstSafe: !cells[40].mine && cells[40].n === 0 }));
+      if (mi.mines !== 10 || !mi.firstSafe || mi.opened < 9) throw new Error('Mines: ' + JSON.stringify(mi));
+      const closed = await f.evaluate(() => cells.findIndex(c => !c.open));
+      await f.locator('.c').nth(closed).click({ button: 'right' });
+      if ((await f.evaluate(() => flags)) !== 1 || (await f.locator('#left').textContent()) !== '9') throw new Error('a mine could not be marked');
+      await page.click('#btn-games-close');
+
+      f = await openGame('pairs');
+      const pair = await f.evaluate(() => { const a = 0, b = cards.findIndex((c, i) => i && c.v === cards[0].v); return [a, b]; });
+      await f.locator('.k').nth(pair[0]).click(); await f.locator('.k').nth(pair[1]).click();
+      const p = await f.evaluate(() => ({ turns, found, done: document.querySelectorAll('.k.done').length })); if (p.turns !== 1 || p.found !== 1 || p.done !== 2) throw new Error('Pairs: ' + JSON.stringify(p));
+      await page.click('#btn-games-close');
+    });
+
+    await step('Games: a game cannot reach the app, the network, or any page but its own', async () => {
+      const f = await openGame('merge');
+      const kept = consoleMsgs.length;
+      const r = await f.evaluate(async () => {
+        const out = { api: typeof window.api, node: typeof require + typeof process };
+        try { out.parent = typeof parent.bmApp; } catch (e) { out.parent = 'refused'; }
+        try { parent.document.title; out.doc = 'read'; } catch (e) { out.doc = 'refused'; }
+        const tryFetch = async u => { try { await fetch(u, { mode: 'no-cors' }); return 'answered'; } catch (e) { return 'refused'; } };
+        out.web = await tryFetch('https://example.com/'); out.file = await tryFetch('bmfile://local/%2Fetc%2Fhostname'); out.other = await tryFetch('bmgame://b-trail/index.html'); out.own = await tryFetch('index.html');
+        out.img = await new Promise(done => { const i = new Image(); i.onload = () => done('loaded'); i.onerror = () => done('refused'); i.src = 'https://example.com/a.png'; setTimeout(() => done('nothing'), 3000); });
+        try { out.open = window.open('https://example.com/') ? 'opened' : 'refused'; } catch (e) { out.open = 'refused'; }
+        try { top.location.href = 'https://example.com/'; out.top = 'asked'; } catch (e) { out.top = 'refused'; }
+        return out;
+      });
+      await page.waitForTimeout(400);
+      if (r.api !== 'undefined' || r.node !== 'undefinedundefined' || r.parent !== 'refused' || r.doc !== 'refused') throw new Error('the game reaches the app: ' + JSON.stringify(r));
+      if (r.web !== 'refused' || r.file !== 'refused' || r.other !== 'refused' || r.img !== 'refused' || r.own !== 'answered') throw new Error('what the game can fetch: ' + JSON.stringify(r));
+      if (r.open !== 'refused') throw new Error('the game opened a window');
+      if (!/index\.html/.test(page.url()) || !(await page.evaluate(() => !!window.bmApp))) throw new Error('the game took the app\'s page elsewhere: ' + page.url());
+      // the frame itself, sent to the web: it stays where it is
+      await f.evaluate(() => { location.href = 'https://example.com/'; }).catch(() => {});
+      await page.waitForTimeout(600);
+      const at = await page.evaluate(() => document.querySelector('#games-frame-box iframe').src);
+      const now = page.frames().filter(x => x !== page.mainFrame()).map(x => x.url());
+      if (now.some(u => /^https?:/.test(u))) throw new Error('the frame went to the web: ' + now.join());
+      consoleMsgs.length = kept;   // what Chromium said of each refusal above was asked for
+      await page.click('#btn-games-close');
+    });
+
+    await step('Games: a GBA game of your own is added, the player is fetched once, it runs, takes the keys and saves', async () => {
+      // A game made here: red while A is held, blue otherwise.
+      const rom = Buffer.alloc(1024), w = (o, v) => rom.writeUInt32LE(v >>> 0, o);
+      w(0, 0xEA00002E); rom.write('BMTEST', 0xA0, 'ascii'); rom.write('BMTE', 0xAC, 'ascii'); rom.write('01', 0xB0, 'ascii'); rom[0xB2] = 0x96;
+      let sum = 0; for (let i = 0xA0; i <= 0xBC; i++) sum -= rom[i]; rom[0xBD] = (sum - 0x19) & 255;
+      [0xE3A00301, 0xE3A01B01, 0xE3811003, 0xE1C010B0, 0xE3A00301, 0xE2800E13, 0xE1D020B0, 0xE3120001, 0x03A0101F, 0x13A01B1F, 0xE3A00406, 0xE3A03C96, 0xE0C010B2, 0xE2533001, 0x1AFFFFFC, 0xEAFFFFF3].forEach((v, i) => w(0xC0 + i * 4, v));
+      const file = path.join(FIX, 'Red & Blue (test).gba'); fs.writeFileSync(file, rom);
+      await app.evaluate(({ dialog }, f) => { global.__realOpenDialog = dialog.showOpenDialog; dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [f] }); }, file);
+      try {
+        await page.click('#btn-games-addroms');
+        await page.waitForSelector('#games-gba .gm-tile', { timeout: 10000 });
+        if ((await page.locator('#games-gba .gm-name').textContent()) !== 'Red & Blue (test)') throw new Error('the game is listed as ' + await page.locator('#games-gba .gm-name').textContent());
+        if (fs.existsSync(path.join(PROFILE, 'games', 'cores'))) throw new Error('the player was fetched before a game was played');
+        await page.click('#games-gba [data-act="rom"]');
+        const f = await gameFrame('gba');
+        if (/Red|Blue|test|fix/i.test(f.url().split('?')[1] || '')) throw new Error('the frame was told where the file is: ' + f.url());
+        for (const n of ['mgba.js', 'mgba.wasm', 'LICENSE.txt']) if (!fs.existsSync(path.join(PROFILE, 'games', 'cores', 'mgba', '1.1.1', n))) throw new Error('the player came without ' + n);
+        await f.waitForFunction(() => document.getElementById('note').hidden, null, { timeout: 30000 }).catch(async () => { throw new Error('the player did not start: ' + await f.locator('#note').textContent()); });
+        const shot = async () => midColour(await f.locator('#screen').screenshot());
+        const colour = async want => { let c; for (let i = 0; i < 30; i++) { c = await shot(); if (want(c)) return c; await page.waitForTimeout(150); } return c; };
+        const blue = c => c[2] > 200 && c[0] < 60, red = c => c[0] > 200 && c[2] < 60;
+        let c = await colour(blue); if (!blue(c)) throw new Error('the game is not running: the screen is ' + c);
+        await f.locator('#screen').click();
+        await page.keyboard.down('KeyX'); c = await colour(red); await page.keyboard.up('KeyX');
+        if (!red(c)) throw new Error('A (the X key) did not reach the game: the screen stayed ' + c);
+        c = await colour(blue); if (!blue(c)) throw new Error('A stayed held after the key was let go: ' + c);
+        // the buttons over the game
+        await page.click('#btn-gba-save'); await page.waitForFunction(() => /Saved where you are/.test(document.getElementById('osd').textContent), null, { timeout: 5000 });
+        await page.click('#btn-gba-load'); await page.waitForFunction(() => /Back to where you saved/.test(document.getElementById('osd').textContent), null, { timeout: 5000 });
+        await page.click('#btn-gba-pause'); await page.waitForFunction(() => document.getElementById('btn-gba-pause').textContent === 'Resume', null, { timeout: 5000 });
+        await page.click('#btn-gba-pause'); await page.waitForFunction(() => document.getElementById('btn-gba-pause').textContent === 'Pause', null, { timeout: 5000 });
+        await page.click('#btn-gba-speed'); await page.waitForFunction(() => document.getElementById('btn-gba-speed').textContent === 'Speed 2x', null, { timeout: 5000 });
+        await page.click('#btn-gba-reset'); c = await colour(blue); if (!blue(c)) throw new Error('the game did not come back after Reset: ' + c);
+        const kept = consoleMsgs.length;
+        const r = await f.evaluate(async id => ({ api: typeof window.api, other: await fetch('rom/000000000000').then(x => x.status, () => 0), web: await fetch('https://example.com/').then(() => 'answered', () => 'refused') }));
+        consoleMsgs.length = kept;   // what Chromium said of each refusal was asked for
+        if (r.api !== 'undefined' || r.other === 200 || r.web !== 'refused') throw new Error('the player\'s frame: ' + JSON.stringify(r));
+        await page.click('#btn-games-close');
+        if (await page.locator('iframe').count()) throw new Error('the player stayed after it was closed');
+      } finally { await app.evaluate(({ dialog }) => { dialog.showOpenDialog = global.__realOpenDialog; }); }
+    });
+
+    await step('Games: a folder of your own HTML games is listed, and a game from it runs shut in its folder', async () => {
+      const mine = path.join(FIX, 'my html games'); fs.mkdirSync(path.join(mine, 'Clicker', 'js'), { recursive: true });
+      fs.writeFileSync(path.join(mine, 'Clicker', 'index.html'), '<!doctype html><meta charset="utf-8"><title>Clicker</title><button id="b">0</button><script src="js/game.js"></script>');
+      fs.writeFileSync(path.join(mine, 'Clicker', 'js', 'game.js'), 'var n = +(localStorage.getItem("n") || 0); b.textContent = n; b.onclick = function () { n++; localStorage.setItem("n", n); b.textContent = n; };');
+      fs.writeFileSync(path.join(mine, 'One Page.html'), '<!doctype html><title>One</title><p id="p">a page</p>');
+      fs.writeFileSync(path.join(FIX, 'beside the folder.txt'), 'not a game\'s business');
+      await app.evaluate(({ dialog }, d) => { global.__realOpenDialog = dialog.showOpenDialog; dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [d] }); }, mine);
+      try {
+        await page.click('#btn-games-folder');
+        await page.waitForSelector('#games-mine .gm-tile', { timeout: 10000 });
+        const names = await page.locator('#games-mine .gm-name').allTextContents();
+        if (names.join('|') !== 'Clicker|One Page') throw new Error('the games found: ' + names.join('|'));
+        await page.click('#games-mine .gm-tile:first-child [data-act="mine"]');
+        const host = new URL(await page.evaluate(() => document.querySelector('#games-frame-box iframe').src)).host;
+        const f = await gameFrame(host);
+        await f.locator('#b').click(); await f.locator('#b').click();
+        if ((await f.locator('#b').textContent()) !== '2') throw new Error('the game does not run: ' + await f.locator('#b').textContent());
+        const kept = consoleMsgs.length;
+        const r = await f.evaluate(async () => ({ api: typeof window.api, up: await fetch('../beside%20the%20folder.txt').then(x => x.status, () => 0), enc: await fetch('..%2Fbeside%20the%20folder.txt').then(x => x.status, () => 0), web: await fetch('https://example.com/').then(() => 'answered', () => 'refused') }));
+        consoleMsgs.length = kept;
+        if (r.api !== 'undefined' || r.up === 200 || r.enc === 200 || r.web !== 'refused') throw new Error('a game of yours reaches out of its folder: ' + JSON.stringify(r));
+        await page.click('#btn-games-restart');
+        const f2 = await gameFrame(host);
+        if ((await f2.locator('#b').textContent()) !== '2') throw new Error('what the game kept was lost: ' + await f2.locator('#b').textContent());
+        await page.click('#btn-games-close');
+        await page.click('#btn-games-unfolder');
+        await page.waitForFunction(() => !document.querySelector('#games-mine .gm-tile'), null, { timeout: 5000 });
+      } finally { await app.evaluate(({ dialog }) => { dialog.showOpenDialog = global.__realOpenDialog; }); }
+      await page.click('.sidebar-btn[data-dest="video"]');
+    });
+  }
+
   // Part D (v3.46.0): hard going. Names in other scripts and with the symbols
   // a Windows file name may carry, songs that are broken or gone from the
   // disk, presses faster than anyone makes them, mpv stopped by force in the

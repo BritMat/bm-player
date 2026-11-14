@@ -428,8 +428,15 @@ function blankStrings (src) {
     const s = strip(text);
     if (/\beval\s*\(/.test(s) || /\bnew\s+Function\s*\(/.test(s)) evalUsers.push(file);
   }
-  const cspSources = [html, mainSrc];
-  const admitsEval = cspSources.some(t => /unsafe-eval/.test(strip(t)));
+  // v3.53.0: one place may: the policy for a game from the user's own folder
+  // (main/games-service.js, POLICY.mine), since game engines evaluate code.
+  // Such a game runs in a frame of its own, off the network. The page's
+  // policy, the built-in games' and the GBA player's still may not.
+  const gamesPolicy = /^\s*mine: .*$/m;
+  const cspSources = [html, mainSrc.replace(gamesPolicy, '')];
+  const mineLine = (mainSrc.match(gamesPolicy) || [''])[0];
+  if (/unsafe-eval/.test(mainSrc) && !/'unsafe-eval'/.test(mineLine)) err('csp', `'unsafe-eval' is in the main process's code somewhere other than the policy for the user's own games`);
+  const admitsEval = cspSources.some(t => /(?<!wasm-)unsafe-eval/.test(strip(t)));
   if (evalUsers.length) {
     warn('csp', `eval()/new Function() used in: ${evalUsers.join(', ')} — CSP will block it`);
   } else if (admitsEval) {
@@ -913,7 +920,9 @@ function filesList(text) {
   // Read from main.js's folder: __dirname there, ROOT in its parts (v3.47.0).
   const runtimeDirs = [...new Set([...loaded].flatMap(f => [...fs.readFileSync(path.join(ROOT, f), 'utf8').matchAll(/path\.join\(\s*(?:__dirname|ROOT)\s*,\s*'([a-z][\w-]*)'/g)].map(m => m[1])))]
     // buildResources is only read for lite.flag, checked on its own below.
-    .filter(d => !['vendor', 'buildResources'].includes(d) && fs.existsSync(path.join(ROOT, d)) && fs.statSync(path.join(ROOT, d)).isDirectory());
+    // games/ is not packed on purpose (v3.53.0): the Games tab fetches from it,
+    // and reads the folder itself only in a run from the source.
+    .filter(d => !['vendor', 'buildResources', 'games'].includes(d) && fs.existsSync(path.join(ROOT, d)) && fs.statSync(path.join(ROOT, d)).isDirectory());
   for (const cfg of ['electron-builder.yml', 'electron-builder.lite.yml']) {
     const p = path.join(ROOT, cfg); if (!fs.existsSync(p)) continue;
     // The list may contain comment lines; YAML allows them, and one ended the
@@ -922,6 +931,7 @@ function filesList(text) {
     if (!globs.length) { err('packaging', `${cfg}: could not read its files list`); continue; }
     const covered = rel => globs.some(g => globRe(g).test(rel));
     for (const f of loaded) if (!covered(f)) err('packaging', `${cfg} does not package ${f}, which main.js loads: an installed app would crash on launch`);
+    if (covered('games/trail/1/index.html')) err('packaging', `${cfg} packages games/: the games are fetched when wanted, so that the app stays light`);
     const lite = /lite/.test(cfg);
     // Lite leaves plugins out on purpose: it does not load them.
     for (const d of runtimeDirs) { if (lite && d === 'plugins') continue; const f = firstFile(d); if (f && !covered(f)) err('packaging', `${cfg} does not package ${d}/, which main.js reads at runtime`); }

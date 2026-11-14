@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="en">
+<head>
+<title>Mines</title>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<style>
+:root{--bg:#0B0F1A;--fg:#E8ECF5;--mu:#8A93A8;--ac:#6C8CFF;--pn:#151B2B}
+*{box-sizing:border-box}
+html,body{height:100%;margin:0}
+body{background:var(--bg);color:var(--fg);font:15px/1.4 system-ui,-apple-system,"Segoe UI",sans-serif;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;padding:12px;-webkit-user-select:none;user-select:none;overflow:hidden}
+.bar{display:flex;align-items:center;gap:18px;flex-wrap:wrap;justify-content:center}
+.bar b{font-size:18px;letter-spacing:.02em}
+.stat{color:var(--mu);font-variant-numeric:tabular-nums}
+.stat span{color:var(--fg);font-weight:600}
+button,select{font:inherit;color:var(--fg);background:var(--pn);border:1px solid color-mix(in srgb,var(--fg) 18%,transparent);border-radius:9px;padding:6px 14px;cursor:pointer}
+button:hover{border-color:var(--ac)}
+button:focus-visible,select:focus-visible{outline:2px solid var(--ac);outline-offset:2px}
+canvas{background:var(--pn);border-radius:12px;display:block;max-width:100%}
+.msg{min-height:22px;color:var(--mu);text-align:center}
+.msg strong{color:var(--fg)}
+</style>
+<script>
+// The app's colours, given in the address (only plain colour codes are taken).
+const Q=new URLSearchParams(location.search);
+for(const k of ['bg','fg','mu','ac','pn']){const v=Q.get(k);if(v&&/^#[0-9a-f]{3,8}$/i.test(v))document.documentElement.style.setProperty('--'+k,v)}
+const css=k=>getComputedStyle(document.documentElement).getPropertyValue('--'+k).trim();
+// Kept on this computer, for this game only. A game still plays where nothing can be kept.
+const store={get(k,d){try{const v=localStorage.getItem(k);return v==null?d:JSON.parse(v)}catch(e){return d}},set(k,v){try{localStorage.setItem(k,JSON.stringify(v))}catch(e){}}};
+const $=id=>document.getElementById(id);
+</script>
+<style>
+#grid{display:grid;gap:2px;padding:8px;background:var(--pn);border-radius:12px;touch-action:manipulation}
+.c{width:var(--s);height:var(--s);padding:0;border:0;border-radius:5px;background:color-mix(in srgb,var(--fg) 16%,var(--pn));color:var(--fg);font-weight:700;font-size:calc(var(--s)*.52);line-height:1;display:grid;place-items:center}
+.c:hover{background:color-mix(in srgb,var(--fg) 24%,var(--pn))}
+.c.open{background:color-mix(in srgb,var(--fg) 4%,var(--pn));cursor:default}
+.c.flag{color:var(--ac)}
+.c.boom{background:#C0392B;color:#fff}
+.c.n1{color:var(--ac)}.c.n2{color:#3FB37F}.c.n3{color:#E0685C}.c.n4{color:#B58CFF}.c.n5{color:#E0A23C}.c.n6{color:#3FB3B3}
+</style>
+</head>
+<body>
+<div class="bar"><b>Mines</b><span class="stat">Left <span id="left">10</span></span><span class="stat">Time <span id="time">0</span></span><span class="stat">Best <span id="best">-</span></span>
+<select id="size" aria-label="Size"><option value="s">Small</option><option value="m">Medium</option><option value="l">Large</option></select><button id="new" type="button">New game</button></div>
+<div id="grid" role="grid" aria-label="Mines"></div>
+<div class="msg" id="msg">Click to open a square. Right-click, or F over a square, marks a mine.</div>
+<script>
+// Mines: open every square that hides no mine. A number says how many mines touch it.
+const SIZES={s:[9,9,10],m:[16,16,40],l:[30,16,99]},G=$('grid');
+let w,h,mines,cells,first,over,flags,opened,t0=0,timer=0,size=store.get('mines.size','s');
+if(!SIZES[size])size='s';$('size').value=size;
+function fit(){const s=Math.max(14,Math.min(34,Math.floor(Math.min((innerWidth-44)/w,(innerHeight-150)/h))-2));G.style.setProperty('--s',s+'px');G.style.gridTemplateColumns='repeat('+w+',var(--s))'}
+function best(){const b=store.get('mines.best.'+size,0);$('best').textContent=b?b+' s':'-'}
+function start(){
+  [w,h,mines]=SIZES[size];cells=[];first=true;over=false;flags=0;opened=0;clearInterval(timer);$('time').textContent=0;$('left').textContent=mines;
+  G.textContent='';
+  for(let i=0;i<w*h;i++){const b=document.createElement('button');b.type='button';b.className='c';b.dataset.i=i;b.setAttribute('aria-label','Closed');G.appendChild(b);cells.push({mine:false,open:false,flag:false,n:0,el:b})}
+  fit();best();$('msg').textContent='Click to open a square. Right-click, or F over a square, marks a mine.';
+}
+function around(i){const x=i%w,y=i/w|0,out=[];for(let dy=-1;dy<=1;dy++)for(let dx=-1;dx<=1;dx++){if(!dx&&!dy)continue;const nx=x+dx,ny=y+dy;if(nx>=0&&ny>=0&&nx<w&&ny<h)out.push(ny*w+nx)}return out}
+function lay(safe){
+  // the first square opened and the ones around it never hide a mine
+  const keep=new Set([safe,...around(safe)]);let left=mines;
+  while(left){const i=Math.random()*w*h|0;if(cells[i].mine||keep.has(i))continue;cells[i].mine=true;left--}
+  cells.forEach((c,i)=>{c.n=around(i).filter(j=>cells[j].mine).length});
+  t0=Date.now();timer=setInterval(()=>{$('time').textContent=Math.min(999,Math.round((Date.now()-t0)/1000))},500);
+}
+function show(c){c.open=true;opened++;c.el.classList.add('open');c.el.setAttribute('aria-label',c.n?String(c.n):'Empty');if(c.n){c.el.textContent=c.n;c.el.classList.add('n'+Math.min(6,c.n))}}
+function open(i){
+  if(over)return;const c=cells[i];if(c.open||c.flag)return;
+  if(first){first=false;lay(i)}
+  if(c.mine){c.el.classList.add('boom');return end(false)}
+  const todo=[i];
+  while(todo.length){const j=todo.pop(),d=cells[j];if(d.open||d.flag)continue;show(d);if(!d.n)for(const k of around(j))if(!cells[k].open&&!cells[k].mine)todo.push(k)}
+  if(opened===w*h-mines)end(true);
+}
+function flag(i){if(over)return;const c=cells[i];if(c.open)return;c.flag=!c.flag;flags+=c.flag?1:-1;c.el.classList.toggle('flag',c.flag);c.el.textContent=c.flag?'⚑':'';c.el.setAttribute('aria-label',c.flag?'Marked':'Closed');$('left').textContent=mines-flags}
+// a number with all its mines marked: a click opens the rest around it
+function chord(i){const c=cells[i];if(!c.open||!c.n)return;const a=around(i);if(a.filter(j=>cells[j].flag).length!==c.n)return;for(const j of a)open(j)}
+function end(won){
+  over=true;clearInterval(timer);const secs=Math.max(1,Math.round((Date.now()-t0)/1000));
+  cells.forEach(c=>{if(c.mine&&!c.flag){c.el.textContent='●';c.el.classList.add('open')}});
+  if(won){const b=store.get('mines.best.'+size,0);if(!b||secs<b)store.set('mines.best.'+size,secs);best();$('msg').innerHTML='<strong>Cleared in '+secs+' s.</strong> Press Enter for another.'}
+  else $('msg').innerHTML='<strong>That was a mine.</strong> Press Enter for another.';
+}
+G.addEventListener('click',e=>{const b=e.target.closest('.c');if(!b)return;const i=+b.dataset.i;if(cells[i].open)chord(i);else open(i)});
+G.addEventListener('contextmenu',e=>{e.preventDefault();const b=e.target.closest('.c');if(b)flag(+b.dataset.i)});
+let over_i=-1;
+G.addEventListener('pointerover',e=>{const b=e.target.closest('.c');over_i=b?+b.dataset.i:-1});
+G.addEventListener('pointerleave',()=>{over_i=-1});
+addEventListener('keydown',e=>{
+  if(e.key==='Enter'&&!(document.activeElement&&document.activeElement.classList.contains('c')&&!over)){e.preventDefault();start()}
+  else if(e.key.toLowerCase()==='f'){const a=document.activeElement,i=a&&a.classList.contains('c')?+a.dataset.i:over_i;if(i>=0)flag(i)}
+});
+$('new').onclick=start;
+$('size').onchange=e=>{size=e.target.value;store.set('mines.size',size);start()};
+addEventListener('resize',fit);
+start();
+</script>
+</body>
+</html>
