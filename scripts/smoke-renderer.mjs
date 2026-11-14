@@ -102,6 +102,23 @@ function makeApi() {
     pdfFile: group('write'),
     plugins: group('list', 'enable', 'disable'),
     subs: group('openFile'),
+    // v3.53.0: the Games tab
+    games: (() => { const g = bridge.games = { calls: [], state: { builtin: [
+        { id: 'trail', name: 'Trail', blurb: 'Steer a line.', keys: 'Arrow keys', version: 1, size: 5232, installed: false },
+        { id: 'mines', name: 'Mines', blurb: 'Open every square.', keys: 'Click', version: 1, size: 7401, installed: true }],
+        open: [{ id: 'lj-chess', name: 'Chess', blurb: 'The classic game of kings and pawns.', keys: '', by: 'Frank Force', licence: 'MIT', source: 'https://github.com/KilledByAPixel/LittleJSArcade', entry: 'games/chess.html', query: 'engine=min', version: 1, size: 59000, extra: 760000, installed: false }],
+        core: { name: 'mGBA', version: '1.1.1', licence: 'MPL-2.0', size: 2230277, installed: false },
+        roms: [{ id: 'aaaaaaaaaaaa', name: 'My Game', file: '/games/My Game.gba', missing: false }, { id: 'bbbbbbbbbbbb', name: 'Lost <b>One</b>', file: '/games/Lost.gba', missing: true }],
+        folder: null, mine: [] } };
+      const did = (n, f) => async (...a) => { g.calls.push([n, ...a]); return f ? f(...a) : { ok: true }; };
+      return { list: did('list', () => JSON.parse(JSON.stringify(g.state))),
+        get: did('get', id => { if (g.fail) return { error: g.fail }; g.state.builtin.concat(g.state.open).find(x => x.id === id).installed = true; return { ok: true }; }),
+        remove: did('remove', id => { g.state.builtin.concat(g.state.open).find(x => x.id === id).installed = false; return { ok: true }; }),
+        core: did('core', () => { if (g.fail) return { error: g.fail }; g.state.core.installed = true; return { ok: true }; }), removeCore: did('removeCore'),
+        addRoms: did('addRoms', () => { g.state.roms.push({ id: 'cccccccccccc', name: 'Added', file: '/games/Added.gba', missing: false }); return { added: 1 }; }),
+        removeRom: did('removeRom', id => { g.state.roms = g.state.roms.filter(r => r.id !== id); return { ok: true }; }),
+        pickFolder: did('pickFolder', () => { g.state.folder = '/my games'; g.state.mine = [{ id: 'dddddddddddd', name: 'Space Rocks', entry: 'index.html' }, { id: 'eeeeeeeeeeee', name: 'Loose One', entry: 'Loose One.html' }]; return { folder: g.state.folder }; }),
+        clearFolder: did('clearFolder', () => { g.state.folder = null; g.state.mine = []; return { ok: true }; }) }; })(),
     // v3.52.0: the playlist is fetched and kept by the app
     tv: { load: async src => { (bridge.tvAsked ||= []).push(src); return bridge.tvLoad ? bridge.tvLoad(src) : { error: 'no playlist in this test' }; },
           restore: async () => bridge.tvKept || null, forget: async () => true },
@@ -318,9 +335,9 @@ async function main() {
   /* ── 4b. the tabs most starts never open are not loaded at start (v3.47.0) ── */
   if (app) {
     const doc = window.document;
-    const early = { gallery: !!window.bmGallery, pdf: !!window.bmPDF, tv: !!app.tvModule,
+    const early = { gallery: !!window.bmGallery, pdf: !!window.bmPDF, tv: !!app.tvModule, games: !!window.bmGames || bridge.games.calls.length > 0,
       pdfTags: [...doc.querySelectorAll('script[src]')].map(x => x.getAttribute('src')).filter(x => /pdf/.test(x)) };
-    if (early.gallery || early.pdf || early.tv || early.pdfTags.length) fail('the Gallery, PDF tools, TV and the PDF libraries wait until they are opened', new Error(JSON.stringify(early)));
+    if (early.gallery || early.pdf || early.tv || early.games || early.pdfTags.length) fail('the Gallery, PDF tools, TV and the PDF libraries wait until they are opened', new Error(JSON.stringify(early)));
     else pass('the Gallery, PDF tools, TV and the PDF libraries wait until they are opened');
     await step('a tab is set up the first time it opens, once, and its contents wait for it', async () => {
       const view = doc.getElementById('gallery-view');
@@ -1826,6 +1843,127 @@ async function main() {
     });
   }
 
+  /* ── 16c. Games (v3.53.0) ────────────────────────────────────── */
+  {
+    const app = window.bmApp, doc = window.document, g = bridge.games;
+    const $ = id => doc.getElementById(id);
+    const click = n => n.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+    const tile = (list, id) => doc.querySelector(`#${list} .gm-tile[data-id="${id}"]`);
+    const frame = () => doc.querySelector('#games-frame-box iframe');
+    let games;
+
+    await step('Games: the tab lists what can be fetched, your GBA games and your folder, and fetches a game only when asked', async () => {
+      if (!doc.querySelector('.sidebar-btn[data-dest="games"] .sb-label')?.textContent.includes('Games')) throw new Error('no Games button in the rail, or it has no name under it');
+      app.switchDest('games'); games = await app.part('games'); await games.ready;
+      if (app.currentDash !== 'games' || !$('games-view').classList.contains('active')) throw new Error('the tab did not open');
+      if (g.calls.map(c => c[0]).join() !== 'list') throw new Error('opening the tab did more than list: ' + g.calls.map(c => c[0]).join());
+      const trail = tile('games-builtin', 'trail'), mines = tile('games-builtin', 'mines');
+      if (!trail || !mines) throw new Error('the built-in games are not listed');
+      if (!trail.querySelector('[data-act="get"]') || trail.querySelector('[data-act="play"]') || !/5 KB/.test(trail.textContent)) throw new Error('a game not here yet: ' + trail.textContent);
+      if (!mines.querySelector('[data-act="play"]') || !mines.querySelector('[data-act="remove"]')) throw new Error('a game that is here has no Play or no Remove');
+      if (!/mGBA 1\.1\.1 \(2\.1 MB\), fetched the first time/.test($('games-core-note').textContent) || !/none come with the app/.test($('games-core-note').textContent)) throw new Error('what is said of the GBA player: ' + $('games-core-note').textContent);
+      const lost = tile('games-gba', 'bbbbbbbbbbbb');
+      if (!lost.querySelector('[data-act="rom"]').disabled || !/not where it was/.test(lost.textContent)) throw new Error('a game whose file is gone can be played');
+      if (lost.querySelector('b') || !/Lost <b>One<\/b>/.test(lost.querySelector('.gm-name').textContent)) throw new Error('a file\'s name was put into the page as markup');
+      if ($('games-mine-none').hidden || !$('btn-games-rescan').hidden) throw new Error('your folder, before one is chosen');
+      // Get: fetched, then it can be played. Nothing is in a frame yet.
+      click(trail.querySelector('[data-act="get"]')); await tick(20);
+      if (!g.calls.some(c => c[0] === 'get' && c[1] === 'trail') || !tile('games-builtin', 'trail').querySelector('[data-act="play"]')) throw new Error('Get did not fetch the game');
+      if (frame()) throw new Error('a game was started by fetching it');
+      // a fetch that fails says why and leaves Get there
+      click(tile('games-builtin', 'trail').querySelector('[data-act="remove"]')); await tick(20);
+      g.fail = 'no answer within 30 seconds';
+      click(tile('games-builtin', 'trail').querySelector('[data-act="get"]')); await tick(20);
+      if (!/could not be fetched: no answer within 30 seconds/.test($('osd').textContent) || !tile('games-builtin', 'trail').querySelector('[data-act="get"]')) throw new Error('a failed fetch: ' + $('osd').textContent);
+      g.fail = null;
+    });
+
+    await step('Games: a game runs in a frame of its own on bmgame://, shut in, and the frame goes when the game is closed', async () => {
+      click(tile('games-builtin', 'mines').querySelector('[data-act="play"]')); await tick(10);
+      const f = frame();
+      if (!f) throw new Error('no frame');
+      const u = new URL(f.getAttribute('src'));
+      if (u.protocol !== 'bmgame:' || u.host !== 'b-mines' || u.pathname !== '/index.html') throw new Error('the frame is at ' + f.getAttribute('src'));
+      for (const k of ['bg', 'fg', 'mu', 'ac', 'pn']) if (!/^#[0-9a-f]{6}$/i.test(u.searchParams.get(k) || '')) throw new Error('the theme\'s colour ' + k + ' was not given: ' + u.searchParams.get(k));
+      const box = (f.getAttribute('sandbox') || '').split(/\s+/).sort().join(' ');
+      if (box !== 'allow-pointer-lock allow-same-origin allow-scripts') throw new Error('the frame is allowed: ' + box);
+      if (f.getAttribute('referrerpolicy') !== 'no-referrer') throw new Error('the frame sends a referrer');
+      if ($('games-stage').hidden || !$('games-lobby').hidden || $('games-playing-name').textContent !== 'Mines' || !$('games-gba-bar').hidden) throw new Error('the stage: ' + $('games-playing-name').textContent);
+      // another tab, and back: the same game is still there
+      app.switchDest('music'); await tick(5);
+      if (frame() !== f) throw new Error('the game was closed by looking at another tab');
+      app.switchDest('games'); await tick(5);
+      click($('btn-games-restart')); await tick(5);
+      if (frame() === f || !frame() || doc.querySelectorAll('#games-frame-box iframe').length !== 1) throw new Error('Start again did not make the game anew, once');
+      click($('btn-games-close')); await tick(10);
+      if (frame() || !$('games-stage').hidden || $('games-lobby').hidden || games.playing) throw new Error('the game is still there after Back to games');
+      // a game not here yet: Play fetches it first (the tile shows Get, the method is what a key would call)
+      await games._do_play('trail'); await tick(10);
+      if (!frame() || new URL(frame().src).host !== 'b-trail') throw new Error('Play on a game not fetched yet');
+      games.close();
+    });
+
+    await step('Games: a game by someone else says whose it is, and opens as its author made it', async () => {
+      const t = tile('games-open', 'lj-chess');
+      if (!t || !/by Frank Force, MIT, 800 KB/.test(t.textContent)) throw new Error('whose it is, its licence and what it will fetch: ' + (t && t.textContent));
+      click(t.querySelector('[data-act="get"]')); await tick(20);
+      click(tile('games-open', 'lj-chess').querySelector('[data-act="play"]')); await tick(10);
+      if (frame()?.getAttribute('src') !== 'bmgame://b-lj-chess/games/chess.html?engine=min') throw new Error('the game is at ' + frame()?.getAttribute('src'));
+      if (frame().getAttribute('sandbox') !== 'allow-scripts allow-same-origin allow-pointer-lock' || !/by Frank Force, MIT/.test($('games-playing-keys').textContent)) throw new Error('its frame or its credit');
+      games.close();
+    });
+
+    await step('Games: a GBA game fetches the player once, is asked for by its id, and its buttons speak to its frame', async () => {
+      const n = g.calls.length;
+      click(tile('games-gba', 'aaaaaaaaaaaa').querySelector('[data-act="rom"]')); await tick(20);
+      if (g.calls.slice(n).filter(c => c[0] === 'core').length !== 1) throw new Error('the player was not fetched: ' + g.calls.slice(n).map(c => c[0]).join());
+      const f = frame(), u = new URL(f.getAttribute('src'));
+      if (u.host !== 'gba' || u.searchParams.get('rom') !== 'aaaaaaaaaaaa' || /My%20Game|games/.test(u.search)) throw new Error('the GBA frame is at ' + f.getAttribute('src'));
+      if ($('games-gba-bar').hidden || !/X is A, Z is B/.test($('games-playing-keys').textContent)) throw new Error('the GBA buttons or keys are not shown');
+      const sent = []; f.contentWindow.postMessage = (m, to) => sent.push(m);
+      const says = d => window.dispatchEvent(new window.MessageEvent('message', { data: { bm: 'gba', ...d }, origin: 'bmgame://gba', source: f.contentWindow }));
+      click($('btn-gba-pause')); if (sent.at(-1)?.cmd !== 'pause') throw new Error('Pause sent ' + JSON.stringify(sent.at(-1)));
+      says({ event: 'done', cmd: 'pause', paused: true });
+      if ($('btn-gba-pause').textContent !== 'Resume' || $('btn-gba-pause').getAttribute('aria-pressed') !== 'true') throw new Error('Pause does not show that the game waits');
+      click($('btn-gba-pause')); if (sent.at(-1).cmd !== 'resume') throw new Error('Resume sent ' + sent.at(-1).cmd);
+      says({ event: 'done', cmd: 'resume', paused: false });
+      click($('btn-gba-speed')); if (sent.at(-1).cmd !== 'speed' || sent.at(-1).value !== 2) throw new Error('Speed sent ' + JSON.stringify(sent.at(-1)));
+      says({ event: 'done', cmd: 'speed', speed: 2, paused: false }); if ($('btn-gba-speed').textContent !== 'Speed 2x') throw new Error('the speed shown: ' + $('btn-gba-speed').textContent);
+      click($('btn-gba-save')); says({ event: 'done', cmd: 'save', ok: true, paused: false }); if (!/Saved where you are/.test($('osd').textContent)) throw new Error('a save is not said');
+      click($('btn-gba-load')); says({ event: 'done', cmd: 'load', ok: false, paused: false }); if (!/Nothing saved/.test($('osd').textContent)) throw new Error('a load with nothing saved is not said');
+      click($('btn-gba-mute')); if (sent.at(-1).cmd !== 'volume' || sent.at(-1).value !== 0 || $('btn-gba-mute').textContent !== 'Sound off') throw new Error('Sound: ' + JSON.stringify(sent.at(-1)));
+      // a message from anywhere else is not the player's
+      window.dispatchEvent(new window.MessageEvent('message', { data: { bm: 'gba', event: 'done', cmd: 'speed', speed: 4 }, origin: 'https://elsewhere.example', source: f.contentWindow }));
+      window.dispatchEvent(new window.MessageEvent('message', { data: { bm: 'gba', event: 'done', cmd: 'speed', speed: 4 }, origin: 'bmgame://gba', source: window }));
+      if ($('btn-gba-speed').textContent !== 'Speed 2x') throw new Error('a message that is not from the game\'s frame was believed');
+      // another tab: the player waits, and goes on when you are back
+      const k = sent.length; app.switchDest('video'); if (sent.slice(k).map(m => m.cmd).join() !== 'pause') throw new Error('leaving the tab sent ' + sent.slice(k).map(m => m.cmd).join());
+      app.switchDest('games'); if (sent.at(-1).cmd !== 'resume') throw new Error('coming back did not resume');
+      says({ event: 'error', message: 'The game\'s file is not where it was.' }); if (!/not where it was/.test($('osd').textContent)) throw new Error('the player\'s trouble is not said');
+      games.close();
+      // the second game: the player is here already
+      const c = g.calls.length; await games._do_rom('aaaaaaaaaaaa'); await tick(5);
+      if (g.calls.slice(c).some(x => x[0] === 'core')) throw new Error('the player was fetched a second time');
+      games.close();
+    });
+
+    await step('Games: games are added and taken out of the list, and a folder of your own is listed and played', async () => {
+      click($('btn-games-addroms')); await tick(20);
+      if (!tile('games-gba', 'cccccccccccc')) throw new Error('an added game is not listed');
+      click(tile('games-gba', 'cccccccccccc').querySelector('[data-act="unlist"]')); await tick(20);
+      if (tile('games-gba', 'cccccccccccc') || !g.calls.some(c => c[0] === 'removeRom' && c[1] === 'cccccccccccc')) throw new Error('a game was not taken out of the list');
+      click($('btn-games-folder')); await tick(20);
+      if ($('games-folder').textContent !== '/my games' || $('btn-games-folder').textContent !== 'Change folder' || $('btn-games-rescan').hidden || !$('games-mine-none').hidden) throw new Error('the folder chosen: ' + $('games-folder').textContent);
+      click(tile('games-mine', 'eeeeeeeeeeee').querySelector('[data-act="mine"]')); await tick(5);
+      if (frame()?.getAttribute('src') !== 'bmgame://u-eeeeeeeeeeee/Loose%20One.html') throw new Error('a game of yours is at ' + frame()?.getAttribute('src'));
+      if (!$('games-gba-bar').hidden) throw new Error('the GBA buttons are shown for a game that is not one');
+      games.close();
+      click($('btn-games-unfolder')); await tick(20);
+      if (doc.querySelector('#games-mine .gm-tile') || $('games-folder').textContent !== 'No folder chosen') throw new Error('a forgotten folder is still listed');
+      app.switchDest('video');
+    });
+  }
+
   /* ── 17. Mini bar and the video-mode visualiser ──────────────── */
   {
     const app = window.bmApp, m = window.bmMusic, doc = window.document;
@@ -2259,7 +2397,7 @@ async function main() {
     // panel beside the songs, and the folder's albums as tiles.
     await step('Studio: the rail names its sections, themes open from one button, the side panel opens and closes and is remembered, album tiles show one album', async () => {
       const labels = [...doc.querySelectorAll('.sidebar-btn[data-dest] .sb-label')].map(x => x.textContent);
-      if (labels.join() !== 'Video,Music,Images,PDF,TV') throw new Error('the rail: ' + labels);
+      if (labels.join() !== 'Video,Music,Images,PDF,TV,Games') throw new Error('the rail: ' + labels);
       const tb = doc.getElementById('theme-menu-btn'), list = doc.getElementById('theme-selector');
       if (list.classList.contains('open')) throw new Error('the themes list is open at the start');
       click(tb);

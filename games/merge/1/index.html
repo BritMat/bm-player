@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="en">
+<head>
+<title>Merge</title>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<style>
+:root{--bg:#0B0F1A;--fg:#E8ECF5;--mu:#8A93A8;--ac:#6C8CFF;--pn:#151B2B}
+*{box-sizing:border-box}
+html,body{height:100%;margin:0}
+body{background:var(--bg);color:var(--fg);font:15px/1.4 system-ui,-apple-system,"Segoe UI",sans-serif;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;padding:12px;-webkit-user-select:none;user-select:none;overflow:hidden}
+.bar{display:flex;align-items:center;gap:18px;flex-wrap:wrap;justify-content:center}
+.bar b{font-size:18px;letter-spacing:.02em}
+.stat{color:var(--mu);font-variant-numeric:tabular-nums}
+.stat span{color:var(--fg);font-weight:600}
+button,select{font:inherit;color:var(--fg);background:var(--pn);border:1px solid color-mix(in srgb,var(--fg) 18%,transparent);border-radius:9px;padding:6px 14px;cursor:pointer}
+button:hover{border-color:var(--ac)}
+button:focus-visible,select:focus-visible{outline:2px solid var(--ac);outline-offset:2px}
+canvas{background:var(--pn);border-radius:12px;display:block;max-width:100%}
+.msg{min-height:22px;color:var(--mu);text-align:center}
+.msg strong{color:var(--fg)}
+</style>
+<script>
+// The app's colours, given in the address (only plain colour codes are taken).
+const Q=new URLSearchParams(location.search);
+for(const k of ['bg','fg','mu','ac','pn']){const v=Q.get(k);if(v&&/^#[0-9a-f]{3,8}$/i.test(v))document.documentElement.style.setProperty('--'+k,v)}
+const css=k=>getComputedStyle(document.documentElement).getPropertyValue('--'+k).trim();
+// Kept on this computer, for this game only. A game still plays where nothing can be kept.
+const store={get(k,d){try{const v=localStorage.getItem(k);return v==null?d:JSON.parse(v)}catch(e){return d}},set(k,v){try{localStorage.setItem(k,JSON.stringify(v))}catch(e){}}};
+const $=id=>document.getElementById(id);
+</script>
+<style>
+#grid{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;padding:8px;background:var(--pn);border-radius:14px;width:min(86vmin,420px);height:min(86vmin,420px);max-height:calc(100vh - 140px);max-width:calc(100vh - 140px)}
+.t{border-radius:10px;display:grid;place-items:center;font-weight:700;font-size:clamp(16px,5.2vmin,34px);background:color-mix(in srgb,var(--fg) 6%,transparent);color:var(--fg);font-variant-numeric:tabular-nums}
+.t.new{animation:pop .14s ease-out}
+@keyframes pop{from{transform:scale(.6)}to{transform:scale(1)}}
+@media (prefers-reduced-motion:reduce){.t.new{animation:none}}
+</style>
+</head>
+<body>
+<div class="bar"><b>Merge</b><span class="stat">Score <span id="score">0</span></span><span class="stat">Best <span id="best">0</span></span><button id="new" type="button">New game</button></div>
+<div id="grid" tabindex="0" role="grid" aria-label="Merge: slide the numbers together"></div>
+<div class="msg" id="msg">Arrow keys or W A S D slide every number. Two alike become one.</div>
+<script>
+// Merge: slide the numbers. Two of the same that meet become their sum.
+const N=4,G=$('grid');
+let cells=[],score=0,best=store.get('merge.best',0),done=false,fresh=-1;
+$('best').textContent=best;
+function add(){const free=[];cells.forEach((v,i)=>{if(!v)free.push(i)});if(!free.length)return;fresh=free[Math.random()*free.length|0];cells[fresh]=Math.random()<.9?2:4}
+function start(){cells=Array(N*N).fill(0);score=0;done=false;add();add();fresh=-1;save();draw();$('msg').textContent='Arrow keys or W A S D slide every number. Two alike become one.'}
+function save(){store.set('merge.game',{cells,score})}
+function line(i,dx,dy){const out=[];let x=dx>0?N-1:dx<0?0:i,y=dy>0?N-1:dy<0?0:i;for(let k=0;k<N;k++){out.push(y*N+x);x-=dx;y-=dy}return out}
+function move(dx,dy){
+  if(done)return;let moved=false;
+  for(let i=0;i<N;i++){
+    const idx=line(i,dx,dy),vals=idx.map(j=>cells[j]).filter(Boolean),out=[];
+    for(let k=0;k<vals.length;k++){if(vals[k]===vals[k+1]){out.push(vals[k]*2);score+=vals[k]*2;k++}else out.push(vals[k])}
+    idx.forEach((j,k)=>{const v=out[k]||0;if(cells[j]!==v){cells[j]=v;moved=true}});
+  }
+  if(!moved)return;
+  add();if(score>best){best=score;store.set('merge.best',best)}
+  if(!canMove()){done=true;$('msg').innerHTML='<strong>No moves left.</strong> Press Enter for another.'}
+  save();draw();
+}
+function canMove(){for(let y=0;y<N;y++)for(let x=0;x<N;x++){const v=cells[y*N+x];if(!v)return true;if(x<N-1&&cells[y*N+x+1]===v)return true;if(y<N-1&&cells[(y+1)*N+x]===v)return true}return false}
+function draw(){
+  $('score').textContent=score;$('best').textContent=best;G.textContent='';
+  cells.forEach((v,i)=>{const d=document.createElement('div');d.className='t'+(i===fresh?' new':'');d.setAttribute('role','gridcell');
+    if(v){d.textContent=v;const s=Math.min(11,Math.log2(v));d.style.background='color-mix(in srgb,var(--ac) '+Math.round(12+s*8)+'%,var(--pn))';if(v>=1000)d.style.fontSize='clamp(13px,4vmin,26px)'}
+    G.appendChild(d)});
+}
+const KEYS={ArrowUp:[0,-1],ArrowDown:[0,1],ArrowLeft:[-1,0],ArrowRight:[1,0],w:[0,-1],s:[0,1],a:[-1,0],d:[1,0]};
+addEventListener('keydown',e=>{const k=KEYS[e.key]||KEYS[e.key.toLowerCase()];if(k){e.preventDefault();move(k[0],k[1])}else if(e.key==='Enter'){e.preventDefault();start()}});
+let sx=0,sy=0;
+G.addEventListener('pointerdown',e=>{sx=e.clientX;sy=e.clientY});
+G.addEventListener('pointerup',e=>{const dx=e.clientX-sx,dy=e.clientY-sy;if(Math.max(Math.abs(dx),Math.abs(dy))<24)return;if(Math.abs(dx)>Math.abs(dy))move(dx>0?1:-1,0);else move(0,dy>0?1:-1)});
+$('new').onclick=()=>{start();G.focus()};
+const kept=store.get('merge.game',null);
+if(kept&&Array.isArray(kept.cells)&&kept.cells.length===N*N&&kept.cells.every(v=>v===0||(Number.isInteger(v)&&v>1&&v<1e7))&&kept.cells.some(Boolean)){cells=kept.cells;score=+kept.score||0;draw();if(!canMove())start()}else start();
+</script>
+</body>
+</html>

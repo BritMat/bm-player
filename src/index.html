@@ -5,7 +5,7 @@
   <!-- Remote script/style/font origins removed: everything is vendored under
        src/vendor now, so the page has no reason to fetch executable code off
        the network. Narrowing script-src is the point of the change. -->
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self' 'unsafe-inline' bmfile: blob: data:; script-src 'self' 'unsafe-inline' bmfile:; style-src 'self' 'unsafe-inline'; img-src 'self' bmfile: file: blob: data: https:; media-src 'self' bmfile: file: blob: data:; connect-src 'self' bmfile: file: http: https: ws: wss:; font-src 'self' data:;">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self' 'unsafe-inline' bmfile: blob: data:; script-src 'self' 'unsafe-inline' bmfile:; style-src 'self' 'unsafe-inline'; img-src 'self' bmfile: file: blob: data: https:; media-src 'self' bmfile: file: blob: data:; connect-src 'self' bmfile: file: http: https: ws: wss:; font-src 'self' data:; frame-src bmgame:;">
   <title>BM Player</title>
   <!-- Load external CSS FIRST so inline styles override it -->
   <script>
@@ -692,6 +692,7 @@
   <button class="sidebar-btn"        data-dest="tv"     title="TV" aria-label="TV">
     <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="4" width="15" height="12" rx="2"/><path d="M17 7l5-2.5v11L17 13V7z" fill="currentColor" opacity=".7"/><line x1="7" y1="18" x2="17" y2="18"/><line x1="12" y1="16" x2="12" y2="18"/></svg><span class="sb-label">TV</span>
   </button>
+  <button class="sidebar-btn"        data-dest="games"  title="Games" aria-label="Games"></button>
   <div class="sidebar-spacer"></div>
   <button class="sidebar-btn sidebar-mini" id="sidebar-mini-btn" title="Mini Player" aria-label="Mini Player" data-icon="miniPlayer"></button>
 </nav>
@@ -1496,6 +1497,61 @@
       <!-- Only the rows in view are in here (v3.52.0): tv-list is as tall as the whole list, tv-rows is moved to the place in it. -->
       <div class="tv-list" id="tv-list" role="list" aria-label="Channels" hidden><div class="tv-rows" id="tv-rows"></div></div>
     </div>
+  </div>
+</div>
+
+<!-- ══ GAMES (v3.53.0) ════════════════════════════════════════════
+     Filled in by js/dash/games.js the first time the tab opens. A game
+     runs in a frame put into #games-frame-box, from bmgame://. -->
+<div id="games-view" class="dashboard-view">
+  <div class="games-lobby" id="games-lobby">
+    <div class="dash-header">
+      <h2 class="dash-title">Games</h2>
+      <span class="dash-count">Played on this computer, with no connection needed once a game is here.</span>
+    </div>
+    <div class="games-scroll">
+      <section class="gm-sec" aria-labelledby="gm-h-builtin">
+        <div class="gm-head"><h3 id="gm-h-builtin">Built in</h3><span class="gm-note">Small games made for BM Player. Each is fetched the first time you want it, so the app stays light.</span></div>
+        <div class="gm-grid" id="games-builtin" role="list"></div>
+      </section>
+      <section class="gm-sec" aria-labelledby="gm-h-open">
+        <div class="gm-head"><h3 id="gm-h-open">From open source</h3><span class="gm-note">Games by other people, shared under open licences and added as their authors made them. Fetched the first time you want one. Several share an engine, which comes with the first.</span></div>
+        <div class="gm-grid" id="games-open" role="list"></div>
+      </section>
+      <section class="gm-sec" aria-labelledby="gm-h-gba">
+        <div class="gm-head"><h3 id="gm-h-gba">Game Boy Advance</h3><span class="gm-note" id="games-core-note"></span>
+          <button class="dash-action-btn st-quiet" type="button" data-act="uncore" id="btn-games-uncore" title="Take the GBA player off this computer. It is fetched again the next time you play." hidden>Remove player</button>
+          <button class="dash-action-btn st-quiet" type="button" data-act="addroms" id="btn-games-addroms">Add games</button></div>
+        <div class="gm-grid" id="games-gba" role="list"></div>
+        <p class="gm-none" id="games-gba-none">Add .gba files of your own. They stay where they are: the list remembers where.</p>
+      </section>
+      <section class="gm-sec" aria-labelledby="gm-h-mine">
+        <div class="gm-head"><h3 id="gm-h-mine">Your HTML games</h3><span class="gm-note" id="games-folder">No folder chosen</span>
+          <button class="dash-action-btn st-quiet" type="button" data-act="folder" id="btn-games-folder">Choose folder</button>
+          <button class="dash-action-btn st-quiet" type="button" data-act="rescan" id="btn-games-rescan" hidden>Look again</button>
+          <button class="dash-action-btn st-quiet" type="button" data-act="unfolder" id="btn-games-unfolder" hidden>Forget folder</button></div>
+        <div class="gm-grid" id="games-mine" role="list"></div>
+        <p class="gm-none" id="games-mine-none"></p>
+        <p class="gm-note gm-foot">Your games run apart from the app and without the internet. A game that needs a server will not work here.</p>
+      </section>
+    </div>
+  </div>
+  <div class="games-stage" id="games-stage" hidden>
+    <div class="games-bar">
+      <button class="dash-action-btn st-quiet" type="button" data-act="close" id="btn-games-close">Back to games</button>
+      <span class="games-playing-name" id="games-playing-name"></span>
+      <span class="games-playing-keys" id="games-playing-keys"></span>
+      <span class="games-gba-bar" id="games-gba-bar" hidden>
+        <button class="dash-action-btn st-quiet" type="button" data-act="gbapause" id="btn-gba-pause" aria-pressed="false">Pause</button>
+        <button class="dash-action-btn st-quiet" type="button" data-act="gbasave" id="btn-gba-save" title="Keep where you are in the game">Save here</button>
+        <button class="dash-action-btn st-quiet" type="button" data-act="gbaload" id="btn-gba-load" title="Go back to where you saved">Load</button>
+        <button class="dash-action-btn st-quiet" type="button" data-act="gbaspeed" id="btn-gba-speed">Speed 1x</button>
+        <button class="dash-action-btn st-quiet" type="button" data-act="gbamute" id="btn-gba-mute" aria-pressed="false">Sound on</button>
+        <button class="dash-action-btn st-quiet" type="button" data-act="gbareset" id="btn-gba-reset">Reset</button>
+      </span>
+      <button class="dash-action-btn st-quiet" type="button" data-act="restart" id="btn-games-restart" title="Start the game again from the beginning">Start again</button>
+    </div>
+    <div class="games-frame-box" id="games-frame-box"></div>
   </div>
 </div>
 

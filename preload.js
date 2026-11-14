@@ -26,6 +26,9 @@ contextBridge.exposeInMainWorld('api',{
   },
   // v3.52.0: playlists for the TV tab, fetched by the app and kept for the next start
   tv:{ load: source=>inv('tv:load',source), restore: ()=>inv('tv:restore'), forget: ()=>inv('tv:forget') },
+  // v3.53.0: the Games tab
+  games:{ list: ()=>inv('games:list'), get: id=>inv('games:get',id), remove: id=>inv('games:remove',id), core: ()=>inv('games:core'), removeCore: ()=>inv('games:removeCore'),
+          addRoms: ()=>inv('games:addRoms'), removeRom: id=>inv('games:removeRom',id), pickFolder: ()=>inv('games:pickFolder'), clearFolder: ()=>inv('games:clearFolder') },
   dialog:{
     open:    ()=>inv('dialog:open'),
     openSub: ()=>inv('dialog:openSub'),

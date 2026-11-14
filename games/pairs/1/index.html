@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="en">
+<head>
+<title>Pairs</title>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<style>
+:root{--bg:#0B0F1A;--fg:#E8ECF5;--mu:#8A93A8;--ac:#6C8CFF;--pn:#151B2B}
+*{box-sizing:border-box}
+html,body{height:100%;margin:0}
+body{background:var(--bg);color:var(--fg);font:15px/1.4 system-ui,-apple-system,"Segoe UI",sans-serif;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;padding:12px;-webkit-user-select:none;user-select:none;overflow:hidden}
+.bar{display:flex;align-items:center;gap:18px;flex-wrap:wrap;justify-content:center}
+.bar b{font-size:18px;letter-spacing:.02em}
+.stat{color:var(--mu);font-variant-numeric:tabular-nums}
+.stat span{color:var(--fg);font-weight:600}
+button,select{font:inherit;color:var(--fg);background:var(--pn);border:1px solid color-mix(in srgb,var(--fg) 18%,transparent);border-radius:9px;padding:6px 14px;cursor:pointer}
+button:hover{border-color:var(--ac)}
+button:focus-visible,select:focus-visible{outline:2px solid var(--ac);outline-offset:2px}
+canvas{background:var(--pn);border-radius:12px;display:block;max-width:100%}
+.msg{min-height:22px;color:var(--mu);text-align:center}
+.msg strong{color:var(--fg)}
+</style>
+<script>
+// The app's colours, given in the address (only plain colour codes are taken).
+const Q=new URLSearchParams(location.search);
+for(const k of ['bg','fg','mu','ac','pn']){const v=Q.get(k);if(v&&/^#[0-9a-f]{3,8}$/i.test(v))document.documentElement.style.setProperty('--'+k,v)}
+const css=k=>getComputedStyle(document.documentElement).getPropertyValue('--'+k).trim();
+// Kept on this computer, for this game only. A game still plays where nothing can be kept.
+const store={get(k,d){try{const v=localStorage.getItem(k);return v==null?d:JSON.parse(v)}catch(e){return d}},set(k,v){try{localStorage.setItem(k,JSON.stringify(v))}catch(e){}}};
+const $=id=>document.getElementById(id);
+</script>
+<style>
+#grid{display:grid;gap:10px;padding:10px;background:var(--pn);border-radius:14px}
+.k{width:var(--s);height:var(--s);padding:0;border-radius:12px;font-size:calc(var(--s)*.5);line-height:1;display:grid;place-items:center;background:color-mix(in srgb,var(--fg) 12%,var(--pn));color:transparent;transition:transform .12s}
+.k.up,.k.done{background:color-mix(in srgb,var(--ac) 22%,var(--pn));color:var(--fg);cursor:default}
+.k.done{opacity:.55}
+.k:not(.up):not(.done):hover{transform:scale(1.04)}
+@media (prefers-reduced-motion:reduce){.k{transition:none}}
+</style>
+</head>
+<body>
+<div class="bar"><b>Pairs</b><span class="stat">Turns <span id="turns">0</span></span><span class="stat">Best <span id="best">-</span></span>
+<select id="size" aria-label="Size"><option value="s">16 cards</option><option value="m">24 cards</option><option value="l">36 cards</option></select><button id="new" type="button">New game</button></div>
+<div id="grid" role="grid" aria-label="Pairs"></div>
+<div class="msg" id="msg">Turn two cards. Alike, they stay. Find every pair in as few turns as you can.</div>
+<script>
+// Pairs: turn the cards two at a time and remember where each shape is.
+const SHAPES=['●','■','▲','◆','★','✚','♥','♣','♠','☼','♪','◐','⬢','✶','▶','✖','◉','⬟'];
+const SIZES={s:[4,4],m:[6,4],l:[6,6]},G=$('grid');
+let w,h,cards,up=[],turns=0,found=0,lock=false,wait=0,size=store.get('pairs.size','s');
+if(!SIZES[size])size='s';$('size').value=size;
+function fit(){const s=Math.max(34,Math.min(96,Math.floor(Math.min((innerWidth-60)/w,(innerHeight-170)/h))-10));G.style.setProperty('--s',s+'px');G.style.gridTemplateColumns='repeat('+w+',var(--s))'}
+function best(){const b=store.get('pairs.best.'+size,0);$('best').textContent=b||'-'}
+function start(){
+  [w,h]=SIZES[size];clearTimeout(wait);up=[];turns=0;found=0;lock=false;$('turns').textContent=0;
+  const n=w*h/2,deck=[];for(let i=0;i<n;i++)deck.push(i,i);
+  for(let i=deck.length-1;i>0;i--){const j=Math.random()*(i+1)|0;[deck[i],deck[j]]=[deck[j],deck[i]]}
+  G.textContent='';
+  cards=deck.map((v,i)=>{const b=document.createElement('button');b.type='button';b.className='k';b.dataset.i=i;b.setAttribute('aria-label','Card '+(i+1)+', face down');G.appendChild(b);return{v,el:b,done:false}});
+  fit();best();$('msg').textContent='Turn two cards. Alike, they stay. Find every pair in as few turns as you can.';
+}
+function face(c,on){c.el.classList.toggle('up',on);c.el.textContent=on?SHAPES[c.v]:'';c.el.setAttribute('aria-label',on?'Card showing '+SHAPES[c.v]:'Card '+(+c.el.dataset.i+1)+', face down')}
+function down(){for(const c of up)face(c,false);up=[];lock=false}
+function turn(i){
+  const c=cards[i];if(c.done||up.includes(c))return;
+  if(lock){clearTimeout(wait);down()}
+  face(c,true);up.push(c);
+  if(up.length<2)return;
+  turns++;$('turns').textContent=turns;
+  if(up[0].v===up[1].v){for(const d of up){d.done=true;d.el.classList.add('done')}up=[];found++;
+    if(found===cards.length/2){const b=store.get('pairs.best.'+size,0);if(!b||turns<b)store.set('pairs.best.'+size,turns);best();$('msg').innerHTML='<strong>Every pair found in '+turns+' turns.</strong> Press Enter for another.'}}
+  else{lock=true;wait=setTimeout(down,900)}
+}
+G.addEventListener('click',e=>{const b=e.target.closest('.k');if(b)turn(+b.dataset.i)});
+addEventListener('keydown',e=>{if(e.key==='Enter'&&!(document.activeElement&&document.activeElement.classList.contains('k'))){e.preventDefault();start()}});
+$('new').onclick=start;
+$('size').onchange=e=>{size=e.target.value;store.set('pairs.size',size);start()};
+addEventListener('resize',fit);
+start();
+</script>
+</body>
+</html>
