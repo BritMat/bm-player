@@ -1,298 +1,382 @@
 /**
- * BM Player — TV / IPTV Module (v2.0.0)
+ * BM Player: the TV tab's channels (v2.0.0, rebuilt in v3.52.0).
  *
- * Handles M3U/M3U8 playlist loading for live TV / IPTV streams with:
- *   - Progressive (eco-balanced) loading — never parse more than N entries
- *     per tick to keep the UI thread responsive
- *   - Configurable timeouts on network fetches (default 15 s)
- *   - Channel count warning before loading huge playlists (>500 entries)
- *   - Search, group-by-category, favorites, and recent history
- *   - Auto-reconnect on stream failure with exponential backoff
- *   - Resource governor: caps concurrent stream probes to 3
+ * An M3U playlist read into channels, with search, groups, favourites,
+ * recent channels and trying a dropped channel again. The tab itself is
+ * app/tv-tab.js.
+ *
+ * What v3.52.0 changed, each from a measurement or a fault found:
+ *   - The playlist is fetched by the app (main/tv-service.js), not the page,
+ *     so a server that does not allow other sites can be loaded. The last
+ *     one is kept in the app's folder and is there at the next start. It was
+ *     in the page's storage: 5,000 channels at most, gone after four hours.
+ *   - Reading is by time (12 ms at a go, then the page breathes), not 80
+ *     channels a tick. 50,000 channels took 3.7 s, mostly waiting.
+ *   - A group name with a comma in it ("News, Local") cut the line at that
+ *     comma, so the channel got half a group and a wrong name.
+ *   - Sorting is done once for each order and kept, and each channel has its
+ *     search text ready, so a letter typed does not sort the list again.
+ *   - Favourites and recent channels can be shown by themselves.
+ *   - A channel that drops is tried again a few times, then given up on.
+ *     This was written before and never called.
+ *
+ *   const tv = new TVModule({ onPlay, onStatus, api })
+ *   await tv.restore()            the playlist kept from before, if any
+ *   await tv.loadPlaylist(src)    an address or a file
+ *   tv.channels                   what the filters leave, in the chosen order
  */
-
 import { fileURL } from '../util.js';
 
-const STORAGE_FAVS  = 'bm_tv_favs';
+const STORAGE_FAVS = 'bm_tv_favs';
 const STORAGE_RECENT = 'bm_tv_recent';
-const STORAGE_PLAYLIST = 'bm_tv_playlist_cache';
+const STORAGE_PLAYLIST = 'bm_tv_playlist_cache';   // the page's storage, before v3.52.0
 
-// ── Eco governor tunables ──────────────────────────────────────────
-const ECO = {
-  parseChunkSize: 80,        // entries per animation frame
-  fetchTimeout: 15000,        // ms — network fetch abort
-  warnThreshold: 500,         // show warning dialog above this many entries
-  maxProbes: 3,               // concurrent stream probes
-  probeTimeout: 8000,         // per-probe timeout
-  reconnectBaseMs: 2000,     // base reconnect delay
-  reconnectMaxMs: 30000,      // max reconnect delay
-  staleCacheMs: 4 * 3600000, // 4 h — re-fetch cached playlist
+export const FAVS = '__fav', RECENT = '__recent';   // the two lists beside the playlist's own groups
+
+const TUNE = {
+  slice: 12,                 // ms of reading before the page gets a turn
+  fetchTimeout: 20000,       // ms, only without the app's own fetch
+  refreshAfter: 6 * 3600000, // a playlist from the web is fetched again when older than this
+  tries: 6,                  // times a dropped channel is tried again
+  retryBase: 2000, retryMax: 30000,
 };
 
-/** Simple AbortController-based fetch with timeout. */
-async function fetchWithTimeout(url, timeoutMs = ECO.fetchTimeout) {
-  const ctrl = new AbortController();
-  const tid = setTimeout(() => ctrl.abort(), timeoutMs);
-  try {
-    const res = await fetch(url, { signal: ctrl.signal });
-    clearTimeout(tid);
-    return res;
-  } catch (e) {
-    clearTimeout(tid);
-    throw e;
-  }
-}
+const collator = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' });
+const pause = () => new Promise(r => setTimeout(r, 0));
+const now = () => (typeof performance !== 'undefined' ? performance.now() : Date.now());
 
-/** Probe a stream URL — returns true if reachable within timeout. */
-export async function probeStream(url, timeoutMs = ECO.probeTimeout) {
-  try {
-    const ctrl = new AbortController();
-    const tid = setTimeout(() => ctrl.abort(), timeoutMs);
-    const res = await fetch(url, { signal: ctrl.signal, method: 'HEAD' });
-    clearTimeout(tid);
-    return res.ok;
-  } catch (_) {
-    return false;
+/** "#EXTINF:-1 a="b" c="d, e",Name" into its attributes and the name. The name starts at the first comma outside quotes. */
+function extinf(line) {
+  let quoted = false, cut = -1;
+  for (let i = 8; i < line.length; i++) {
+    const c = line.charCodeAt(i);
+    if (c === 34) quoted = !quoted;
+    else if (c === 44 && !quoted) { cut = i; break; }
   }
-}
-
-// ── Progressive M3U parser (yields chunks to avoid blocking) ──────
-function* parseM3uProgressive(lines) {
-  let pending = null;
-  const chunk = [];
-  for (const raw of lines) {
-    const line = raw.trim();
-    if (!line) continue;
-    if (line.startsWith('#EXTINF:')) {
-      const rest = line.slice(8);
-      const comma = rest.indexOf(',');
-      let title = '', duration = -1, group = '', logo = '';
-      if (comma === -1) {
-        const d = parseInt(rest, 10);
-        if (!isNaN(d)) duration = d;
-      } else {
-        const d = parseInt(rest.slice(0, comma), 10);
-        if (!isNaN(d)) duration = d;
-        const attrs = rest.slice(comma + 1).trim();
-        // Parse tvg-logo, group-title from attributes before comma
-        const attrMatch = rest.slice(0, comma).match(/group-title="([^"]*)"/i);
-        if (attrMatch) group = attrMatch[1];
-        const logoMatch = rest.slice(0, comma).match(/tvg-logo="([^"]*)"/i);
-        if (logoMatch) logo = logoMatch[1];
-        title = attrs;
-      }
-      pending = { title, duration, group, logo };
-    } else if (line.startsWith('#')) {
-      // Other directives — skip (but capture group-title if present)
-      const gm = line.match(/group-title="([^"]*)"/i);
-      if (gm && pending) pending.group = pending.group || gm[1];
-      const lm = line.match(/tvg-logo="([^"]*)"/i);
-      if (lm && pending) pending.logo = pending.logo || lm[1];
-      continue;
-    } else {
-      const url = line;
-      chunk.push({
-        url,
-        title: pending?.title || '',
-        duration: pending?.duration ?? -1,
-        group: pending?.group || 'Uncategorized',
-        logo: pending?.logo || '',
-      });
-      pending = null;
-      if (chunk.length >= ECO.parseChunkSize) {
-        yield chunk.splice(0, ECO.parseChunkSize);
-      }
+  // a line with an odd number of quotes: the last comma, as most players do
+  if (cut < 0) cut = line.lastIndexOf(',');
+  const head = cut < 0 ? line : line.slice(0, cut), out = { title: cut < 0 ? '' : line.slice(cut + 1).trim() };
+  if (head.indexOf('="') > 0) {
+    const re = /([a-zA-Z0-9_-]+)="([^"]*)"/g; let m;
+    while ((m = re.exec(head))) {
+      const k = m[1].toLowerCase();
+      if (k === 'group-title') out.group = m[2].trim();
+      else if (k === 'tvg-logo') out.logo = m[2].trim();
+      else if (k === 'tvg-id') out.id = m[2].trim();
+      else if (k === 'tvg-name') out.name = m[2].trim();
     }
   }
-  if (chunk.length) yield chunk;
+  return out;
 }
 
-// ── Main TV Module Class ───────────────────────────────────────────
+/**
+ * One channel from what the lines before its address said. An address may
+ * carry its own headers after a bar, as Kodi writes them:
+ * http://host/a.m3u8|User-Agent=X&Referer=Y
+ */
+function channel(url, p) {
+  let ua = p.ua || '', ref = p.ref || '';
+  const bar = url.indexOf('|');
+  if (bar > 0 && /^https?:/i.test(url)) {
+    for (const part of url.slice(bar + 1).split('&')) {
+      const eq = part.indexOf('='); if (eq < 0) continue;
+      const k = part.slice(0, eq).trim().toLowerCase();
+      let v = part.slice(eq + 1); try { v = decodeURIComponent(v); } catch (_) {}
+      if (k === 'user-agent') ua = v; else if (k === 'referer' || k === 'referrer') ref = v;
+    }
+    url = url.slice(0, bar);
+  }
+  const title = p.title || p.name || '';
+  const group = p.group || 'Uncategorized';
+  const ch = { url, title, group, logo: p.logo || '', key: (title + '\n' + group).toLowerCase() };
+  if (p.id) ch.id = p.id;
+  if (ua) ch.ua = ua;
+  if (ref) ch.ref = ref;
+  return ch;
+}
+
+/**
+ * The channels of an M3U playlist. Reads for `slice` ms at a go and then
+ * lets the page have a turn, telling onProgress how many it has. With
+ * slice 0 it reads straight through.
+ */
+export async function parseM3u(text, { slice = TUNE.slice, onProgress } = {}) {
+  const out = [];
+  let p = {}, at = 0, t0 = now();
+  const n = text.length;
+  while (at < n) {
+    let end = text.indexOf('\n', at); if (end < 0) end = n;
+    let line = text.slice(at, end); at = end + 1;
+    if (line.charCodeAt(line.length - 1) === 13) line = line.slice(0, -1);
+    line = line.trim();
+    if (!line) continue;
+    if (line.charCodeAt(0) === 35) {            // #
+      if (line.startsWith('#EXTINF:')) p = Object.assign(extinf(line), { ua: p.ua, ref: p.ref, grp: p.grp });
+      else if (line.startsWith('#EXTGRP:')) p.grp = line.slice(8).trim();
+      else if (line.startsWith('#EXTVLCOPT:')) {
+        const o = line.slice(11), eq = o.indexOf('=');
+        if (eq > 0) {
+          const k = o.slice(0, eq).trim().toLowerCase(), v = o.slice(eq + 1).trim();
+          if (k === 'http-user-agent') p.ua = v; else if (k === 'http-referrer' || k === 'http-referer') p.ref = v;
+        }
+      }
+      continue;
+    }
+    if (!p.group && p.grp) p.group = p.grp;
+    out.push(channel(line, p));
+    p = {};
+    if (slice > 0 && (out.length & 255) === 0 && now() - t0 > slice) {
+      onProgress?.(out.length);
+      await pause();
+      t0 = now();
+    }
+  }
+  return out;
+}
+
+const hostOf = s => { try { return new URL(s).host; } catch (_) { return ''; } };
 
 export class TVModule {
-  constructor({ onPlay, onStatus }) {
+  constructor({ onPlay, onStatus, api } = {}) {
     this._channels = [];
     this._filtered = [];
     this._groups = [];
-    this._favorites = this._loadJson(STORAGE_FAVS, []);
+    this._sorted = {};
+    this._favorites = new Set(this._loadJson(STORAGE_FAVS, []));
     this._recent = this._loadJson(STORAGE_RECENT, []);
     this._search = '';
+    this._words = [];
     this._groupFilter = 'all';
-    this._sortBy = 'name';
-    this._isLive = false;      // true when a stream is actively playing
+    this._sortBy = 'list';
+    this._isLive = false;
     this._reconnectTimer = null;
     this._reconnectAttempts = 0;
     this._currentChannel = null;
     this._onPlay = onPlay || (() => {});
     this._onStatus = onStatus || (() => {});
-    this._probeSem = 0;       // semaphore for concurrent probes
+    this._api = api || null;
     this._loadError = null;
+    this._loading = 0;
+    this.source = '';       // where the playlist is from: an address or a file
+    this.loadedAt = 0;      // when it was last fetched
   }
 
-  /* ─── Public getters ─────────────────────────────────────── */
-  get channels()   { return this._filtered; }
-  get groups()     { return this._groups; }
-  get isLive()     { return this._isLive; }
+  get channels() { return this._filtered; }
+  get groups() { return this._groups; }
+  get isLive() { return this._isLive; }
   get currentChannel() { return this._currentChannel; }
-  get loadError()  { return this._loadError; }
+  get loadError() { return this._loadError; }
   get totalChannels() { return this._channels.length; }
+  get sourceName() {
+    if (!this.source) return '';
+    return /^https?:/i.test(this.source) ? hostOf(this.source) || this.source : this.source.split(/[\\/]/).pop();
+  }
+  /** A playlist from the web, fetched long enough ago to fetch again. */
+  get needsRefresh() { return /^https?:/i.test(this.source) && Date.now() - this.loadedAt > TUNE.refreshAfter; }
 
-  /* ─── Load a playlist (URL or file path) ─────────────────── */
+  _take(channels, source, at) {
+    this._channels = channels;
+    this._sorted = {};
+    const gset = new Set();
+    for (const ch of channels) gset.add(ch.group);
+    this._groups = [...gset].sort(collator.compare);
+    if (this._groupFilter !== 'all' && this._groupFilter !== FAVS && this._groupFilter !== RECENT && !gset.has(this._groupFilter)) this._groupFilter = 'all';
+    this.source = source || ''; this.loadedAt = at || Date.now();
+    this._applyFilters();
+  }
+
+  /**
+   * Loads a playlist from an address or a file. When one is loaded already
+   * and this one cannot be read, the channels there stay (kept: true).
+   */
   async loadPlaylist(source) {
+    const run = ++this._loading;
+    const had = this._channels.length > 0;
     this._loadError = null;
-    this._onStatus('loading', 'Loading playlist…');
-
-    let text;
+    this._onStatus('loading', had && source === this.source ? 'Updating the playlist…' : 'Loading the playlist…');
+    let text = '', at = Date.now();
     try {
-      if (source.startsWith('http://') || source.startsWith('https://')) {
-        const res = await fetchWithTimeout(source);
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        text = await res.text();
+      if (this._api?.load) {
+        const r = await this._api.load(source);
+        if (!r || r.error) throw new Error(r?.error || 'no answer');
+        text = r.text; at = r.at || at;
       } else {
-        // Local file — fetch via file:// protocol (Electron allows this)
-        const res = await fetch(fileURL(source));
-        if (!res.ok) throw new Error(`Failed to read file: ${res.status}`);
-        text = await res.text();
+        // no app behind the page (a browser, a test): the page's own fetch
+        const web = /^https?:/i.test(source);
+        const ctrl = new AbortController(), tid = setTimeout(() => ctrl.abort(), TUNE.fetchTimeout);
+        try {
+          const res = await fetch(web ? source : fileURL(source), { signal: ctrl.signal });
+          if (!res.ok) throw new Error('the server answered ' + res.status);
+          text = await res.text();
+        } finally { clearTimeout(tid); }
       }
     } catch (e) {
-      this._loadError = `Failed to load playlist: ${e.message}`;
-      this._onStatus('error', this._loadError);
-      return { channels: [], warned: false };
+      if (run !== this._loading) return { channels: this._channels, stale: true };
+      this._loadError = String(e.message || e);
+      if (had) this._onStatus('kept', `The playlist could not be read just now (${this._loadError}). These are the channels from before.`);
+      else this._onStatus('error', `The playlist could not be loaded: ${this._loadError}`);
+      return { channels: this._channels, error: this._loadError, kept: had };
     }
-
-    const lines = text.split(/\r?\n/);
-    // Quick count before heavy parse
-    let entryCount = 0;
-    for (const l of lines) { if (l.trim() && !l.trim().startsWith('#')) entryCount++; }
-
-    // Eco warning for huge playlists
-    let warned = false;
-    if (entryCount > ECO.warnThreshold) {
-      warned = true;
-      this._onStatus('warn', `Large playlist detected (${entryCount} channels). Loading progressively…`);
+    const channels = await parseM3u(text, { onProgress: n => { if (run === this._loading) this._onStatus('progress', `Reading… ${n.toLocaleString()} channels`); } });
+    if (run !== this._loading) return { channels: this._channels, stale: true };
+    if (!channels.length) {
+      this._loadError = 'there are no channels in it';
+      this._onStatus(had ? 'kept' : 'error', had ? 'That playlist has no channels in it. These are the channels from before.' : 'That playlist has no channels in it.');
+      return { channels: this._channels, error: this._loadError, kept: had };
     }
-
-    // Progressive parse — yields to UI thread between chunks
-    this._channels = [];
-    const parser = parseM3uProgressive(lines);
-    let result = parser.next();
-    while (!result.done) {
-      this._channels.push(...result.value);
-      this._onStatus('progress', `Parsing… ${this._channels.length} channels`);
-      // Yield to the UI thread
-      await new Promise(r => setTimeout(r, 0));
-      result = parser.next();
-    }
-    // Drain any remaining
-    if (result.value) this._channels.push(...result.value);
-
-    // Build group list
-    const gset = new Set();
-    for (const ch of this._channels) gset.add(ch.group || 'Uncategorized');
-    this._groups = [...gset].sort((a, b) => a.localeCompare(b));
-
-    // Cache to localStorage (cap at 5000 entries to avoid quota issues)
-    if (this._channels.length <= 5000) {
-      this._saveJson(STORAGE_PLAYLIST, {
-        source,
-        channels: this._channels,
-        ts: Date.now(),
-      });
-    }
-
-    this._applyFilters();
-    this._onStatus('done', `${this._channels.length} channels loaded`);
-    return { channels: this._channels, warned };
+    this._take(channels, source, at);
+    if (this._api?.load) { try { localStorage.removeItem(STORAGE_PLAYLIST); } catch (_) {} }
+    else if (channels.length <= 5000) this._saveJson(STORAGE_PLAYLIST, { source, channels: channels.map(({ key, ...c }) => c), ts: at });
+    this._onStatus('done', `${channels.length.toLocaleString()} channels loaded`);
+    return { channels };
   }
 
-  /** Try to restore from cache. Returns true if cache was fresh. */
+  /** The playlist kept from before: the app's copy, or what the page's storage held before v3.52.0. */
+  async restore() {
+    try {
+      const r = this._api?.restore ? await this._api.restore() : null;
+      if (r?.text) {
+        const channels = await parseM3u(r.text);
+        if (channels.length) { this._take(channels, r.source, r.at); return true; }
+      }
+    } catch (_) {}
+    return this.restoreFromCache();
+  }
+
+  /** What the page's storage held (before v3.52.0, and where there is no app behind the page). */
   restoreFromCache() {
     try {
       const cached = JSON.parse(localStorage.getItem(STORAGE_PLAYLIST) || 'null');
-      if (!cached || !cached.channels) return false;
-      if (Date.now() - cached.ts > ECO.staleCacheMs) return false;
-      this._channels = cached.channels;
-      const gset = new Set();
-      for (const ch of this._channels) gset.add(ch.group || 'Uncategorized');
-      this._groups = [...gset].sort((a, b) => a.localeCompare(b));
-      this._applyFilters();
+      if (!cached || !Array.isArray(cached.channels) || !cached.channels.length) return false;
+      const channels = cached.channels.filter(c => c && typeof c.url === 'string').map(c => channel(c.url, { title: c.title, group: c.group, logo: c.logo, id: c.id, ua: c.ua, ref: c.ref }));
+      this._take(channels, cached.source, cached.ts);
       return true;
     } catch (_) { return false; }
   }
 
-  /* ─── Filters & search ───────────────────────────────────── */
-  setSearch(q) { this._search = (q || '').toLowerCase(); this._applyFilters(); }
-  setGroupFilter(g) { this._groupFilter = g; this._applyFilters(); }
+  /* ── filters ── */
+  setSearch(q) {
+    this._search = String(q || '').toLowerCase().trim();
+    this._words = this._search ? this._search.split(/\s+/) : [];
+    this._applyFilters();
+  }
+  setGroupFilter(g) { this._groupFilter = g || 'all'; this._applyFilters(); }
   setSortBy(s) { this._sortBy = s; this._applyFilters(); }
+  get groupFilter() { return this._groupFilter; }
+  get sortBy() { return this._sortBy; }
+
+  /** The whole playlist in one order, sorted once and kept until another playlist is loaded. */
+  _order(by) {
+    if (by !== 'name' && by !== 'group') return this._channels;
+    if (!this._sorted[by]) {
+      const list = this._channels.slice();
+      if (by === 'name') list.sort((a, b) => collator.compare(a.title, b.title));
+      else list.sort((a, b) => collator.compare(a.group, b.group) || collator.compare(a.title, b.title));
+      this._sorted[by] = list;
+    }
+    return this._sorted[by];
+  }
 
   _applyFilters() {
-    let list = [...this._channels];
-    if (this._groupFilter !== 'all') {
-      list = list.filter(ch => (ch.group || 'Uncategorized') === this._groupFilter);
+    let list;
+    const g = this._groupFilter;
+    if (g === RECENT) list = this._recent.map(r => this._byUrl(r.url) || channel(r.url, r));
+    else {
+      list = this._order(this._sortBy);
+      if (g === FAVS) list = list.filter(ch => this._favorites.has(ch.url));
+      else if (g !== 'all') list = list.filter(ch => ch.group === g);
     }
-    if (this._search) {
-      list = list.filter(ch =>
-        (ch.title || '').toLowerCase().includes(this._search) ||
-        (ch.url || '').toLowerCase().includes(this._search) ||
-        (ch.group || '').toLowerCase().includes(this._search)
-      );
+    const w = this._words;
+    if (w.length) {
+      // an address is looked in only when what is typed looks like part of one
+      const inUrl = /[/:.]/.test(this._search);
+      list = list.filter(ch => {
+        for (let i = 0; i < w.length; i++) if (ch.key.indexOf(w[i]) < 0 && !(inUrl && ch.url.toLowerCase().indexOf(w[i]) >= 0)) return false;
+        return true;
+      });
     }
-    // Sort
-    if (this._sortBy === 'name') list.sort((a, b) => (a.title || '').localeCompare(b.title || ''));
-    else if (this._sortBy === 'group') list.sort((a, b) => (a.group || '').localeCompare(b.group || '') || (a.title || '').localeCompare(b.title || ''));
     this._filtered = list;
   }
 
-  /* ─── Favorites ───────────────────────────────────────────── */
-  isFavorite(url) { return this._favorites.includes(url); }
-  toggleFavorite(url) {
-    const idx = this._favorites.indexOf(url);
-    if (idx >= 0) this._favorites.splice(idx, 1);
-    else this._favorites.push(url);
-    this._saveJson(STORAGE_FAVS, this._favorites);
-    this._applyFilters();
+  _byUrl(url) {
+    if (!this._urls || this._urls.for !== this._channels) {
+      const m = new Map(); for (const ch of this._channels) if (!m.has(ch.url)) m.set(ch.url, ch);
+      this._urls = { for: this._channels, m };
+    }
+    return this._urls.m.get(url);
   }
-  get favorites() { return this._favorites; }
 
-  /* ─── Recent ──────────────────────────────────────────────── */
+  /* ── favourites ── */
+  isFavorite(url) { return this._favorites.has(url); }
+  toggleFavorite(url) {
+    const on = !this._favorites.has(url);
+    if (on) this._favorites.add(url); else this._favorites.delete(url);
+    this._saveJson(STORAGE_FAVS, [...this._favorites]);
+    if (this._groupFilter === FAVS) this._applyFilters();
+    return on;
+  }
+  get favorites() { return [...this._favorites]; }
+
+  /* ── recent ── */
   addRecent(ch) {
     this._recent = this._recent.filter(r => r.url !== ch.url);
-    this._recent.unshift({ url: ch.url, title: ch.title, group: ch.group, ts: Date.now() });
+    const r = { url: ch.url, title: ch.title, group: ch.group, ts: Date.now() };
+    if (ch.logo) r.logo = ch.logo; if (ch.ua) r.ua = ch.ua; if (ch.ref) r.ref = ch.ref;
+    this._recent.unshift(r);
     if (this._recent.length > 50) this._recent.length = 50;
     this._saveJson(STORAGE_RECENT, this._recent);
+    if (this._groupFilter === RECENT) this._applyFilters();
   }
   get recent() { return this._recent; }
 
-  /* ─── Play a channel ──────────────────────────────────────── */
-  play(channel) {
-    this._currentChannel = channel;
+  /* ── playing ── */
+  play(ch) {
+    this._currentChannel = ch;
     this._isLive = true;
     this._reconnectAttempts = 0;
     clearTimeout(this._reconnectTimer);
-    this.addRecent(channel);
-    this._onPlay(channel);
+    this.addRecent(ch);
+    this._onPlay(ch);
   }
 
-  /** Call when a stream errors — handles auto-reconnect. */
+  /** The channel after (1) or before (-1) the one playing, in the list as it is shown. Round at the ends. */
+  step(dir) {
+    const list = this._filtered, cur = this._currentChannel;
+    if (!list.length) return null;
+    let i = cur ? list.findIndex(c => c.url === cur.url) : -1;
+    i = i < 0 ? 0 : (i + (dir < 0 ? -1 : 1) + list.length) % list.length;
+    this.play(list[i]);
+    return list[i];
+  }
+
+  /**
+   * The channel playing has dropped or would not start: it is tried again
+   * after a pause that grows, a few times. Gives the pause in ms, or 0 when
+   * it has been given up on.
+   */
   onStreamError() {
-    if (!this._isLive || !this._currentChannel) return;
+    if (!this._isLive || !this._currentChannel) return 0;
+    clearTimeout(this._reconnectTimer);
+    if (this._reconnectAttempts >= TUNE.tries) {
+      const ch = this._currentChannel;
+      this.stop();
+      this._onStatus('failed', `${ch.title || 'The channel'} could not be reached.`);
+      return 0;
+    }
     this._reconnectAttempts++;
-    const delay = Math.min(
-      ECO.reconnectBaseMs * Math.pow(1.8, this._reconnectAttempts - 1),
-      ECO.reconnectMaxMs
-    );
-    this._onStatus('reconnect', `Reconnecting in ${Math.round(delay / 1000)}s… (attempt ${this._reconnectAttempts})`);
-    this._reconnectTimer = setTimeout(() => {
-      if (this._currentChannel && this._isLive) {
-        this._onPlay(this._currentChannel);
-      }
-    }, delay);
+    const delay = Math.min(TUNE.retryBase * Math.pow(1.8, this._reconnectAttempts - 1), TUNE.retryMax);
+    this._onStatus('reconnect', `The channel dropped. Trying again in ${Math.round(delay / 1000)} s (${this._reconnectAttempts} of ${TUNE.tries})…`, delay);
+    this._reconnectTimer = setTimeout(() => { if (this._currentChannel && this._isLive) this._onPlay(this._currentChannel, true); }, delay);
+    return delay;
   }
 
+  /** The channel is playing: the count of tries starts again once it has held for a while. */
   onStreamOk() {
-    this._reconnectAttempts = 0;
     clearTimeout(this._reconnectTimer);
-    this._onStatus('streaming', 'Streaming…');
+    clearTimeout(this._okTimer);
+    // counted as holding after 20 s, so a channel that starts and drops at once is still given up on
+    this._okTimer = setTimeout(() => { this._reconnectAttempts = 0; }, 20000);
+    this._onStatus('streaming', 'Playing');
   }
 
   stop() {
@@ -300,23 +384,11 @@ export class TVModule {
     this._currentChannel = null;
     this._reconnectAttempts = 0;
     clearTimeout(this._reconnectTimer);
+    clearTimeout(this._okTimer);
   }
 
-  /* ─── Eco: Probe a channel with semaphore ─────────────────── */
-  async probeWithEco(channel) {
-    if (this._probeSem >= ECO.maxProbes) return false;
-    this._probeSem++;
-    try {
-      return await probeStream(channel.url);
-    } finally {
-      this._probeSem--;
-    }
-  }
-
-  /* ─── Helpers ─────────────────────────────────────────────── */
   _loadJson(key, fallback) {
-    try { return JSON.parse(localStorage.getItem(key)) || fallback; }
-    catch (_) { return fallback; }
+    try { return JSON.parse(localStorage.getItem(key)) || fallback; } catch (_) { return fallback; }
   }
   _saveJson(key, val) {
     try { localStorage.setItem(key, JSON.stringify(val)); } catch (_) {}

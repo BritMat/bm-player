@@ -275,7 +275,9 @@ class BMPlayer {
   // button). Everywhere else, including the video-mode visualiser, stop
   // returns to the home screen.
   stop(opts){
-    if(!this.api?.mpv)return;this.api.mpv.cmd('stop');
+    if(!this.api?.mpv)return;
+    this._tvLeave?.();   // a TV channel: no more tries at it, and mpv as it was (v3.52.0)
+    this.api.mpv.cmd('stop');
     if(this._holdAtEnd){this._holdAtEnd=false;this.api.mpv.cmd('set_property','keep-open','yes');}   // the sleep timer's hold (v3.46.0)
     // ── v1.7.0: persist last position before stopping ──
     history.onClose({ path: this._currentFilePath, timePos: this.currentTime });
@@ -315,6 +317,8 @@ class BMPlayer {
   // mpv's playlist has a single entry during music playback, so transport
   // buttons must go through MusicDash's queue instead.
   trackStep(dir){
+    // A TV channel playing: the next or the previous channel in the list (v3.52.0).
+    if(this.tvModule?.isLive){ this.tvModule.step(dir); return; }
     const m=window.bmMusic;
     if(m?.currentPath && !this._hasVideo && m.queue?.length){
       if(dir>0) m.advance();
@@ -353,6 +357,7 @@ class BMPlayer {
   playMedia(files){
     this._lastOpened=Array.isArray(files)?String(files[0]||''):'';
     if(!this.api?.mpv||!files?.length)return;
+    this._tvLeave?.(files);   // anything but the TV channel playing ends it (v3.52.0)
     applySubStyle(this.api);   // the chosen subtitle font and colour (v3.28.0)
     // Music playing in the in-app engine stops, instead of carrying on under the film.
     window.bmMusic?.yieldToPlayer?.();

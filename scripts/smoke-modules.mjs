@@ -228,6 +228,109 @@ async function main() {
     new TVModule({ onStatus: () => {}, onProgress: () => {}, onChannels: () => {} });
   });
 
+  // v3.52.0
+  const tvMod = await load('src/js/modules/tv.js');
+  const LIST = [
+    '﻿#EXTM3U',
+    '#EXTINF:-1 tvg-id="one.in" tvg-logo="https://logos.example/one.png" group-title="News, World",One News',
+    'http://tv.example/one.m3u8',
+    '#EXTINF:-1 group-title="Sports",Zed Sport, HD',
+    '#EXTVLCOPT:http-user-agent=Player/1.0',
+    '#EXTVLCOPT:http-referrer=https://ref.example/',
+    'http://tv.example/zed.m3u8',
+    '#EXTINF:-1,Alpha Films',
+    '#EXTGRP:Films',
+    'http://tv.example/alpha.ts|User-Agent=Kodi%2F20&Referer=https://k.example/',
+    '#EXTINF:-1 tvg-name="Named In The Tag" group-title="Sports",',
+    'rtmp://tv.example/live/four',
+    '# a note, not a channel',
+    '',
+  ].join('\r\n');
+
+  await step('a playlist is read whole: a comma inside a quoted group, #EXTGRP, and a channel\'s own user agent and referrer', async () => {
+    const ch = await tvMod.parseM3u(LIST);
+    if (ch.length !== 4) throw new Error('expected 4 channels, got ' + ch.length + ': ' + JSON.stringify(ch.map(c => c.title)));
+    const [one, zed, alpha, four] = ch;
+    if (one.title !== 'One News' || one.group !== 'News, World') throw new Error('the comma inside the group\'s quotes cut the line: ' + JSON.stringify(one));
+    if (one.logo !== 'https://logos.example/one.png' || one.id !== 'one.in') throw new Error('logo or id lost: ' + JSON.stringify(one));
+    if (zed.title !== 'Zed Sport, HD') throw new Error('a comma in the name cut it: ' + zed.title);
+    if (zed.ua !== 'Player/1.0' || zed.ref !== 'https://ref.example/') throw new Error('#EXTVLCOPT not read: ' + JSON.stringify(zed));
+    if (alpha.group !== 'Films') throw new Error('#EXTGRP not read: ' + alpha.group);
+    if (alpha.url !== 'http://tv.example/alpha.ts' || alpha.ua !== 'Kodi/20' || alpha.ref !== 'https://k.example/') throw new Error('headers after | not read: ' + JSON.stringify(alpha));
+    if (four.title !== 'Named In The Tag' || four.url !== 'rtmp://tv.example/live/four') throw new Error('tvg-name or an rtmp address: ' + JSON.stringify(four));
+    if (one.ua || one.ref) throw new Error('one channel\'s headers reached another');
+  });
+
+  await step('a long playlist is read in slices, saying how far it is, and none of it is lost', async () => {
+    const lines = ['#EXTM3U']; for (let i = 0; i < 30000; i++) lines.push(`#EXTINF:-1 group-title="G${i % 7}",Ch ${i}`, `http://tv.example/${i}`);
+    const said = [];
+    const ch = await tvMod.parseM3u(lines.join('\n'), { slice: 2, onProgress: n => said.push(n) });
+    if (ch.length !== 30000 || ch[29999].title !== 'Ch 29999') throw new Error('channels lost: ' + ch.length);
+    if (!said.length) throw new Error('nothing was said of how far it was');
+  });
+
+  await step('TV: search by words, groups, favourites, recent, three orders, and next and previous round the ends', async () => {
+    store.clear();
+    const played = [];
+    const tv = new TVModule({ onPlay: ch => played.push(ch.title), api: { load: async src => ({ text: LIST, source: src, at: 1000 }) } });
+    const r = await tv.loadPlaylist('/lists/mine.m3u');
+    if (r.error || tv.totalChannels !== 4) throw new Error('not loaded: ' + JSON.stringify(r.error));
+    const names = () => tv.channels.map(c => c.title).join('|');
+    if (names() !== 'One News|Zed Sport, HD|Alpha Films|Named In The Tag') throw new Error('not in the playlist\'s order: ' + names());
+    tv.setSortBy('name'); if (names() !== 'Alpha Films|Named In The Tag|One News|Zed Sport, HD') throw new Error('by name: ' + names());
+    tv.setSortBy('group'); if (tv.channels[0].group !== 'Films' || tv.channels[3].group !== 'Sports') throw new Error('by group: ' + names());
+    tv.setSortBy('list');
+    if (tv.groups.join('|') !== 'Films|News, World|Sports') throw new Error('groups: ' + tv.groups.join('|'));
+    tv.setSearch('sport zed'); if (names() !== 'Zed Sport, HD') throw new Error('two words, either way round: ' + names());
+    tv.setSearch('WORLD'); if (names() !== 'One News') throw new Error('a group\'s name is searched too: ' + names());
+    tv.setSearch('');
+    tv.setGroupFilter('Sports'); if (tv.channels.length !== 2) throw new Error('group: ' + names());
+    tv.setGroupFilter(tvMod.FAVS); if (tv.channels.length) throw new Error('favourites before any');
+    if (tv.toggleFavorite('http://tv.example/zed.m3u8') !== true || names() !== 'Zed Sport, HD') throw new Error('a favourite is not listed: ' + names());
+    if (!JSON.parse(store.get('bm_tv_favs') || '[]').length && ![...store.values()].some(v => v.includes('zed.m3u8'))) throw new Error('the favourite was not saved');
+    tv.setGroupFilter('all');
+    tv.play(tv.channels[3]); if (played.join() !== 'Named In The Tag' || !tv.isLive) throw new Error('not played');
+    tv.step(1); if (tv.currentChannel.title !== 'One News') throw new Error('next from the last is not the first: ' + tv.currentChannel.title);
+    tv.step(-1); if (tv.currentChannel.title !== 'Named In The Tag') throw new Error('previous from the first is not the last');
+    tv.setGroupFilter(tvMod.RECENT); if (names() !== 'Named In The Tag|One News') throw new Error('recent, latest first: ' + names());
+    tv.stop(); if (tv.isLive || tv.currentChannel) throw new Error('still live after stop');
+  });
+
+  await step('TV: a playlist that cannot be read leaves the channels there, and the kept copy comes back at the next start', async () => {
+    store.clear();
+    let answer = { text: LIST, source: 'https://lists.example/a.m3u', at: Date.now() - 7 * 3600 * 1000 };
+    const said = [];
+    const api = { load: async () => answer, restore: async () => ({ text: LIST, source: 'https://lists.example/a.m3u', at: Date.now() - 7 * 3600 * 1000 }) };
+    const tv = new TVModule({ onStatus: (t, m) => said.push(t), api });
+    if (!(await tv.restore()) || tv.totalChannels !== 4) throw new Error('the kept playlist did not come back');
+    if (tv.sourceName !== 'lists.example' && !/a\.m3u|lists\.example/.test(tv.sourceName)) throw new Error('where it is from: ' + tv.sourceName);
+    if (!tv.needsRefresh) throw new Error('a web playlist seven hours old is not asked for again');
+    answer = { error: 'the server answered 503' };
+    const r = await tv.loadPlaylist(tv.source);
+    if (!r.kept || tv.totalChannels !== 4 || said.at(-1) !== 'kept') throw new Error('the channels went with the failed reload: ' + JSON.stringify([r.kept, tv.totalChannels, said]));
+    const none = new TVModule({ onStatus: (t) => said.push(t), api: { load: async () => ({ error: 'no' }), restore: async () => null } });
+    if (await none.restore()) throw new Error('something restored from nothing');
+    const e = await none.loadPlaylist('https://x.example/l.m3u'); if (!e.error || e.kept || said.at(-1) !== 'error') throw new Error('a first load that fails is not an error');
+    const local = new TVModule({ api: { restore: async () => ({ text: LIST, source: '/lists/mine.m3u', at: 1 }) } });
+    await local.restore(); if (local.needsRefresh) throw new Error('a file on this computer is read again by itself');
+  });
+
+  await step('TV: a channel that drops is tried again with longer waits, six times, then given up', async () => {
+    store.clear();
+    const said = [], again = [];
+    const tv = new TVModule({ onPlay: (ch, retry) => { if (retry) again.push(ch.title); }, onStatus: (t, m, ms) => said.push([t, ms]) });
+    if (tv.onStreamError() !== 0) throw new Error('tried again with nothing playing');
+    tv.play({ url: 'http://tv.example/x', title: 'X', group: 'G' });
+    const waits = []; for (let i = 0; i < 6; i++) waits.push(tv.onStreamError());
+    if (waits[0] !== 2000 || waits.some((w, i) => i && w <= waits[i - 1] && w !== 30000) || Math.max(...waits) > 30000) throw new Error('the waits: ' + waits.join());
+    if (!tv.isLive) throw new Error('given up before the sixth try');
+    if (tv.onStreamError() !== 0 || tv.isLive || said.at(-1)[0] !== 'failed') throw new Error('not given up after six: ' + JSON.stringify(said.at(-1)));
+    tv.play({ url: 'http://tv.example/y', title: 'Y', group: 'G' });
+    tv.onStreamError(); tv.stop();
+    await new Promise(r => setTimeout(r, 30));
+    if (again.length) throw new Error('a stopped channel was tried again');
+  });
+
   /* ── the remaining modules at least load and construct ────────── */
   await step('ABRepeat constructs', async () => {
     const mod = await load('src/js/modules/abrepeat.js');

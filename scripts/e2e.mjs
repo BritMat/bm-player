@@ -1178,6 +1178,42 @@ if (PART === 'b') {
         mini: document.getElementById('music-mini-player').classList.contains('hidden') }));
       if (s.p || !s.home || !s.mini) throw new Error(JSON.stringify(s));
     });
+
+    // v3.52.0: the TV tab, through the real app and the real mpv. A playlist
+    // on this computer whose first channel is the test clip and whose second
+    // is an address nothing answers at.
+    await step('TV: a playlist is read and kept by the app, a channel plays, one that is not there is tried again, and mpv is put back', async () => {
+      const list = path.join(FIX, 'channels, test.m3u');
+      fs.writeFileSync(list, ['#EXTM3U', '#EXTINF:-1 group-title="Here, now",The Clip', VIDEO, '#EXTINF:-1 group-title="Gone",Not There', 'http://127.0.0.1:9/not-there.ts', ''].join('\r\n'));
+      const mpvProp = n => page.evaluate(async k => { const v = await bmApp.api.mpv.cmd('get_property', k); return v && typeof v === 'object' ? null : v; }, n);
+      const waitBefore = await mpvProp('network-timeout');
+      await page.evaluate(() => document.querySelector('.sidebar-btn[data-dest="tv"]').click());
+      await page.waitForFunction(() => bmApp.tvModule, null, { timeout: 20000 });
+      const loaded = await page.evaluate(async f => { const a = bmApp; await a._tvReady; const r = await a.tvModule.loadPlaylist(f); a._tvAfterLoad(); return { error: r.error || null, n: a.tvModule.totalChannels, rows: document.querySelectorAll('#tv-rows .tv-ch').length, first: document.querySelector('#tv-rows .tv-ch-group')?.textContent, line: document.getElementById('tv-status-text').textContent }; }, list);
+      if (loaded.error || loaded.n !== 2 || loaded.rows !== 2 || loaded.first !== 'Here, now') throw new Error('loaded: ' + JSON.stringify(loaded));
+      const kept = await page.evaluate(() => window.api.tv.restore());
+      if (!kept || kept.source !== list || !/The Clip/.test(kept.text)) throw new Error('the app did not keep the playlist: ' + JSON.stringify(kept).slice(0, 160));
+      await page.click('#tv-rows .tv-ch-play');
+      let p = null, t = 0;
+      for (let k = 0; k < 40 && !(p === VIDEO && t > 0.3); k++) { await page.waitForTimeout(200); p = await mpvProp('path'); t = (await mpvProp('time-pos')) || 0; }
+      if (p !== VIDEO || !(t > 0.3)) throw new Error(`the channel did not play: ${p} at ${t}`);
+      const live = await page.evaluate(() => ({ live: bmApp.tvModule.isLive, view: document.getElementById('player-view').classList.contains('active') }));
+      if (!live.live || !live.view) throw new Error(JSON.stringify(live));
+      if (await mpvProp('network-timeout') !== 20) throw new Error('mpv still waits ' + await mpvProp('network-timeout') + ' s for a channel');
+      // Next: the channel that is not there
+      await page.evaluate(() => bmApp.trackStep(1));
+      let tries = 0, osd = '';
+      for (let k = 0; k < 40 && !tries; k++) { await page.waitForTimeout(150); ({ tries, osd } = await page.evaluate(() => ({ tries: bmApp.tvModule._reconnectAttempts, osd: document.getElementById('osd').textContent }))); }
+      if (!tries || !/Trying again/.test(osd)) throw new Error(`a channel that is not there: ${tries} tries, "${osd}"`);
+      if (!(await page.evaluate(() => bmApp.tvModule.isLive && bmApp.tvModule.currentChannel.title === 'Not There'))) throw new Error('given up at once');
+      await page.evaluate(() => bmApp.stop()); await page.waitForTimeout(600);
+      const after = await page.evaluate(() => ({ live: bmApp.tvModule.isLive, tries: bmApp.tvModule._reconnectAttempts, home: document.getElementById('welcome-screen').classList.contains('active') }));
+      if (after.live || !after.home) throw new Error('after stop: ' + JSON.stringify(after));
+      if (await mpvProp('network-timeout') !== waitBefore) throw new Error(`mpv's wait was ${waitBefore} and is now ${await mpvProp('network-timeout')}`);
+      await page.waitForTimeout(2600);   // the wait before the next try: none comes after a stop
+      if (await mpvProp('path')) throw new Error('the channel was opened again after stop');
+      await page.evaluate(() => window.api.tv.forget());
+    });
   } else {
     console.log('  (ffmpeg unavailable: mpv video steps skipped)');
   }

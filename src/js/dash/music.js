@@ -929,6 +929,7 @@ _markPlaying(){
 
 
 play(fp,idx){
+    window.bmApp?._tvLeave?.();   // a TV channel playing is no longer the thing playing (v3.52.0)
     this.currentPath=fp;
     // Where the song is in the queue. The index the caller had is its place in
     // the list on screen, which is not the queue's when shuffled or searched.

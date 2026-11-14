@@ -250,7 +250,9 @@ const thumbs=makeThumbs({getMpv});
 // mpv's crashes in the last two minutes (v3.46.0). After too many, mpv is
 // started again only when a file is opened.
 let crashTimes=[];
-function openFiles(files){if(!files?.length)return;const valid=files.filter(f=>f.startsWith('http')||isMedia(f));if(!valid.length)return;if(!S.ipcOk){pendingOpenFiles=valid;if(!S.mpvProc&&crashTimes.length){crashTimes=[];initMpv();}return;}mpvCmd('loadfile',valid[0],'replace').catch(()=>{});mpvCmd('set_property','pause',false).catch(()=>{});valid.slice(1).forEach(f=>mpvCmd('loadfile',f,'append').catch(()=>{}));send('mpv:opened',valid);valid.forEach(f=>{try{app.addRecentDocument(f);}catch(_){}});}
+// Addresses mpv plays as they are (v3.52.0: TV channels over RTMP, RTSP, UDP and the like were dropped here, only http was let through).
+const STREAM=/^(https?|rtmps?|rtsps?|mmsh?|udp|rtp|srt):\/\//i;
+function openFiles(files){if(!files?.length)return;const valid=files.filter(f=>STREAM.test(f)||isMedia(f));if(!valid.length)return;if(!S.ipcOk){pendingOpenFiles=valid;if(!S.mpvProc&&crashTimes.length){crashTimes=[];initMpv();}return;}mpvCmd('loadfile',valid[0],'replace').catch(()=>{});mpvCmd('set_property','pause',false).catch(()=>{});valid.slice(1).forEach(f=>mpvCmd('loadfile',f,'append').catch(()=>{}));send('mpv:opened',valid);valid.forEach(f=>{try{app.addRecentDocument(f);}catch(_){}});}
 function killMpv(){S.ipcOk=false;clearTimeout(ipcRetryT);ipcRetryT=null;const sock=S.mpvSock;S.mpvSock=null;try{sock?.destroy();}catch(_){}try{S.mpvProc?.kill();}catch(_){}S.mpvProc=null;if(!IS_WIN){try{fs.unlinkSync(PIPE);}catch(_){}}}
 function isMedia(f){return MEDIA.has(path.extname(f).slice(1).toLowerCase());}
 

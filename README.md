@@ -127,6 +127,15 @@ read by BM Player's built-in updater. You don't need to download them.
   kept so a song is looked up once, and looking online can be switched off.
   Where none are found you can search and choose, load a file (or drop one
   on the lyrics), and move the timing earlier or later.
+- TV that keeps up with long playlists (3.52.0). Every channel of a playlist
+  can be scrolled to, however long it is: only the rows in view are drawn.
+  The playlist is fetched by the app, kept for the next start, and read
+  again by itself when a web one is more than six hours old. If it cannot be
+  read, the channels you had stay. Favourites and Recent are lists of their
+  own beside the groups, Next and Previous change channel, and a channel
+  that drops is tried again up to six times. A channel's own user agent and
+  referrer in the playlist are used. Logos can be switched on: each is
+  fetched from the address the playlist gives for it.
 - The Studio look (3.51.0). The rail names each section under its icon. In
   Music the player is one bar along the bottom, with Up next and Lyrics in a
   panel beside the songs that opens and closes, and the folder's albums as a

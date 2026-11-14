@@ -13,6 +13,7 @@
  *   main/dialogs.js   open and save dialogs, owned by the player window
  *   main/library.js   bmfile://, gallery thumbnails, album art, tags, folder scans
  *   main/lyrics-service.js  lyrics.js and ytdlp.js for the page
+ *   main/tv-service.js      playlists for the TV tab, fetched and kept
  *   main/plugins.js   finding plugins and their saved state
  *   main/appinfo.js   the version, Diagnostics, updates, battery power
  *   main/caches.js, log.js, send.js   small shared helpers
@@ -47,6 +48,7 @@ const mpv = require('./main/mpv');
 const dialogs = require('./main/dialogs');
 const plugins = require('./main/plugins');
 const lyricsService = require('./main/lyrics-service');
+const tvService = require('./main/tv-service');   // v3.52.0: playlists for the TV tab
 const appinfo = require('./main/appinfo');
 const { pruneCache, pruneCaches } = require('./main/caches');
 
@@ -133,7 +135,7 @@ let _ipcRegistered = false;
 function registerIpc(){
   if (_ipcRegistered) return;
   _ipcRegistered = true;
-  const parts = { windows, dialogs, plugins, mpv, appinfo, library, lyrics: lyricsService };
+  const parts = { windows, dialogs, plugins, mpv, appinfo, library, lyrics: lyricsService, tv: tvService };
   for (const [name, part] of Object.entries(parts)) {
     try { part.register(ipcMain); } catch (e) { logFatal('ipc, ' + name, e); }
   }

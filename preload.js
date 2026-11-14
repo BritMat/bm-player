@@ -24,6 +24,8 @@ contextBridge.exposeInMainWorld('api',{
     onState:   cb=>on('win:state',cb),
     onPipState:cb=>on('win:pipState',cb),
   },
+  // v3.52.0: playlists for the TV tab, fetched by the app and kept for the next start
+  tv:{ load: source=>inv('tv:load',source), restore: ()=>inv('tv:restore'), forget: ()=>inv('tv:forget') },
   dialog:{
     open:    ()=>inv('dialog:open'),
     openSub: ()=>inv('dialog:openSub'),

@@ -151,31 +151,34 @@
   animation: tv-spin .8s linear infinite;
 }
 @keyframes tv-spin { to { transform: rotate(360deg); } }
-.tv-eco-warning, .tv-reconnect-bar {
-  display: flex; align-items: center; gap: 10px;
-  margin: 10px 16px 0; padding: 9px 12px; border-radius: 10px; font-size: 12px;
-  color: var(--text);
-  background: color-mix(in srgb, var(--accent) 10%, var(--surface));
-  border: 1px solid color-mix(in srgb, var(--accent) 35%, transparent);
-}
-.tv-eco-warning > span:not(.tv-eco-icon), .tv-reconnect-bar > span { flex: 1; }
-.tv-eco-icon { color: var(--accent); font-size: 14px; }
-.tv-eco-dismiss {
-  width: 22px; height: 22px; border-radius: 6px; flex-shrink: 0;
-  background: none; border: none; color: var(--text-muted); cursor: pointer;
-}
-.tv-eco-dismiss:hover { color: var(--danger); background: var(--hover); }
 .tv-body { flex: 1; min-height: 0; overflow: hidden; display: flex; flex-direction: column; }
-.tv-channels { flex: 1; overflow-y: auto; padding: 8px 10px 16px; }
+/* v3.52.0: the list holds only the rows in view. Each row is 56 px, which
+   tv-tab.js counts on (ROW). */
+.tv-channels { flex: 1; overflow-y: auto; padding: 0 10px; overflow-anchor: none; }
+.tv-list { position: relative; margin: 8px 0 16px; }
+.tv-rows { position: absolute; left: 0; right: 0; top: 0; will-change: transform; }
 .tv-empty { padding: 60px 20px; text-align: center; color: var(--text-muted); font-size: 13px; }
-.tv-recent-section { width: 100%; max-width: 640px; text-align: left; }
-.tv-ch {
-  display: grid; grid-template-columns: 40px 1fr auto 12px; align-items: center; gap: 12px;
-  padding: 8px 10px; border-radius: 8px; cursor: pointer;
-  transition: background .13s;
+.tv-empty[hidden], .tv-list[hidden], .tv-recent-section[hidden] { display: none; }
+.tv-recent-section { width: 100%; max-width: 640px; margin: 22px auto 0; text-align: left; }
+.tv-recent-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 8px; margin-top: 8px; }
+.tv-recent {
+  display: flex; align-items: center; gap: 10px; min-width: 0; height: 48px; padding: 0 10px;
+  border-radius: 10px; border: 1px solid var(--border); background: var(--surface);
+  color: var(--text); font: inherit; text-align: left; cursor: pointer;
 }
-.tv-ch:hover { background: var(--hover); }
-.tv-ch.now-playing {
+.tv-recent:hover { background: var(--hover); }
+.tv-ch {
+  display: flex; align-items: center; gap: 4px; height: 56px; box-sizing: border-box;
+  padding: 3px 0; contain: strict;
+}
+.tv-ch-play {
+  flex: 1; min-width: 0; height: 100%; display: grid; grid-template-columns: 44px 36px 1fr; align-items: center; gap: 12px;
+  padding: 0 10px 0 4px; border: 0; border-radius: 10px; background: none;
+  color: inherit; font: inherit; text-align: left; cursor: pointer;
+}
+.tv-ch-play:hover { background: var(--hover); }
+.tv-ch-play:focus-visible, .tv-ch-fav:focus-visible, .tv-recent:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.tv-ch.now-playing .tv-ch-play {
   background: color-mix(in srgb, var(--accent) 14%, transparent);
   box-shadow: inset 3px 0 0 var(--accent);
 }
@@ -183,21 +186,28 @@
   font-size: 11.5px; color: var(--text-muted); text-align: right;
   font-variant-numeric: tabular-nums;
 }
-.tv-ch-info { min-width: 0; }
+.tv-ch-logo {
+  position: relative; width: 36px; height: 36px; flex-shrink: 0; border-radius: 9px; overflow: hidden;
+  display: grid; place-items: center; color: #fff; font-size: 12px; font-weight: 650; letter-spacing: .02em;
+}
+.tv-ch-img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; background: #fff; }
+.tv-ch-info { min-width: 0; display: block; }
 .tv-ch-title {
-  font-size: 13px; font-weight: 550; color: var(--text);
+  display: block; font-size: 13.5px; font-weight: 550; color: var(--text);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 .tv-ch.now-playing .tv-ch-title { color: var(--accent); }
-.tv-ch-group { font-size: 11px; color: var(--text-muted); margin-top: 2px; }
+.tv-ch-group { display: block; font-size: 11.5px; color: var(--text-muted); margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tv-ch-fav {
-  background: none; border: none; cursor: pointer; font-size: 14px;
-  color: var(--text-muted); opacity: .45; transition: opacity .13s, color .13s, transform .13s;
+  width: 40px; height: 40px; flex-shrink: 0; display: grid; place-items: center;
+  background: none; border: 0; border-radius: 10px; cursor: pointer;
+  color: var(--text-muted); opacity: .55;
 }
-.tv-ch-fav:hover { opacity: 1; transform: scale(1.15); }
+.tv-ch-fav svg { width: 17px; height: 17px; }
+.tv-ch-fav:hover { opacity: 1; background: var(--hover); }
 .tv-ch-fav.active { color: var(--accent); opacity: 1; }
-/* Stream reachability probe: grey until checked. */
-.tv-ch-probe { width: 8px; height: 8px; border-radius: 50%; background: var(--border); }
+#btn-tv-logos[aria-pressed="true"] { border-color: var(--accent); color: var(--accent); }
+#btn-tv-reload[hidden] { display: none; }
 
 /* ── History panel ──────────────────────────────────────────────── */
 .history-list, .bookmarks-list { display: flex; flex-direction: column; gap: 2px; }

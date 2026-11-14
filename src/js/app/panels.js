@@ -85,9 +85,11 @@ export default class PanelsFeature {
       }
       if(this._eofHandled) return;           // one advance per end of file
       this._eofHandled=true;
+      // A TV channel that stopped coming: tried again (v3.52.0).
+      if(this._tvStreamEnded?.('eof')) return;
       const m=window.bmMusic;
       // Only for audio mpv is playing. The in-app engine has its own 'ended'.
-      if(m?.currentPath && !this._hasVideo && !m.engineOwns?.()) m.advance(true);
+      if(m?.currentPath && !this._hasVideo && !m.engineOwns?.() && !this.tvModule?.isLive) m.advance(true);   // not at the end of something from the TV list (v3.52.0)
       // A film at its end, with the sleep timer set for the end of it (v3.46.0).
       // mpv is left holding there: let go now, with the next film in its
       // playlist, it would go straight on to it.
@@ -105,10 +107,11 @@ export default class PanelsFeature {
         if(m?._mpvSong&&m._mpvSong===m.currentPath){ m.skipBroken(); return; }
         // Late news of a file already replaced by a song the engine plays.
         if(m?.engineOwns?.()) return;
+        // A TV channel: tried again a few times, and said over the picture (v3.52.0).
+        if(this._tvStreamEnded?.('error')) return;
         const what=(this._lastOpened||'').split(/[\\/]/).pop()||'this file';
         this.showOSD(`Couldn't play ${what}${ev.file_error?': '+ev.file_error:''}`,4000);
-        // The TV tab reports stream failures itself and retries, so leave it be.
-        if(this.currentDash!=='tv') this.stop();
+        this.stop();
         return;
       }
       // 'eof' is a natural finish; 'stop'/'quit' mean the user did it.

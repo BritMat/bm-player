@@ -959,6 +959,54 @@ await step('PiP size button cycles three sizes, anchored and on screen', async (
     } finally { electronStub.net.fetch = real; }
   });
 
+  /* ── 7d. TV playlists (v3.52.0) ───────────────────────────────── */
+  await step('TV: a playlist is fetched by the app, kept for the next start, and only a playlist is read', async () => {
+    const real = electronStub.net.fetch, asked = [];
+    const LIST = '#EXTM3U\n#EXTINF:-1 group-title="News",One\nhttp://tv.example/one.m3u8\n';
+    const answer = (body, status = 200, len) => ({ ok: status < 400, status, headers: { get: h => (h === 'content-length' ? len ?? null : null) }, arrayBuffer: async () => Buffer.from(body) });
+    try {
+      await call('tv:forget');
+      if (await call('tv:restore') !== null) throw new Error('something kept before anything was loaded');
+      electronStub.net.fetch = async (url, o) => { asked.push({ url, headers: o?.headers }); return answer('﻿' + LIST); };
+      const r = await call('tv:load', ' https://lists.example/a.m3u ');
+      if (r.error || r.text !== LIST || r.source !== 'https://lists.example/a.m3u' || !(r.at > 0)) throw new Error('loaded: ' + JSON.stringify(r).slice(0, 200));
+      if (asked.length !== 1 || asked[0].url !== 'https://lists.example/a.m3u') throw new Error('asked: ' + JSON.stringify(asked));
+      const sent = JSON.stringify(asked[0].headers || {});
+      if (/@|cookie|authorization/i.test(sent)) throw new Error('more than a plain request was sent: ' + sent);
+      const kept = await call('tv:restore');
+      if (!kept || kept.text !== LIST || kept.source !== r.source || kept.at !== r.at) throw new Error('not kept: ' + JSON.stringify(kept).slice(0, 200));
+      // what cannot be read says why, and the copy kept stays
+      electronStub.net.fetch = async () => answer('gone', 503);
+      const down = await call('tv:load', 'https://lists.example/a.m3u');
+      if (!/503/.test(down.error || '')) throw new Error('a 503: ' + JSON.stringify(down));
+      electronStub.net.fetch = async () => answer('<!DOCTYPE html><html><body>Sign in</body></html>');
+      const page = await call('tv:load', 'https://lists.example/login');
+      if (!/web page/.test(page.error || '')) throw new Error('a web page was taken for a playlist: ' + JSON.stringify(page).slice(0, 120));
+      electronStub.net.fetch = async () => answer('x', 200, String(65 * 1024 * 1024));
+      const huge = await call('tv:load', 'https://lists.example/huge.m3u');
+      if (!/64 MB/.test(huge.error || '')) throw new Error('a playlist over 64 MB: ' + JSON.stringify(huge));
+      electronStub.net.fetch = async () => { throw new Error('net::ERR_INTERNET_DISCONNECTED'); };
+      const off = await call('tv:load', 'https://lists.example/a.m3u');
+      if (!off.error) throw new Error('offline gave no reason');
+      if ((await call('tv:restore'))?.text !== LIST) throw new Error('the kept copy went with a failed load');
+      // files on this computer: a playlist by its name, with its whole path
+      const dir = fs.mkdtempSync(path.join(TMP, 'tv-'));
+      const mine = path.join(dir, 'mine.M3U8'); fs.writeFileSync(mine, LIST.replace('One', 'Mine'));
+      const secret = path.join(dir, 'passwords.kdbx'); fs.writeFileSync(secret, 'not for reading');
+      const n = asked.length;
+      const f = await call('tv:load', mine);
+      if (f.error || !/Mine/.test(f.text)) throw new Error('a file: ' + JSON.stringify(f).slice(0, 160));
+      for (const bad of [secret, 'mine.m3u', '../mine.m3u', dir, '', null]) {
+        const b = await call('tv:load', bad);
+        if (!b.error || b.text) throw new Error('read what is not a playlist with its whole path: ' + String(bad));
+      }
+      if (asked.length !== n) throw new Error('the web was asked for a file on this computer');
+      if ((await call('tv:restore')).source !== mine) throw new Error('the last playlist loaded is not the one kept');
+      await call('tv:forget');
+      if (await call('tv:restore') !== null) throw new Error('still kept after forget');
+    } finally { electronStub.net.fetch = real; }
+  });
+
   // yt-dlp, fetched on first use and checked against its published sum (v3.39.0).
   // v3.46.0: the seek bar's pictures, each from an mpv of its own (thumbs.js).
   // A fake mpv writes the JPEG into the folder it is given, as mpv's image

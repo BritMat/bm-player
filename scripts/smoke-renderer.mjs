@@ -102,6 +102,9 @@ function makeApi() {
     pdfFile: group('write'),
     plugins: group('list', 'enable', 'disable'),
     subs: group('openFile'),
+    // v3.52.0: the playlist is fetched and kept by the app
+    tv: { load: async src => { (bridge.tvAsked ||= []).push(src); return bridge.tvLoad ? bridge.tvLoad(src) : { error: 'no playlist in this test' }; },
+          restore: async () => bridge.tvKept || null, forget: async () => true },
     onOpenFile: noop, onMenu: noop,
   };
 }
@@ -1691,6 +1694,136 @@ async function main() {
 
     Object.assign(eng, reals);
     delete eng.duration;
+  }
+
+  /* ── 16b. TV (v3.52.0) ───────────────────────────────────────── */
+  {
+    const app = window.bmApp, doc = window.document;
+    const $ = id => doc.getElementById(id);
+    const many = n => { const l = ['#EXTM3U']; for (let i = 0; i < n; i++) l.push(`#EXTINF:-1 tvg-logo="https://logos.example/${i}.png" group-title="${i % 2 ? 'Odd' : 'Even'}",Channel ${String(i).padStart(4, '0')}`, `http://tv.example/${i}.m3u8`); return l.join('\n'); };
+    const rows = () => [...doc.querySelectorAll('#tv-rows .tv-ch')];
+    const nums = () => rows().map(r => +r.querySelector('.tv-ch-num').textContent);
+    const cmds = []; const opens = [];
+    const realCmd = app.api.mpv.cmd, realOpen = app.api.mpv.open;
+    const hook = () => { app.api.mpv.cmd = (...a) => { cmds.push(a); return Promise.resolve(a[0] === 'get_property' ? (a[1] === 'network-timeout' ? 60 : '') : null); }; app.api.mpv.open = f => { opens.push(f[0]); return Promise.resolve(null); }; };
+    const unhook = () => { app.api.mpv.cmd = realCmd; app.api.mpv.open = realOpen; };
+    let tv;
+
+    await step('TV: a long playlist is all there to scroll to, with only the rows in view drawn', async () => {
+      app.switchDest('tv'); tv = await app.part('tv'); await app._tvReady;
+      bridge.tvLoad = src => ({ text: many(6000), source: src, at: Date.now() });
+      $('tv-url-input').value = 'https://lists.example/all.m3u';
+      $('tv-url-go').click();
+      for (let i = 0; i < 200 && tv.totalChannels !== 6000; i++) await tick(10);
+      await tick(20);
+      if (tv.totalChannels !== 6000) throw new Error('not loaded: ' + tv.totalChannels + ' ' + $('tv-status-text').textContent);
+      if (bridge.tvAsked.at(-1) !== 'https://lists.example/all.m3u') throw new Error('the app was not asked for it');
+      if (rows().length < 5 || rows().length > 60) throw new Error(rows().length + ' rows drawn for 6000 channels');
+      if ($('tv-list').style.height !== 6000 * 56 + 'px') throw new Error('the list is not as tall as all its channels: ' + $('tv-list').style.height);
+      if ($('tv-count').textContent !== '6,000 channels') throw new Error('count: ' + $('tv-count').textContent);
+      if (!/6,000 channels from lists\.example/.test($('tv-status-text').textContent)) throw new Error('where it is from: ' + $('tv-status-text').textContent);
+      if ($('btn-tv-reload').hidden || !$('tv-empty').hidden) throw new Error('Reload hidden, or the empty state shown, with a playlist loaded');
+      const box = $('tv-channels');
+      box.scrollTop = 5990 * 56; box.dispatchEvent(new window.Event('scroll')); await tick(30);
+      if (Math.max(...nums()) !== 6000) throw new Error('the last channel cannot be reached: ' + Math.max(...nums()));
+      if (rows().length > 60) throw new Error(rows().length + ' rows at the end');
+      box.scrollTop = 3000 * 56; box.dispatchEvent(new window.Event('scroll')); await tick(30);
+      const n = nums(); if (!n.includes(3001) || n.includes(1) || n.includes(6000)) throw new Error('the middle of the list: ' + n[0] + ' to ' + n.at(-1));
+      const opts = [...$('tv-group-filter').options].map(o => o.textContent).join('|');
+      if (opts !== 'All channels|Favourites|Recent|Even|Odd') throw new Error('the lists to choose from: ' + opts);
+    });
+
+    await step('TV: search waits a moment for the typing, favourites are a list of their own, logos only when asked for', async () => {
+      const inp = $('tv-search');
+      inp.value = 'channel 0042'; inp.dispatchEvent(new window.Event('input', { bubbles: true }));
+      if (tv.channels.length !== 6000) throw new Error('filtered at the keystroke, not after it');
+      await tick(160);
+      if (tv.channels.length !== 1 || rows().length !== 1 || $('tv-count').textContent !== '1 of 6,000') throw new Error('search: ' + tv.channels.length + ', ' + $('tv-count').textContent);
+      if ($('tv-channels').scrollTop !== 0) throw new Error('a new search did not start from the top');
+      if (doc.querySelector('#tv-rows img')) throw new Error('a logo fetched without being asked for');
+      const star = rows()[0].querySelector('.tv-ch-fav');
+      star.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      if (!star.classList.contains('active') || star.getAttribute('aria-pressed') !== 'true' || !tv.isFavorite('http://tv.example/42.m3u8')) throw new Error('the star did not keep the channel');
+      if (tv.isLive) throw new Error('the star played the channel');
+      inp.value = ''; inp.dispatchEvent(new window.Event('input', { bubbles: true })); await tick(160);
+      const sel = $('tv-group-filter'); sel.value = '__fav'; sel.dispatchEvent(new window.Event('change'));
+      if (rows().length !== 1 || !/Channel 0042/.test(rows()[0].textContent)) throw new Error('Favourites: ' + rows().length);
+      rows()[0].querySelector('.tv-ch-fav').dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      if (rows().length || $('tv-empty').hidden || !/No favourites yet/.test($('tv-empty-text').textContent)) throw new Error('an emptied Favourites: ' + rows().length + ' ' + $('tv-empty-text').textContent);
+      sel.value = 'all'; sel.dispatchEvent(new window.Event('change'));
+      $('btn-tv-logos').click();
+      const img = doc.querySelector('#tv-rows img.tv-ch-img');
+      if (!img || !/^https:\/\/logos\.example\//.test(img.getAttribute('src')) || img.getAttribute('referrerpolicy') !== 'no-referrer') throw new Error('logos switched on: ' + (img && img.outerHTML));
+      if (window.localStorage.getItem('bm_tv_logos') !== '1') throw new Error('the choice was not kept');
+      $('btn-tv-logos').click();
+      if (doc.querySelector('#tv-rows img')) throw new Error('logos stayed after being switched off');
+    });
+
+    await step('TV: a channel plays with its own headers, Next and Previous change channel, a drop is tried again, and leaving puts mpv back', async () => {
+      hook();
+      try {
+        tv._channels[1].ua = 'Player/1.0'; tv._channels[1].ref = 'https://ref.example/';
+        rows()[0].querySelector('.tv-ch-play').dispatchEvent(new window.MouseEvent('click', { bubbles: true })); await tick(20);
+        if (opens.at(-1) !== 'http://tv.example/0.m3u8' || !tv.isLive) throw new Error('not played: ' + opens.at(-1));
+        if (app.currentDash !== 'video') throw new Error('the picture is not shown: ' + app.currentDash);
+        const set = k => cmds.filter(c => c[0] === 'set_property' && c[1] === k).at(-1)?.[2];
+        if (set('network-timeout') !== 20 || set('user-agent') !== '' || set('referrer') !== '') throw new Error('mpv for a plain channel: ' + JSON.stringify([set('network-timeout'), set('user-agent'), set('referrer')]));
+        if (!rows()[0].classList.contains('now-playing')) throw new Error('the channel playing is not marked');
+        app.trackStep(1); await tick(20);
+        if (opens.at(-1) !== 'http://tv.example/1.m3u8') throw new Error('Next did not go to the next channel: ' + opens.at(-1));
+        if (set('user-agent') !== 'Player/1.0' || set('referrer') !== 'https://ref.example/') throw new Error('the channel\'s own headers were not given to mpv');
+        if (cmds.some(c => c[0] === 'playlist-next')) throw new Error('mpv\'s own playlist was stepped');
+        app.trackStep(-1); await tick(20);
+        if (opens.at(-1) !== 'http://tv.example/0.m3u8' || set('user-agent') !== '') throw new Error('Previous: ' + opens.at(-1) + ' ' + set('user-agent'));
+        if (tv.recent[0].url !== 'http://tv.example/0.m3u8' || tv.recent.length < 2) throw new Error('recent: ' + JSON.stringify(tv.recent.map(r => r.url)));
+        // it drops: tried again, said over the picture, and the app stays with it
+        const n = opens.length; let stopped = 0; const realStop = app.stop; app.stop = (...a) => { stopped++; return realStop.apply(app, a); };
+        try {
+          bridge.ev.forEach(cb => cb({ event: 'end-file', reason: 'error', file_error: 'loading failed' }));
+          if (stopped) throw new Error('playing was stopped at the first drop');
+          if (!/Trying again/.test($('osd').textContent)) throw new Error('nothing said of trying again: ' + $('osd').textContent);
+          if (tv._reconnectAttempts !== 1 || !tv.isLive) throw new Error('not being tried again');
+          tv._onPlay(tv.currentChannel, true); await tick(20);      // what the wait ends in
+          if (opens.length !== n + 1 || opens.at(-1) !== 'http://tv.example/0.m3u8') throw new Error('not opened again');
+          // a film from the same playlist that plays to its end is not a drop
+          app.duration = 5400; app._eofHandled = false; bridge.prop.forEach(cb => cb({ name: 'eof-reached', data: true }));
+          if (tv._reconnectAttempts !== 1) throw new Error('the end of a film was taken for a dropped channel');
+          app.duration = 0; bridge.prop.forEach(cb => cb({ name: 'eof-reached', data: false })); bridge.prop.forEach(cb => cb({ name: 'eof-reached', data: true }));
+          if (tv._reconnectAttempts !== 2) throw new Error('a live channel that stopped coming was not tried again');
+          // given up: said, and playing stops
+          tv._reconnectAttempts = 6;
+          bridge.ev.forEach(cb => cb({ event: 'end-file', reason: 'error' }));
+          if (tv.isLive || !stopped || !/could not be reached/.test($('osd').textContent)) throw new Error('not given up: ' + $('osd').textContent);
+          if (set('network-timeout') !== 60) throw new Error('mpv\'s own wait was not put back: ' + set('network-timeout'));
+        } finally { app.stop = realStop; }
+        // something else opened while a channel plays: the channel is over
+        app.switchDest('tv'); await tick(5);
+        tv.play(tv.channels[2]); await tick(20);
+        app.playMedia(['/films/a.mkv']); await tick(5);
+        if (tv.isLive || set('network-timeout') !== 60) throw new Error('a film opened and the channel is still the thing playing');
+        const before = cmds.length; app.trackStep(1);
+        if (!cmds.slice(before).some(c => c[0] === 'playlist-next')) throw new Error('Next still changes channel under a film');
+        app.stop();
+      } finally { unhook(); clearTimeout(tv._reconnectTimer); }
+    });
+
+    await step('TV: a reload that fails keeps the channels, and Recent plays without a playlist', async () => {
+      hook();
+      try {
+        app.switchDest('tv'); await tick(5);
+        bridge.tvLoad = () => ({ error: 'the server answered 503' });
+        $('btn-tv-reload').click(); await tick(40);
+        if (tv.totalChannels !== 6000 || rows().length < 5) throw new Error('the channels went with the failed reload');
+        if (!/from before/.test($('tv-status-text').textContent)) throw new Error('nothing said: ' + $('tv-status-text').textContent);
+        // no playlist: the channels played before are offered
+        tv._take([], '', 0); app._tvAfterLoad();
+        const rec = [...doc.querySelectorAll('#tv-recent-list .tv-recent')];
+        if ($('tv-recent-section').hidden || rec.length < 2) throw new Error('recent channels not offered: ' + rec.length);
+        const n = opens.length; rec[1].dispatchEvent(new window.MouseEvent('click', { bubbles: true })); await tick(20);
+        if (opens.length !== n + 1 || opens.at(-1) !== tv.recent[0].url) throw new Error('a recent channel did not play');
+        app.stop();
+      } finally { unhook(); bridge.tvLoad = null; clearTimeout(tv._reconnectTimer); }
+    });
   }
 
   /* ── 17. Mini bar and the video-mode visualiser ──────────────── */

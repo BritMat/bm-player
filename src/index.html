@@ -1458,49 +1458,43 @@
     <div class="tv-toolbar">
       <button class="dash-action-btn" id="btn-tv-open-m3u">Load M3U</button>
       <button class="dash-action-btn st-quiet" id="btn-tv-open-url">From URL</button>
+      <button class="dash-action-btn st-quiet" id="btn-tv-reload" title="Read the playlist again from where it came" hidden>Reload</button>
       <div class="tv-search-wrap">
-        <input type="text" class="tv-search-input" id="tv-search" placeholder="Search channels…">
+        <input type="search" class="tv-search-input" id="tv-search" placeholder="Search channels…" aria-label="Search channels">
       </div>
-      <select class="dash-select" id="tv-group-filter">
-        <option value="all">All Groups</option>
+      <select class="dash-select" id="tv-group-filter" aria-label="Which channels">
+        <option value="all">All channels</option>
+        <option value="__fav">Favourites</option>
+        <option value="__recent">Recent</option>
       </select>
-      <select class="dash-select" id="tv-sort">
+      <select class="dash-select" id="tv-sort" aria-label="Order">
+        <option value="list">Playlist order</option>
         <option value="name">Name A–Z</option>
         <option value="group">Group</option>
       </select>
+      <button class="dash-action-btn st-quiet" id="btn-tv-logos" aria-pressed="false" title="Show each channel's logo. Each one is fetched from the address the playlist gives for it.">Logos</button>
       <span class="dash-count" id="tv-count"></span>
     </div>
   </div>
   <div class="tv-status-bar" id="tv-status-bar">
-    <span class="tv-status-text" id="tv-status-text">No playlist loaded</span>
+    <span class="tv-status-text" id="tv-status-text" role="status">No playlist loaded</span>
     <div class="tv-status-spinner hidden" id="tv-status-spinner"></div>
-  </div>
-  <!-- Eco warning dialog (inline, not a modal — non-blocking) -->
-  <div class="tv-eco-warning hidden" id="tv-eco-warning">
-    <span class="tv-eco-icon">⚠</span>
-    <span id="tv-eco-msg">Large playlist detected. Loading progressively to keep the app responsive…</span>
-    <button class="tv-eco-dismiss" id="tv-eco-dismiss" aria-label="Dismiss warning" data-icon="close"></button>
-  </div>
-  <!-- Reconnect banner -->
-  <div class="tv-reconnect-bar hidden" id="tv-reconnect-bar">
-    <span id="tv-reconnect-text">Reconnecting…</span>
-    <button class="dash-action-btn" id="tv-reconnect-stop" style="padding:4px 10px;font-size:11px">Stop</button>
   </div>
   <div class="tv-body">
     <div class="tv-channels" id="tv-channels">
-      <div class="tv-empty">
+      <div class="tv-empty" id="tv-empty">
         <span class="st-empty-ico" data-icon="tv" aria-hidden="true"></span>
-        <p>Load an M3U playlist to browse TV channels</p>
-        <p style="font-size:11px;margin-top:6px;opacity:.45">Supports M3U/M3U8 files and URLs (IPTV lists).<br>Large playlists are loaded progressively to keep the app responsive.</p>
-        <div style="margin-top:16px;display:flex;gap:10px;justify-content:center;flex-wrap:wrap">
-          <div class="tv-recent-section" id="tv-recent-section" style="display:none">
-            <div class="recent-header">
-              <span class="recent-label">Recent Channels</span>
-            </div>
-            <div id="tv-recent-list" class="recent-grid"></div>
+        <p id="tv-empty-text">Load an M3U playlist to browse TV channels</p>
+        <p id="tv-empty-hint">An M3U or M3U8 file, or the address of one. It is kept for the next start.</p>
+        <div class="tv-recent-section" id="tv-recent-section" hidden>
+          <div class="recent-header">
+            <span class="recent-label">Recent channels</span>
           </div>
+          <div id="tv-recent-list" class="tv-recent-list"></div>
         </div>
       </div>
+      <!-- Only the rows in view are in here (v3.52.0): tv-list is as tall as the whole list, tv-rows is moved to the place in it. -->
+      <div class="tv-list" id="tv-list" role="list" aria-label="Channels" hidden><div class="tv-rows" id="tv-rows"></div></div>
     </div>
   </div>
 </div>
@@ -1510,7 +1504,7 @@
   <div class="dlg-box">
     <div class="dlg-title">Load M3U from URL</div>
     <input type="text" class="dlg-input" id="tv-url-input" placeholder="https://example.com/playlist.m3u">
-    <p style="font-size:11px;color:var(--text-muted);margin:8px 0 4px">Timeout: 15s · Large lists (&gt;500 channels) load progressively</p>
+    <p style="font-size:11px;color:var(--text-muted);margin:8px 0 4px">The playlist is kept, and read again when it is more than six hours old.</p>
     <div class="dlg-btns">
       <button class="btn-ghost" id="tv-url-cancel">Cancel</button>
       <button class="btn-accent" id="tv-url-go">Load</button>
