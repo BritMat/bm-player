@@ -2344,6 +2344,64 @@ async function main() {
     });
 
     // v3.50.0: lyrics that stay, looked for again after a network drop.
+    await step('lyrics: with nothing found, YouTube can be asked for this one song, and the search says which words it used', async () => {
+      const ly = window.bmLyrics, song = '/fixtures/music/01 - track.mp3', meta = { title: 'Carol of the Day | The Six | Cover', artist: '', duration: 286 };
+      const pane = () => doc.getElementById('np-lyrics');
+      const wasYt = window.localStorage.getItem('bm_lyrics_youtube');
+      try {
+        ly.showTab('lyrics'); ly.online = true; ly.youtube = false;
+        bridge.lyrics = { source: 'none' }; bridge.lyr = { youtube: 0, ytInstalled: true, yt: { source: 'youtube', synced: '[00:01.00]from a caption', auto: true, video: { id: 'x', title: 'Carol of the Day | The Six | Cover' } } };
+        await ly.song(song, meta);
+        const b = pane().querySelector('[data-lyr="youtube-once"]');
+        if (!b || b.textContent !== 'Look on YouTube' || !/yt-dlp/.test(b.title) || !/can be wrong/.test(b.title)) throw new Error('no way to YouTube where nothing was found, or it does not say what it does: ' + (b && b.title));
+        if (bridge.lyr.youtube) throw new Error('YouTube was asked without being told to');
+        b.dispatchEvent(new window.MouseEvent('click', { bubbles: true })); await tick(30);
+        if (bridge.lyr.youtube !== 1 || ly.status !== 'ready' || ly.source !== 'youtube') throw new Error('Look on YouTube: asked ' + bridge.lyr.youtube + ', ' + ly.status + ' ' + ly.source);
+        if (ly.youtube || window.localStorage.getItem('bm_lyrics_youtube') === '1') throw new Error('asking once turned YouTube on for every song');
+        if (!/automatic captions/.test(pane().textContent)) throw new Error('captions made by speech recognition are not said to be');
+        // with YouTube already on, it was asked by itself: no button
+        ly.youtube = true; bridge.lyr.yt = { source: 'none' }; bridge.lyrics = { source: 'none' };
+        await ly.song(song, { ...meta, duration: 287 }); await tick(30);
+        if (pane().querySelector('[data-lyr="youtube-once"]')) throw new Error('the button is offered when YouTube was just asked');
+        ly.youtube = false;
+        // looking in files only: nothing online is offered
+        ly.online = false; await ly.song(song, { ...meta, duration: 288 });
+        if (pane().querySelector('[data-lyr="youtube-once"]')) throw new Error('YouTube is offered with looking online turned off');
+        ly.online = true;
+        // the search starts from the song's own name, and says when other words were used
+        await ly.song(song, { ...meta, artist: 'The Six', duration: 289 });
+        ly._openSearch();
+        if (doc.getElementById('lyr-q').value !== 'The Six Carol of the Day') throw new Error('the search starts from: ' + doc.getElementById('lyr-q').value);
+        bridge.lyr.results = { used: 'Carol of the Day', results: [{ id: 5, title: 'Carol of the Day', artist: 'A Choir', album: '', duration: 200, synced: true, plain: true }] };
+        await ly._search('The Six Carol of the Day | Cover');
+        if (!/Nothing for all of those words\. These are for "Carol of the Day"\./.test(pane().textContent) || !pane().querySelector('.lyr-result')) throw new Error('other words used, and not said: ' + pane().textContent.slice(0, 200));
+        bridge.lyr.results = { results: [{ id: 5, title: 'Carol of the Day', artist: 'A Choir', album: '', duration: 200, synced: true, plain: true }] };
+        await ly._search('Carol of the Day');
+        if (/Nothing for all of those words/.test(pane().textContent)) throw new Error('the note stayed for a search that used its own words');
+      } finally { ly.searching = false; ly.youtube = false; bridge.lyr = {}; if (wasYt === null) window.localStorage.removeItem('bm_lyrics_youtube'); else window.localStorage.setItem('bm_lyrics_youtube', wasYt); }
+    });
+
+    await step('Music: a Visualiser button, by the folder\'s name and in the bar, fills the window with it', async () => {
+      const app = window.bmApp, m = window.bmMusic;
+      const head = doc.getElementById('music-visualiser'), bar = doc.getElementById('np-tab-visualiser');
+      if (!head || !bar || !/Visualiser/.test(head.textContent) || bar.textContent !== 'Visualiser' || !head.querySelector('svg')) throw new Error('no Visualiser button with its name on it: ' + (head && head.textContent));
+      const was = { path: m.currentPath, playing: app.isPlaying, video: app._hasVideo, dash: app.currentDash };
+      try {
+        app.switchDest('music'); m.currentPath = '/fixtures/music/01 - track.mp3'; app.isPlaying = true; app._hasVideo = false;
+        bar.dispatchEvent(new window.MouseEvent('click', { bubbles: true })); await tick(20);
+        if (app.currentDash !== 'video' || !doc.body.classList.contains('audio-viz') || !app._audioVizMode) throw new Error('the bar\'s button: ' + app.currentDash + ', audio-viz ' + doc.body.classList.contains('audio-viz'));
+        doc.getElementById('viz-btn-music').click(); await tick(10);
+        if (app.currentDash !== 'music' || doc.body.classList.contains('audio-viz')) throw new Error('Back to Music does not bring the list back');
+        head.dispatchEvent(new window.MouseEvent('click', { bubbles: true })); await tick(20);
+        if (app.currentDash !== 'video' || !doc.body.classList.contains('audio-viz')) throw new Error('the head\'s button did not show it');
+        app.switchDest('music');
+        // a film playing is not a song: the picture is left alone and it is said why
+        app._hasVideo = true; let said = ''; const realOsd = app.showOSD; app.showOSD = t => { said = t; };
+        try { m.showVisualiser(); app.switchDest('pdf'); await tick(150); } finally { app.showOSD = realOsd; }
+        if (doc.body.classList.contains('audio-viz')) throw new Error('the visualiser was put over a film');
+      } finally { app._hasVideo = was.video; app.isPlaying = was.playing; m.currentPath = was.path; app.switchDest(was.dash || 'video'); }
+    });
+
     await step('lyrics: Try again asks afresh, the site out of reach is said and asked again when the connection is back, Refresh keeps them on screen, Save as .lrc', async () => {
       const ly = window.bmLyrics, song = '/fixtures/music/01 - track.mp3', meta = { title: 'T', artist: 'A', duration: 183 };
       const pane = () => doc.getElementById('np-lyrics');

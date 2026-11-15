@@ -94,6 +94,18 @@
       .replace(/\s+/g, ' ').trim();
   }
 
+  /**
+   * v3.54.0: a name as a video site writes it, "Song | Singers | Christmas
+   * song | Cover", cut down to the song. A lyrics site knows the song by its
+   * own name, and found nothing for all of that. The part before the first
+   * bar (the plain one or the wide one a download writes in a file's name)
+   * or " // " is kept, when it is long enough to be a name.
+   */
+  function shortTitle(s) {
+    const t = cleanTitle(s), first = t.split(/\s*[|\uFF5C\u2223\u23D0]\s*|\s+\/\/\s+/)[0].trim();
+    return first.length >= 3 ? cleanTitle(first) : t;
+  }
+
   // Names compared with case, accents and punctuation set aside. v3.50.0:
   // letters of every script are kept. Only a to z and digits were, so a title
   // in Malayalam or Hindi came out empty and was never matched.
@@ -237,6 +249,16 @@
       const best = () => { let top = null, sc = -1; for (const x of seen.values()) { const s = fit(x, m); if (s > sc) { sc = s; top = x; } } return sc >= (m.duration ? 2 : 5) ? top : null; };
       if (m.artist) await search({ track_name: m.title, artist_name: m.artist });
       if (!best()) await search({ q: [m.artist, m.title].filter(Boolean).join(' ') });
+      // v3.54.0: a name with more than the song's in it ("Song | Singers | Cover"): the song's alone.
+      // The same care is taken over the length, so a cover of another length is still not given
+      // another recording's timings.
+      const short = shortTitle(m.title);
+      if (!best() && short && short !== m.title) {
+        const was = m.title; m = { ...m, title: short };
+        if (m.artist) await search({ track_name: short, artist_name: m.artist });
+        if (!best()) await search({ q: short });
+        if (!best()) m = { ...m, title: was };
+      }
       const got = fromRecord(best());
       if (got) return got;
       // v3.50.0: nothing found while any question went unanswered is not
@@ -288,12 +310,21 @@
       const words = String(o.q || '').trim();
       const params = words ? { q: words } : { track_name: cleanTitle(o.title), artist_name: o.artist || undefined };
       if (!params.q && !params.track_name) return { results: [] };
-      const r = await fetchJson(`${LRCLIB}/api/search?${q(params)}`, ua);
+      let r = await fetchJson(`${LRCLIB}/api/search?${q(params)}`, ua);
       if (unreached(r)) return { results: [], offline: true, why: whyOf(r) };
-      const list = r.status === 200 && Array.isArray(r.json) ? r.json : [];
+      let list = r.status === 200 && Array.isArray(r.json) ? r.json : [], used = '';
+      // v3.54.0: nothing for all the words, and they hold more than a song's name: the name alone.
+      const short = words ? shortTitle(words) : '';
+      if (!list.length && short && short !== words) {
+        r = await fetchJson(`${LRCLIB}/api/search?${q({ q: short })}`, ua);
+        if (unreached(r)) return { results: [], offline: true, why: whyOf(r) };
+        list = r.status === 200 && Array.isArray(r.json) ? r.json : [];
+        if (list.length) used = short;
+      }
       const m = songOf(meta), dur = m.duration;
       const near = x => dur && x.duration ? Math.abs(x.duration - dur) : 999;
       return {
+        ...(used ? { used } : {}),
         results: list.filter(x => x && x.id !== undefined).map(x => ({
           id: x.id, title: x.trackName || x.name || '', artist: x.artistName || '', album: x.albumName || '', duration: x.duration || 0,
           synced: !!x.syncedLyrics, plain: !!x.plainLyrics, instrumental: !!x.instrumental,
@@ -358,5 +389,5 @@
     return { get, search, pick, load, loadText, unpin, youtube: fromYoutube };
   }
 
-  return { makeLyrics, shape, subsToLrc, fromText, cleanTitle, songOf, fit, norm, fnv, LRCLIB, NEAR };
+  return { makeLyrics, shape, subsToLrc, fromText, cleanTitle, shortTitle, songOf, fit, norm, fnv, LRCLIB, NEAR };
 });

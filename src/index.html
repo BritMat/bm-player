@@ -880,6 +880,8 @@
             <div class="mv-actions">
               <button class="mv-btn mv-btn-primary" id="music-play-all" aria-label="Play every song in order" data-icon="play" data-icon-label="Play"></button>
               <button class="mv-btn" id="music-shuffle-all" aria-label="Play every song shuffled" data-icon="shuffle" data-icon-label="Shuffle"></button>
+              <!-- v3.54.0: the full visualiser, which was reached only by pressing the Video tab while a song played -->
+              <button class="mv-btn" id="music-visualiser" aria-label="Show the visualiser, full size" title="Fill the window with the visualiser. The Music tab brings the list back." data-icon="visualiser" data-icon-label="Visualiser"></button>
             </div>
           </div>
         </div>
@@ -960,6 +962,7 @@
       <div class="np-tabs" role="tablist" aria-label="Up next or lyrics">
         <button class="np-tab active" id="np-tab-queue" role="tab" aria-selected="true">Up next</button>
         <button class="np-tab" id="np-tab-lyrics" role="tab" aria-selected="false">Lyrics</button>
+        <button class="np-tab np-viz" id="np-tab-visualiser" type="button" title="Fill the window with the visualiser. The Music tab brings the list back.">Visualiser</button>
       </div>
       </div>
       <div class="np-side" id="np-side">

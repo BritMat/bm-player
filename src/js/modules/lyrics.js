@@ -138,6 +138,7 @@ export class Lyrics {
     if (act === 'script') { this.setScript(t.closest('[data-v]')?.dataset.v); return; }
     if (act === 'search') this._openSearch();
     else if (act === 'retry' || act === 'refresh') this._lookAgain(true);
+    else if (act === 'youtube-once') this._fromYoutube(this._req);
     else if (act === 'save-lrc') this._saveLrc();
     else if (act === 'share') this._share();
     else if (act === 'search-close') { this.searching = false; this.results = null; this._render(); }
@@ -325,7 +326,9 @@ export class Lyrics {
   _openSearch () {
     const m = this._meta || {};
     this.searching = true; this.results = null;
-    this.query = this.query || [m.artist, m.title].filter(Boolean).join(' ');
+    // v3.54.0: a name as a video site writes it ("Song | Singers | Cover") is searched by the song's own
+    const title = String(m.title || '').split(/\s*[|\uFF5C]\s*|\s+\/\/\s+/)[0].trim() || m.title;
+    this.query = this.query || [m.artist, title].filter(Boolean).join(' ');
     this._render();
     const q = el('lyr-q'); q?.focus({ preventScroll: true }); q?.select();
   }
@@ -338,6 +341,7 @@ export class Lyrics {
     try { r = await this.api?.music?.lyricsSearch?.({ q: this.query }, this._meta); } catch (_) { r = null; }
     if (id !== this._req || !this.searching) return;
     this.results = r?.offline ? 'offline' : (r?.results || []);
+    this.usedQuery = r?.used || '';   // v3.54.0: what was searched for in the end, when the words asked found nothing
     this._render();
   }
 
@@ -412,6 +416,7 @@ export class Lyrics {
         note(this.online ? 'No lyrics found for this song.' : 'No lyrics found beside this song or inside it.');
         add('div', 'lyr-hint', (this.online ? 'Try again, search for them, or load' : 'Search for them, or load') + ' a .lrc, .srt or .vtt file' + (TOUCH ? '.' : ' (or drop one here).'));
         if (this.online) this._againBtn(pane, 'Try again', 'Ask LRCLIB again for this song');
+        this._youtubeBtn(pane);
       }
       else if (this.status === 'offline') {
         // v3.50.0: and looked for again by itself, and at once with Try again
@@ -449,6 +454,20 @@ export class Lyrics {
     this._cur = -2; this._tick(true);
   }
 
+  /**
+   * Look on YouTube, for this song, this once (v3.54.0). The choice to
+   * always look there is in the options below and is off: this is for the
+   * song in hand, where a video of it has captions and the lyrics site has
+   * nothing. Only where YouTube can be asked (the desktop).
+   */
+  _youtubeBtn (pane) {
+    if (!this.api?.music?.lyricsYoutube || !this.online || this.youtube) return;
+    const b = document.createElement('button');
+    b.type = 'button'; b.className = 'lyr-btn lyr-again lyr-yt'; b.dataset.lyr = 'youtube-once'; b.textContent = 'Look on YouTube';
+    b.title = 'Looks for a video of this song with the same length and reads its captions. Gets yt-dlp (18 MB) from its own GitHub page the first time. Captions for songs are often made by speech recognition, so they can be wrong.';
+    pane.appendChild(b);
+  }
+
   /** Try again, under a note (v3.50.0). */
   _againBtn (pane, text, title) {
     const b = document.createElement('button');
@@ -481,6 +500,7 @@ export class Lyrics {
     else if (this.results === 'offline') add('div', 'lyr-note', 'LRCLIB could not be reached.');
     else if (!this.results.length) add('div', 'lyr-note', 'Nothing found. Fewer words often find more.');
     else {
+      if (this.usedQuery) add('div', 'lyr-hint', `Nothing for all of those words. These are for "${this.usedQuery}".`);
       const dur = +this._meta?.duration || 0;
       for (const x of this.results) {
         const b = document.createElement('button'); b.type = 'button'; b.className = 'lyr-result'; b.dataset.id = String(x.id);

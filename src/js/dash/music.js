@@ -91,6 +91,8 @@ _wire(){
   el('music-albums')?.addEventListener('click',e=>{ const b=e.target.closest?.('.mv-album'); if(b) this._pickAlbum(b.dataset.album); });
   el('music-play-all')?.addEventListener('click',()=>this.playAll(false));
   el('music-shuffle-all')?.addEventListener('click',()=>this.playAll(true));
+  // v3.54.0: the full visualiser, from the folder's head and from the bar
+  for(const id of ['music-visualiser','np-tab-visualiser']) el(id)?.addEventListener('click',()=>this.showVisualiser());
   const fi=el('music-filter');
   fi?.addEventListener('input',e=>{
     clearTimeout(this._mFilterTimer);
@@ -544,6 +546,25 @@ _toggleShuffle(){
   this._buildQueue();
 }
 /** The head's Play and Shuffle: every song in the list, from the top or in a new order. */
+/**
+ * The visualiser, filling the window (v3.54.0). It was there all along,
+ * behind the Video tab while a song played, which nobody would guess.
+ * With nothing playing the folder is started first, and a paused song is
+ * taken up again: the visualiser draws what is heard.
+ */
+showVisualiser(){
+  const app=window.bmApp; if(!app) return;
+  if(!this.currentPath){ const p=el('music-play-all'); if(!p||p.disabled){ app.showOSD?.('Play a song to see the visualiser',3000); return; } this.playAll(false); }
+  else if(!app.isPlaying) el('np-btn-play')?.click();
+  let n=0;
+  const go=()=>{
+    if(app.currentDash!=='music') return;                       // gone elsewhere meanwhile
+    if(app.isPlaying&&!app._hasVideo){ app.switchDest('video'); return; }
+    if(++n<40) setTimeout(go,100); else app.showOSD?.('The visualiser shows while a song plays',3000);
+  };
+  go();
+}
+
 playAll(shuffled){
   if(!(this._visible?.length||this.tracks.length)) return;
   this._setShuffle(!!shuffled);

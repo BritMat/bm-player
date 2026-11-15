@@ -127,6 +127,13 @@ read by BM Player's built-in updater. You don't need to download them.
   kept so a song is looked up once, and looking online can be switched off.
   Where none are found you can search and choose, load a file (or drop one
   on the lyrics), and move the timing earlier or later.
+- Lyrics for songs saved from video sites, and a Visualiser button (3.54.0).
+  A song named as a video is ("Song | Singers | Cover") is looked up by the
+  song's own name, and the search box does the same when all the words find
+  nothing. Where nothing is found, Look on YouTube reads a video's captions
+  for that one song. The Music tab has a Visualiser button by the folder's
+  name and in the bar: the full visualiser was there before, but only
+  behind the Video tab while a song played.
 - A Games tab (3.53.0). Five small games made for BM Player (Trail, Bricks,
   Merge, Mines, Pairs), each fetched the first time you want it and kept in
   its own folder, so the app itself stays light. Your own Game Boy Advance

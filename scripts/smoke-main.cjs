@@ -859,6 +859,43 @@ await step('PiP size button cycles three sizes, anchored and on screen', async (
     } finally { electronStub.net.fetch = real; }
   });
 
+  // v3.54.0: a song saved from a video site keeps the video's name, "Song |
+  // Singers | Christmas song | Cover". The lyrics site was asked for all of
+  // that and found nothing, and so did the search box.
+  await step('lyrics: a name as a video site writes it is looked up by the song\'s own, with the same care over its length', async () => {
+    const { makeLyrics, shortTitle } = require(path.join(ROOT, 'lyrics-core.js'));
+    const cases = [['Carol of the Day | The Six | Christmas song | Cover | Acappella', 'Carol of the Day'], ['Carol of the Day ｜ The Six ｜ Cover', 'Carol of the Day'],
+                   ['Carol of the Day (Official Video) | The Six', 'Carol of the Day'], ['Song Name // Live Session', 'Song Name'], ['Plain Title', 'Plain Title'],
+                   ['A | B', 'A | B'], ['AC/DC Song', 'AC/DC Song'], ['Yes | No | Maybe', 'Yes']];
+    for (const [i, o] of cases) if (shortTitle(i) !== o) throw new Error(`"${i}" shortened to "${shortTitle(i)}", not "${o}"`);
+    const mem = new Map(), store = { read: n => mem.has(n) ? JSON.parse(mem.get(n)) : null, write: (n, v) => mem.set(n, JSON.stringify(v)) };
+    const asked = [];
+    const rec = d => ({ id: d, trackName: 'Carol of the Day', artistName: 'A Choir', duration: d, syncedLyrics: '[00:01.00]words', plainLyrics: 'words' });
+    const fetchJson = async url => {
+      const u = new URL(url), p = Object.fromEntries(u.searchParams); asked.push(p);
+      if (/\/api\/get/.test(u.pathname)) return { status: 404, json: {} };
+      const words = p.q || p.track_name || '';
+      return { status: 200, json: /\||Cover/.test(words) ? [] : [rec(200), rec(286)] };
+    };
+    const L = makeLyrics({ fetchJson, store, ua: 'test' });
+    const long = 'Carol of the Day | The Six | Christmas song | Cover | Acappella';
+    // the same length as one on the site: found by the short name
+    const got = await L.get('/music/carol.mp3', { title: long, duration: 286 }, { online: true });
+    if (got.source !== 'lrclib' || !/words/.test(got.synced || '')) throw new Error('not found by the song\'s own name: ' + JSON.stringify(got).slice(0, 160));
+    if (!asked.some(a => a.q === 'Carol of the Day')) throw new Error('the short name was not asked for: ' + JSON.stringify(asked));
+    if (asked.findIndex(a => a.q === 'Carol of the Day') < asked.findIndex(a => /\|/.test(a.q || ''))) throw new Error('the short name was asked before the whole one');
+    // a cover of another length: another recording's timings are not given to it
+    const cover = await L.get('/music/carol cover.mp3', { title: long, duration: 241 }, { online: true, fresh: true });
+    if (cover.source !== 'none') throw new Error('a recording of another length was taken for this one: ' + JSON.stringify(cover).slice(0, 120));
+    // the search box: all the words find nothing, the song's name does, and which was used is said
+    const s1 = await L.search({ q: 'The Six ' + long }, { title: long, duration: 241 });
+    if (s1.results.length !== 2 || s1.used !== 'The Six Carol of the Day') throw new Error('search by the long name: ' + JSON.stringify(s1).slice(0, 200));
+    const s2 = await L.search({ q: 'Carol of the Day' }, { title: long, duration: 241 });
+    if (s2.results.length !== 2 || s2.used) throw new Error('a search that found something says it used other words: ' + JSON.stringify(s2).slice(0, 160));
+    const before = asked.length, s3 = await L.search({ q: 'Six Cover' }, {});
+    if (s3.results.length || s3.used || asked.length !== before + 1) throw new Error('words with nothing to cut were asked twice');
+  });
+
   // v3.50.0: lyrics that stay. They went after a network drop: a failure
   // between two questions was kept as "nothing found" for a week, and a song
   // found once was looked up again under its exact tags only.
