@@ -65,7 +65,7 @@ export class GamesDash {
 
   _tile({ kind, id, name, sub, state, actions, missing }) {
     return `<div class="gm-tile${missing ? ' gm-missing' : ''}" role="listitem" data-kind="${kind}" data-id="${escapeAttr(id)}">`
-      + `<span class="gm-art" style="background:${tint(name)}" aria-hidden="true">${escapeHtml(initials(name))}</span>`
+      + `<span class="gm-art" style="background:${escapeAttr(tint(name))}" aria-hidden="true">${escapeHtml(initials(name))}</span>`
       + `<span class="gm-info"><span class="gm-name">${escapeHtml(name)}</span><span class="gm-sub">${escapeHtml(sub || '')}</span>${state ? `<span class="gm-state">${escapeHtml(state)}</span>` : ''}</span>`
       + `<span class="gm-acts">${actions}</span></div>`;
   }

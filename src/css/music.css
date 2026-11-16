@@ -29,7 +29,7 @@
      box was a bright white square on the dark themes. */
   color-scheme: dark;
 }
-:root[data-theme="light"] #music-view { --mv-star: #c98a00; --mv-line: rgba(20, 24, 40, .08); --mv-line-strong: rgba(20, 24, 40, .14); color-scheme: light; }
+:root:is([data-theme="light"], [data-theme="daylight"]) #music-view { --mv-star: #c98a00; --mv-line: rgba(20, 24, 40, .08); --mv-line-strong: rgba(20, 24, 40, .14); color-scheme: light; }
 
 #music-view .music-layout { display: flex; flex: 1 1 auto; height: 100%; min-height: 0; overflow: hidden; }
 #music-view button { font-family: inherit; }

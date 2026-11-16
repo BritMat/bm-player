@@ -372,6 +372,8 @@ try {
 
   step = 'Now Playing';
   console.log('\n' + step);
+  // The bar swallows a tap for 50 ms after a swipe (m-nowplaying.js), and the swipe above can end just before this.
+  await sleep(200);
   await page.tap('#mini-open');
   ok(await until(() => document.getElementById('np').classList.contains('on')), 'opens');
   ok(await ev(() => document.getElementById('np-title').textContent === 'Night Lights'), 'shows the song');
@@ -521,7 +523,14 @@ try {
   await page.tap('#mini-open');
   await until(() => document.getElementById('np').classList.contains('on'));
   ok(await ev(() => window.BMNative.back()) === 'handled', 'closes Now Playing');
+  // v3.55.0: the albums as tiles over the songs, as in Studio on the PC
+  ok(await ev(() => { const b = document.getElementById('mu-albums'); return !b.classList.contains('hidden') && b.querySelectorAll('.mu-alb').length >= 2 && b.querySelector('.mu-alb .mu-alb-t2')?.textContent.length > 0; }), 'Songs: the albums as tiles over the list');
+  await page.tap('#mu-albums .mu-alb');
+  ok(await until(() => document.getElementById('v-detail').classList.contains('on')), 'a tile opens its album');
+  ok(await ev(() => window.BMNative.back()) === 'handled', 'Back closes it');
+  ok(await ev(() => getComputedStyle(document.getElementById('mini-play')).borderRadius === '50%' && getComputedStyle(document.getElementById('mini-play')).backgroundColor === getComputedStyle(document.documentElement).getPropertyValue('--accent').trim().replace(/^#(..)(..)(..)$/, (m, r, g, b) => `rgb(${parseInt(r, 16)}, ${parseInt(g, 16)}, ${parseInt(b, 16)})`)), 'the bar\'s play button is the accent\'s round button');
   await page.tap('#mu-chips .chip[data-k="albums"]');
+  ok(await ev(() => document.getElementById('mu-albums').classList.contains('hidden')), 'no tiles over Albums itself');
   await page.tap('#mu-list .acard');
   ok(await until(() => document.getElementById('v-detail').classList.contains('on')), 'an album opens');
   ok(await ev(() => window.BMNative.back()) === 'handled', 'closes the album');
@@ -878,6 +887,14 @@ try {
   await page.tap('#nav button[data-tab="settings"]');
   await page.tap('#st-themes button[data-v="ocean"]');
   ok(await until(() => document.documentElement.dataset.theme === 'ocean' && window.__bmBars?.[0] === '#04121c'), 'a theme changes the page and Android\'s bars');
+  // v3.55.0: Stage and Daylight, the PC's colours, and Android's bars dark and light to match
+  await page.tap('#st-themes button[data-v="stage"]');
+  ok(await until(() => document.documentElement.dataset.theme === 'stage' && window.__bmBars?.[0]?.toLowerCase() === '#0e0c0a' && window.__bmBars?.[1] === false), 'Stage: its warm black, and light icons on Android\'s bars');
+  await shot('08b-stage');
+  await page.tap('#st-themes button[data-v="daylight"]');
+  ok(await until(() => document.documentElement.dataset.theme === 'daylight' && window.__bmBars?.[0]?.toLowerCase() === '#f2f4f8' && window.__bmBars?.[1] === true), 'Daylight: its pale grey, and dark icons on Android\'s bars');
+  ok(await ev(() => getComputedStyle(document.body).color === 'rgb(19, 23, 34)'), 'Daylight: its dark text');
+  await shot('08c-daylight');
   await page.tap('#st-saver button[data-v="on"]');
   ok(await until(() => document.documentElement.classList.contains('battery-saver')), 'the battery saver turns on');
   await page.tap('#st-saver button[data-v="auto"]');

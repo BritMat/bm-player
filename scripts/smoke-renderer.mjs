@@ -2461,7 +2461,7 @@ async function main() {
       click(tb);
       if (!list.classList.contains('open') || tb.getAttribute('aria-expanded') !== 'true') throw new Error('the Themes button did not open the list');
       const names = [...list.querySelectorAll('.tp .tp-name')].map(x => x.textContent);
-      if (names.length !== 14 || names.slice(0, 6).join() !== 'Dark,Light,Glass,Flow,Ocean,Snow') throw new Error('the themes: ' + names);
+      if (names.length !== 16 || names.slice(0, 8).join() !== 'Dark,Light,Stage,Daylight,Glass,Flow,Ocean,Snow') throw new Error('the themes: ' + names);
       if (/\p{Extended_Pictographic}/u.test(list.textContent)) throw new Error('an emoji in the themes list');
       click(list.querySelector('.tp[data-theme="ocean"]'));
       if (doc.documentElement.getAttribute('data-theme') !== 'ocean' || list.classList.contains('open')) throw new Error('choosing a theme: ' + doc.documentElement.getAttribute('data-theme') + ', open ' + list.classList.contains('open'));
@@ -2469,6 +2469,19 @@ async function main() {
       if (list.classList.contains('open')) throw new Error('Escape left the themes list open');
       click(tb); click(doc.body);
       if (list.classList.contains('open')) throw new Error('a click elsewhere left the themes list open');
+      // v3.55.0: Stage and Daylight are calm: no moving background behind them, and the one the theme before had is stopped
+      { const keep = [app.themeFX, app.auroraFX], modes = { theme: [], aurora: [] };
+        app.themeFX = { setMode: m => modes.theme.push(m), pointer() {} }; app.auroraFX = { setMode: m => modes.aurora.push(m), setPalette() {}, setFlow() {}, setQuality() {} };
+        try {
+          for (const t of ['stage', 'daylight']) {
+            modes.theme.length = modes.aurora.length = 0;
+            click(tb); click(list.querySelector(`.tp[data-theme="${t}"]`));
+            if (doc.documentElement.getAttribute('data-theme') !== t || window.localStorage.getItem('bm_theme') !== t) throw new Error('choosing ' + t);
+            if (modes.theme.join() !== 'off' || modes.aurora.join() !== 'off') throw new Error(t + ': the moving background ' + JSON.stringify(modes));
+            if (!list.querySelector(`.tp.active[data-theme="${t}"]`)) throw new Error(t + ' is not marked in the list');
+          }
+        } finally { [app.themeFX, app.auroraFX] = keep; }
+      }
       app.applyTheme('dark');
       // the panel beside the songs
       const view = doc.getElementById('music-view'), q = doc.getElementById('np-tab-queue'), ly = doc.getElementById('np-tab-lyrics'), title = doc.getElementById('np-side-title');

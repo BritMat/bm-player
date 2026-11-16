@@ -56,6 +56,8 @@ export default class ThemeCustomizerFeature {
     const presets=[
       {name:'dark',    icon:'🌙', colors:['#080b14','#111624','#e4eaf6','#5B6FF8','#00D4FF']},
       {name:'light',   icon:'☀️', colors:['#f0f2fa','#ffffff','#1a1d2b','#4757e3','#0098cf']},
+      {name:'stage',   icon:'🎤', colors:['#0E0C0A','#1A1612','#F6EFE6','#FFB454','#FFC77D']},
+      {name:'daylight',icon:'🌤️', colors:['#F2F4F8','#FFFFFF','#131722','#1F5FE0','#1647B0']},
       {name:'glass',   icon:'🔮', colors:['#0a0c1a','#14162e','#e0e0ff','#8d7bff','#43e0ff']},
       {name:'dracula', icon:'🧛', colors:['#130c1c','#20132c','#f4e9ff','#ff4d6d','#bd5cff']},
       {name:'northern',icon:'🌌', colors:['#030c12','#091a26','#d8faf0','#22e8a8','#3aa8ff']},

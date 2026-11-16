@@ -705,3 +705,18 @@ body.home-full .m-home { bottom: 0; z-index: 20; }
 
 /* v3.48.0: in Android's small window (picture-in-picture) the picture alone */
 .vp.pip .vp-ui, .vp.pip .vp-hud, .vp.pip .vp-flash, .vp.pip .vp-chip, .vp.pip .vp-note, .vp.pip .vp-unlock, .vp.pip .vp-spin { display: none !important; }
+
+/* ── Studio on the phone (v3.55.0) ─────────────────────────────────
+   The albums as tiles over the songs, and the play button in the bar as
+   the accent's round button, as on the PC. */
+.mu-albums { flex: none; display: flex; gap: 12px; padding: 4px 16px 10px; overflow-x: auto; overflow-y: hidden; scrollbar-width: none; overscroll-behavior-x: contain; }
+.mu-albums::-webkit-scrollbar { display: none; }
+.mu-albums.hidden { display: none; }
+.mu-alb { flex: 0 0 92px; width: 92px; padding: 0; display: flex; flex-direction: column; gap: 2px; text-align: left; color: var(--text); }
+.mu-alb-art { width: 92px; height: 92px; margin-bottom: 5px; border-radius: 12px; box-shadow: 0 0 0 1px color-mix(in srgb, var(--text) 8%, transparent); }
+.mu-alb-t1 { font-size: 13px; font-weight: 600; line-height: 1.25; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.mu-alb-t2 { font-size: 11.5px; line-height: 1.25; color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.mu-alb:active .mu-alb-art { transform: scale(.97); }
+@media (max-height: 640px) { .mu-albums { display: none; } }
+.mini-play { width: 42px; height: 42px; margin: 0 4px; border-radius: 50%; background: var(--accent); color: var(--on-accent, #0B0F1A); }
+.mini-play .ico { width: 22px; height: 22px; }

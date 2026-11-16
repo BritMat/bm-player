@@ -378,42 +378,55 @@ void main () {
 
 /* ─── GL helpers ─────────────────────────────────────────────────── */
 
-function compile(gl, type, source) {
-  const s = gl.createShader(type);
-  gl.shaderSource(s, source);
-  gl.compileShader(s);
-  if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) {
-    const log = gl.getShaderInfoLog(s);
-    gl.deleteShader(s);
-    throw new Error('shader compile failed: ' + log);
-  }
-  return s;
-}
-
+/*
+ * v3.55.0: a program is compiled and linked when it is made, and asked how
+ * that went only later, in finish(), once all of them have been sent. Asking
+ * at once (getShaderParameter after each shader) made the page wait while
+ * the graphics process compiled each in turn: about a quarter of a second
+ * of the app's start, measured with the full visuals. With
+ * KHR_parallel_shader_compile, done() says whether the graphics process has
+ * finished without waiting for it, and the fluid draws once it has.
+ */
 class Program {
   constructor(gl, vertSrc, fragSrc) {
     this.gl = gl;
-    const vs = compile(gl, gl.VERTEX_SHADER, vertSrc);
-    const fs = compile(gl, gl.FRAGMENT_SHADER, fragSrc);
+    const sh = (type, src) => { const s = gl.createShader(type); gl.shaderSource(s, src); gl.compileShader(s); return s; };
+    this._vs = sh(gl.VERTEX_SHADER, vertSrc);
+    this._fs = sh(gl.FRAGMENT_SHADER, fragSrc);
     this.program = gl.createProgram();
-    gl.attachShader(this.program, vs);
-    gl.attachShader(this.program, fs);
+    gl.attachShader(this.program, this._vs);
+    gl.attachShader(this.program, this._fs);
     // _initBlit sets up attribute 0 once for every program, so aPosition has
     // to actually be at 0. Drivers usually assign it there with a single
     // attribute, but "usually" isn't a contract.
     gl.bindAttribLocation(this.program, 0, 'aPosition');
     gl.linkProgram(this.program);
+    this.uniforms = null;               // finish() fills them
+  }
+  /** Linked and ready (true), still being compiled (false, only with the parallel extension), or an error thrown. */
+  done(par) {
+    if (this.uniforms) return true;
+    if (par && !this.gl.getProgramParameter(this.program, par.COMPLETION_STATUS_KHR)) return false;
+    this.finish();
+    return true;
+  }
+  finish() {
+    if (this.uniforms) return;
+    const gl = this.gl;
     if (!gl.getProgramParameter(this.program, gl.LINK_STATUS)) {
-      throw new Error('program link failed: ' + gl.getProgramInfoLog(this.program));
+      const log = [this._vs, this._fs].map(s => gl.getShaderParameter(s, gl.COMPILE_STATUS) ? '' : gl.getShaderInfoLog(s)).join(' ').trim();
+      throw new Error((log ? 'shader compile failed: ' + log : 'program link failed: ' + gl.getProgramInfoLog(this.program)));
     }
-    gl.deleteShader(vs);
-    gl.deleteShader(fs);
-    this.uniforms = {};
+    gl.deleteShader(this._vs);
+    gl.deleteShader(this._fs);
+    this._vs = this._fs = null;
+    const u = {};
     const n = gl.getProgramParameter(this.program, gl.ACTIVE_UNIFORMS);
     for (let i = 0; i < n; i++) {
       const name = gl.getActiveUniform(this.program, i).name;
-      this.uniforms[name] = gl.getUniformLocation(this.program, name);
+      u[name] = gl.getUniformLocation(this.program, name);
     }
+    this.uniforms = u;
   }
   bind() { this.gl.useProgram(this.program); }
 }
@@ -457,7 +470,7 @@ export class FluidFX {
     this._initFormats();
     this._initPrograms();
     this._initBlit();
-    this._fastSplat = this._probeBlend();
+    this._fastSplat = false;          // tried in _programsReady(), once the programs are
     this._software = /swiftshader|llvmpipe|software|basic render/i.test(this.rendererName());
     this._ready = false;              // _resize(true) below does the first build
     this.setQuality(perf.tier || 'medium');
@@ -469,7 +482,6 @@ export class FluidFX {
     this._onRestored = () => {
       try {
         this._initFormats(); this._initPrograms(); this._initBlit();
-        this._fastSplat = this._probeBlend();
         this._resize(true);
         if (this.mode === 'fluid' && !this.paused) this._start();
       } catch (err) { console.warn('[FluidFX] restore failed:', err); }
@@ -563,10 +575,9 @@ export class FluidFX {
     // The extras (v3.36.0: the lines, the glow, the quick splats) are each tried
     // by themselves. A driver that will not take one of them loses that one
     // thing, and the fluid itself, the home screen's too, carries on without.
-    const extra = (frag, what) => {
-      try { return new Program(gl, BASE_VERT, frag); }
-      catch (e) { console.warn(`[FluidFX] no ${what} on this graphics card:`, e && e.message); return null; }
-    };
+    const extra = (frag, what) => { const p = new Program(gl, BASE_VERT, frag); p.what = what; return p; };
+    this._progsDone = false;
+    this._par = gl.getExtension('KHR_parallel_shader_compile');
     this.progs = {
       copy:     new Program(gl, BASE_VERT, COPY_FRAG),
       clear:    new Program(gl, BASE_VERT, CLEAR_FRAG),
@@ -584,6 +595,28 @@ export class FluidFX {
       shade:    extra(SHADE_FRAG, 'contour lines'),
       buoy:     extra(BUOY_FRAG, 'falling dye'),
     };
+  }
+
+  /**
+   * The programs, ready to draw with (v3.55.0). False while the graphics
+   * process is still compiling them (asked without waiting where the
+   * parallel extension is there). The first time they are all done the
+   * extras that failed are dropped, each by itself as before, and the quick
+   * splats are tried. A program the fluid cannot do without that failed
+   * throws, as it did from the constructor before.
+   */
+  _programsReady() {
+    if (this._progsDone) return true;
+    const P = this.progs;
+    if (this._par) for (const k in P) { if (P[k] && !this.gl.getProgramParameter(P[k].program, this._par.COMPLETION_STATUS_KHR)) return false; }
+    for (const k in P) {
+      if (!P[k]) continue;
+      if (P[k].what) { try { P[k].finish(); } catch (e) { console.warn(`[FluidFX] no ${P[k].what} on this graphics card:`, e && e.message); P[k] = null; } }
+      else P[k].finish();
+    }
+    this._progsDone = true;
+    this._fastSplat = this._probeBlend();
+    return true;
   }
 
   _initBlit() {
@@ -892,7 +925,7 @@ export class FluidFX {
 
   _splat(x, y, dx, dy, color, radiusScale = 1) {
     const gl = this.gl, P = this.progs;
-    if (!this.dye || !this.velocity) return;
+    if (!this.dye || !this.velocity || !this._progsDone) return;   // a splat before the programs are ready is let go
     if (this._fastSplat) return this._splatFast(x, y, dx, dy, color, this._splatRadius() * radiusScale);
     // _render leaves BLEND on; a blended splat writes the wrong values back
     // into the velocity field and the sim slowly goes wrong.
@@ -1047,7 +1080,7 @@ export class FluidFX {
   /** Empties the picture: no dye and no motion. */
   clear() {
     const gl = this.gl, P = this.progs;
-    if (!this.dye) return;
+    if (!this.dye || !this._progsDone) return;   // nothing drawn yet to clear
     gl.disable(gl.BLEND);
     P.clear.bind();
     gl.uniform1f(P.clear.uniforms.value, 0);
@@ -1097,6 +1130,7 @@ export class FluidFX {
       if (this._targetAlpha === 0 && this._alpha < 0.01) { this._stop(); this._clearScreen(); this._restSoon(); return; }
 
       try {
+        if (!this._programsReady()) return;      // still compiling: the next frame asks again
         this._resize();
         if (!this.dye) return;
         // The audio visualiser's fluid moves with the music only (v3.29.0).

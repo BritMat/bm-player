@@ -22,7 +22,7 @@ import { recent, clearRecent } from './m-recent.js';
 import { favs, clearFavs, homeRows, setHomeRow } from './m-favs.js';
 import { keepQueue, setKeepQueue } from './m-player.js';
 
-export const THEMES = [['dark', 'Dark'], ['light', 'Light'], ['midnight', 'Midnight'], ['ocean', 'Ocean'], ['northern', 'Northern'], ['forest', 'Forest'], ['dracula', 'Dracula'],
+export const THEMES = [['dark', 'Dark'], ['light', 'Light'], ['stage', 'Stage'], ['daylight', 'Daylight'], ['midnight', 'Midnight'], ['ocean', 'Ocean'], ['northern', 'Northern'], ['forest', 'Forest'], ['dracula', 'Dracula'],
   ['cyberpunk', 'Cyberpunk'], ['sunset', 'Sunset'], ['golden', 'Golden'], ['sakura', 'Sakura'], ['lavender', 'Lavender'], ['snow', 'Snow'], ['glass', 'Glass']];
 
 /** A CSS colour as #rrggbb, laid over black where it is see-through. */

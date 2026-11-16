@@ -191,3 +191,59 @@ body:has(#music-view.active) .toast-stack { bottom: calc(var(--st-bar-h) + 14px)
   background: color-mix(in srgb, var(--text) 6%, transparent); color: var(--text-muted);
 }
 .st-empty-ico .ico { width: 24px; height: 24px; margin: 0; }
+
+/* ═══ Stage and Daylight (v3.55.0) ══════════════════════════════════
+   The two other mockups from the Studio round, as themes. Their colours
+   are in style.css with the others (the phone reads them from there).
+   Here is what they change of the layout. Both are calm: no moving
+   background behind them (chrome.js), as in the mockups. */
+
+/* ── Stage: warm and dark, the sections as tabs along the top, and the
+   lyrics large. The rail's room goes to the content. ── */
+:root[data-theme="stage"] { --stage-tabs-h: 54px; --sidebar-w: 0px; --chrome-h: calc(64px + var(--stage-tabs-h)); --st-side-w: 400px; }
+:root[data-theme="stage"] .sidebar {
+  top: 64px; left: 0; right: 0; bottom: auto; width: auto; height: var(--stage-tabs-h);
+  flex-direction: row; align-items: center; gap: 4px; padding: 0 20px;
+  border-right: 0; border-bottom: 1px solid var(--border); background: var(--bg);
+}
+:root[data-theme="stage"] .sidebar-btn {
+  /* !important against the first paint's rules in index.html, which size every rail button */
+  flex-direction: row; width: auto !important; min-height: 0; height: 38px !important; padding: 0 16px; border-radius: 19px; gap: 8px;
+  font: 500 14px/1 var(--font-ui); color: var(--text-muted); transform: none !important;
+}
+:root[data-theme="stage"] .sidebar-btn .ico { width: 18px; height: 18px; }
+:root[data-theme="stage"] .sidebar-btn:hover:not(.active) { background: var(--hover) !important; color: var(--text) !important; }
+:root[data-theme="stage"] .sidebar-btn.active { background: var(--accent) !important; color: var(--on-accent) !important; }
+:root[data-theme="stage"] .sidebar-btn.active::before { display: none; }
+:root[data-theme="stage"] .sidebar-btn.sidebar-mini { width: 38px !important; padding: 0; justify-content: center; }
+:root[data-theme="stage"] .titlebar, :root[data-theme="stage"] .menu-toolbar { background: var(--bg); }
+:root[data-theme="stage"] #music-view .np-side .lyr-line { font: 500 17px/1.4 var(--font-display, var(--font-ui)); padding: 7px 6px; }
+:root[data-theme="stage"] #music-view .np-side .lyr-line.on { color: var(--accent); font-weight: 700; font-size: 24px; transform: none; text-shadow: none; }
+:root[data-theme="stage"] .dash-action-btn { border-radius: 19px; }
+:root[data-theme="stage"] #music-view .np-bar .np-tab { border-radius: 19px; }
+@media (max-width: 1240px) { :root[data-theme="stage"] { --st-side-w: 340px; } }
+@media (max-width: 1040px) { :root[data-theme="stage"] { --st-side-w: 300px; } :root[data-theme="stage"] .sidebar-btn { padding: 0 12px; } }
+@media (max-width: 860px) { :root[data-theme="stage"] .sidebar-btn .sb-label { display: none; } :root[data-theme="stage"] .sidebar-btn { width: 44px !important; padding: 0; justify-content: center; } }
+
+/* ── Daylight: light and plain, a wide rail with each name beside its
+   icon, white panels with fine lines. ── */
+:root[data-theme="daylight"] { color-scheme: light; --sidebar-w: 192px; }
+:root[data-theme="daylight"] .sidebar { padding: 14px 12px; gap: 2px; background: #FFFFFF; border-right: 1px solid var(--border); }
+:root[data-theme="daylight"] .sidebar-btn {
+  flex-direction: row; justify-content: flex-start !important; width: auto !important; min-height: 0; height: 44px !important; padding: 0 12px; gap: 12px;
+  border-radius: 10px; font: 500 14.5px/1 var(--font-ui); color: var(--text); transform: none !important;
+}
+:root[data-theme="daylight"] .sidebar-btn .ico { width: 20px; height: 20px; }
+:root[data-theme="daylight"] .sidebar-btn:hover:not(.active) { background: var(--hover) !important; color: var(--text) !important; }
+:root[data-theme="daylight"] .sidebar-btn.active { background: #E4ECFD !important; color: var(--accent2) !important; font-weight: 600; }
+:root[data-theme="daylight"] .sidebar-btn.active::before { display: none; }
+:root[data-theme="daylight"] .titlebar, :root[data-theme="daylight"] .menu-toolbar { background: #FFFFFF; border-bottom: 1px solid var(--border); }
+:root[data-theme="daylight"] :is(#music-view .music-lib, #music-view .np-side, .dash-header, .pdf-toolbar) { background: #FFFFFF; }
+:root[data-theme="daylight"] #music-view .np-bar { background: #FFFFFF; box-shadow: 0 -1px 0 var(--border); }
+:root[data-theme="daylight"] .theme-selector { box-shadow: 0 18px 44px rgba(30, 40, 80, .16); }
+@media (max-width: 1040px) { :root[data-theme="daylight"] { --sidebar-w: 160px; } }
+@media (max-width: 860px) {
+  :root[data-theme="daylight"] { --sidebar-w: 76px; }
+  :root[data-theme="daylight"] .sidebar { padding: 10px 8px; }
+  :root[data-theme="daylight"] .sidebar-btn { flex-direction: column; justify-content: center !important; height: auto !important; min-height: 54px; padding: 8px 2px 7px; gap: 4px; font-size: 11.5px; }
+}

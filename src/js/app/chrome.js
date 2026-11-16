@@ -32,7 +32,11 @@ export default class ChromeFeature {
       localStorage.setItem('bm_theme',name);
       this.fox?.setTheme?.(name);
       // ── v1.8.0: fluid FX for ALL themes, blood only for dracula ──
-      if(name==='dracula'){
+      if(name==='stage'||name==='daylight'){
+        // v3.55.0: the two mockups were calm, with no moving background, so these themes have none.
+        this.themeFX?.setMode('off');
+        this.auroraFX?.setMode('off');
+      } else if(name==='dracula'){
         this.themeFX?.setMode('blood');
         this.auroraFX?.setMode('off');
       } else if(name==='northern'){

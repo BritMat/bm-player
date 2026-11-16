@@ -210,16 +210,17 @@ export class Fox3D {
 
   _build() {
     const gl = this.gl;
-    const sh = (type, src) => {
-      const s = gl.createShader(type); gl.shaderSource(s, src); gl.compileShader(s);
-      if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) throw new Error('fox shader: ' + gl.getShaderInfoLog(s));
-      return s;
-    };
+    // v3.55.0: compiled and linked here, asked how that went at the first
+    // frame (_linked), so the app's start does not wait for the graphics
+    // process to compile it. As the fluid's programs (fluid.js).
+    const sh = (type, src) => { const s = gl.createShader(type); gl.shaderSource(s, src); gl.compileShader(s); return s; };
     const prog = gl.createProgram();
-    gl.attachShader(prog, sh(gl.VERTEX_SHADER, VS)); gl.attachShader(prog, sh(gl.FRAGMENT_SHADER, FS));
+    this._sh = [sh(gl.VERTEX_SHADER, VS), sh(gl.FRAGMENT_SHADER, FS)];
+    for (const s of this._sh) gl.attachShader(prog, s);
     gl.linkProgram(prog);
-    if (!gl.getProgramParameter(prog, gl.LINK_STATUS)) throw new Error('fox program: ' + gl.getProgramInfoLog(prog));
     this.prog = prog;
+    this.loc = null;
+    this._par = gl.getExtension('KHR_parallel_shader_compile');
     // Interleaved: position 3, normal 3, colour 4, part 1 = 11 floats per vertex.
     const data = new Float32Array(TRIANGLES.length * 3 * 11);
     let o = 0;
@@ -254,13 +255,7 @@ export class Fox3D {
     const hat = pack(hatTriangles(), 0, 1), mouth = pack(mouthTriangles(), 6, 0);
     this.hatBuf = hat.b; this.hatCount = hat.n;
     this.mouthBuf = mouth.b; this.mouthCount = mouth.n;
-    this.loc = {
-      aPos: gl.getAttribLocation(prog, 'aPos'), aNorm: gl.getAttribLocation(prog, 'aNorm'),
-      aCol: gl.getAttribLocation(prog, 'aCol'), aPart: gl.getAttribLocation(prog, 'aPart'),
-      uProj: gl.getUniformLocation(prog, 'uProj'), uModel: gl.getUniformLocation(prog, 'uModel'), uBody: gl.getUniformLocation(prog, 'uBody'),
-      uPart: gl.getUniformLocation(prog, 'uPart'), uKey: gl.getUniformLocation(prog, 'uKey'),
-      uFill: gl.getUniformLocation(prog, 'uFill'), uRim: gl.getUniformLocation(prog, 'uRim'),
-    };
+
   }
 
   /* What a reaction (v3.42.0) adds to the pose at k, from 0 to 1 of its time.
@@ -436,9 +431,30 @@ export class Fox3D {
     }
   }
 
+  /** The program linked and its places read (true), still being compiled (false), or broken: drawn no more, said once. */
+  _linked() {
+    if (this.loc) return true;
+    const gl = this.gl, prog = this.prog;
+    if (this._par && !gl.getProgramParameter(prog, this._par.COMPLETION_STATUS_KHR)) return false;
+    if (!gl.getProgramParameter(prog, gl.LINK_STATUS)) {
+      const why = this._sh.map(s => gl.getShaderParameter(s, gl.COMPILE_STATUS) ? '' : gl.getShaderInfoLog(s)).join(' ').trim() || gl.getProgramInfoLog(prog);
+      console.warn('[BM Player] the 3D fox could not be drawn on this graphics card:', why);
+      this._lost = true;
+      return false;
+    }
+    this.loc = {
+      aPos: gl.getAttribLocation(prog, 'aPos'), aNorm: gl.getAttribLocation(prog, 'aNorm'),
+      aCol: gl.getAttribLocation(prog, 'aCol'), aPart: gl.getAttribLocation(prog, 'aPart'),
+      uProj: gl.getUniformLocation(prog, 'uProj'), uModel: gl.getUniformLocation(prog, 'uModel'), uBody: gl.getUniformLocation(prog, 'uBody'),
+      uPart: gl.getUniformLocation(prog, 'uPart'), uKey: gl.getUniformLocation(prog, 'uKey'),
+      uFill: gl.getUniformLocation(prog, 'uFill'), uRim: gl.getUniformLocation(prog, 'uRim'),
+    };
+    return true;
+  }
+
   _draw(now) {
     const gl = this.gl, c = this.canvas;
-    if (this._lost || gl.isContextLost()) return;
+    if (this._lost || gl.isContextLost() || !this._linked()) return;
     const dpr = Math.min(window.devicePixelRatio || 1, 2);
     const w = Math.max(1, Math.round(c.clientWidth * dpr)), h = Math.max(1, Math.round(c.clientHeight * dpr));
     if (c.width !== w || c.height !== h) { c.width = w; c.height = h; }
@@ -478,7 +494,8 @@ export class Fox3D {
   /** Draw once at a fixed angle (degrees). For tests and previews. */
   renderAt(yawDeg, pitchDeg = 0) {
     this._yaw = yawDeg * Math.PI / 180; this._pitch = pitchDeg * Math.PI / 180;
-    this._draw(performance.now());
+    const par = this._par; this._par = null;   // drawn now: waits for the compile if it has not finished
+    try { this._draw(performance.now()); } finally { this._par = par; }
   }
   releaseAngle() { this._yaw = undefined; this._pitch = undefined; }
 

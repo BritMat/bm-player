@@ -248,7 +248,8 @@ function musicTick () {
 function themeFx (name) {
   h.fox?.setTheme?.(name);
   h.fluidTheme = false;
-  if (name === 'dracula') { h.theme?.setMode('blood'); }
+  if (name === 'stage' || name === 'daylight') { h.theme?.setMode('off'); }   // calm, as on the desktop (v3.55.0)
+  else if (name === 'dracula') { h.theme?.setMode('blood'); }
   else if (name === 'northern') { h.theme?.setMode('off'); h.fluidTheme = true; h.fluid?.setPalette('northern'); h.fluid?.setFlow(flowSettings()); }
   else if (SCENE_THEMES.includes(name)) { h.theme?.setMode('scene:' + name); }
   else { h.theme?.setMode(name === 'snow' ? 'snow' : 'off'); h.fluidTheme = true; h.fluid?.setFlow({}); h.fluid?.setPalette(name); }

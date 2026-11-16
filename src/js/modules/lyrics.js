@@ -463,7 +463,7 @@ export class Lyrics {
   _youtubeBtn (pane) {
     if (!this.api?.music?.lyricsYoutube || !this.online || this.youtube) return;
     const b = document.createElement('button');
-    b.type = 'button'; b.className = 'lyr-btn lyr-again lyr-yt'; b.dataset.lyr = 'youtube-once'; b.textContent = 'Look on YouTube';
+    b.type = 'button'; b.className = 'lyr-btn lyr-again'; b.dataset.lyr = 'youtube-once'; b.textContent = 'Look on YouTube';
     b.title = 'Looks for a video of this song with the same length and reads its captions. Gets yt-dlp (18 MB) from its own GitHub page the first time. Captions for songs are often made by speech recognition, so they can be wrong.';
     pane.appendChild(b);
   }

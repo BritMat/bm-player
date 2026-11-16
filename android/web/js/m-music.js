@@ -53,6 +53,7 @@ export function initMusic () {
   // nothing listened there: "Allow access to music" did nothing.
   $('mu-empty').addEventListener('click', e => tapRow(e, false));
   onLongPress(list, '.vrow, .acard', t => longPress(t, false));
+  $('mu-albums').addEventListener('click', e => { const t = e.target.closest('.mu-alb'); if (t) openDetail('album', t.dataset.k); });
   const dl = $('dt-list');
   dl.addEventListener('click', e => tapRow(e, true));
   onLongPress(dl, '.vrow', t => longPress(t, true));
@@ -94,6 +95,7 @@ function afterDelete () {
 // ── the list ─────────────────────────────────────────────────────────
 function render (keepScroll = false) {
   const box = $('mu-list'), empty = $('mu-empty');
+  tiles();
   const say = (html) => { empty.innerHTML = html; empty.classList.remove('hidden'); box.classList.add('hidden'); };
   if (st.state === 'ask') return say(`<div class="m-empty-ico">${ICONS.music}</div><p>BM Player plays the music on this phone. Allow it to see your music to begin.</p><button class="m-btn" type="button" data-perm="audio">Allow access to music</button>`);
   if (st.state === 'denied') return say(`<div class="m-empty-ico">${ICONS.music}</div><p>Access to music is turned off for BM Player. Turn it on in the app's settings, under Permissions, then Music and audio.</p><button class="m-btn" type="button" data-settings>Open the app's settings</button>`);
@@ -127,6 +129,24 @@ function render (keepScroll = false) {
     st.vl.kind = kind;
   }
   st.vl.setCount(st.list.length, keepScroll);
+}
+
+/**
+ * The albums as tiles over the songs (v3.55.0), as in Studio on the PC: the
+ * ones with the most songs first, 24 at most. Only on Songs, with no search,
+ * and with two albums or more: one album is the list itself.
+ */
+let tilesFor = '';
+function tiles () {
+  const box = $('mu-albums'); if (!box) return;
+  const show = st.state === 'ready' && st.kind === 'songs' && !st.q && lib.albums.length >= 2;
+  box.classList.toggle('hidden', !show);
+  if (!show) return;
+  const list = lib.albums.slice().sort((a, b) => b.songs.length - a.songs.length || String(a.name).localeCompare(String(b.name))).slice(0, 24);
+  const sig = list.map(a => a.key + ':' + (a.art || '')).join('|');
+  if (sig === tilesFor) return;                       // drawn already: the art is not fetched again
+  tilesFor = sig;
+  box.innerHTML = list.map(a => `<button class="mu-alb" type="button" data-k="${esc(a.key)}"><span class="mu-alb-art art" style="background-image:${artBg(a.art ? a.art + '?s=192' : '')}"></span><span class="mu-alb-t1">${esc(a.name)}</span><span class="mu-alb-t2">${esc(a.artist || 'Unknown artist')}</span></button>`).join('');
 }
 
 /** A song in a list. key: the list's, for choosing several ('songs' or 'detail'). */

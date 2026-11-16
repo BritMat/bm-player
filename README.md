@@ -127,6 +127,14 @@ read by BM Player's built-in updater. You don't need to download them.
   kept so a song is looked up once, and looking online can be switched off.
   Where none are found you can search and choose, load a file (or drop one
   on the lyrics), and move the timing earlier or later.
+- Studio everywhere (3.55.0). Stage and Daylight, the other two looks from
+  the Studio round, are themes now. Stage is warm and dark, with the
+  sections as tabs along the top and the lyrics large. Daylight is light and
+  plain, with a wide rail that has each name beside its icon. Both are calm,
+  with no moving background. The phone has them too, and the Studio look:
+  the albums as tiles over the songs and a round play button in the bar.
+  The app is ready sooner with the full visuals, because the fluid and the
+  fox no longer make it wait while their shaders compile.
 - Lyrics for songs saved from video sites, and a Visualiser button (3.54.0).
   A song named as a video is ("Song | Singers | Cover") is looked up by the
   song's own name, and the search box does the same when all the words find

@@ -393,6 +393,33 @@ if (PART === 'a') {
     await page.evaluate(() => document.querySelector('[data-theme="dark"].tp, .theme-pill[data-theme="dark"]').click());
   });
 
+  // v3.55.0: the two other mockups as themes, laid out by the real Chromium
+  await step('Stage puts the sections in tabs along the top, Daylight in a wide rail with their names beside them', async () => {
+    const look = async t => page.evaluate(async t => {
+      window.bmApp.applyTheme(t); window.bmApp.switchDest('music');
+      await new Promise(r => setTimeout(r, 450));   // the colours ease in over 0.15 to 0.35 s
+      const R = e => { const r = e.getBoundingClientRect(); return { l: Math.round(r.left), t: Math.round(r.top), w: Math.round(r.width), h: Math.round(r.height), r: Math.round(r.right), b: Math.round(r.bottom) }; };
+      const bar = document.querySelector('.sidebar'), btns = [...bar.querySelectorAll('.sidebar-btn[data-dest]')];
+      const act = bar.querySelector('.sidebar-btn.active'), cs = getComputedStyle(document.documentElement);
+      const c = document.createElement('canvas').getContext('2d'); const norm = v => { c.fillStyle = '#000'; c.fillStyle = v; return c.fillStyle; };
+      return { bar: R(bar), btns: btns.map(b => ({ ...R(b), ico: R(b.querySelector('.ico')), lbl: R(b.querySelector('.sb-label')) })), view: R(document.getElementById('music-view')),
+        win: innerWidth, actBg: norm(getComputedStyle(act).backgroundColor), accent: norm(cs.getPropertyValue('--accent').trim()), bg: norm(cs.getPropertyValue('--bg').trim()) };
+    }, t);
+    const s = await look('stage');
+    if (s.bar.l !== 0 || s.bar.w !== s.win || s.bar.h > 60 || s.bar.t < 50 || s.bar.t > 70) throw new Error('Stage: the tabs are not a bar across the top: ' + JSON.stringify(s.bar));
+    if (new Set(s.btns.map(b => b.t)).size !== 1 || s.btns.some((b, i) => i && b.l < s.btns[i - 1].r)) throw new Error('Stage: the tabs are not in one row: ' + JSON.stringify(s.btns.map(b => [b.l, b.t, b.w])));
+    if (s.btns.some(b => b.lbl.l < b.ico.r)) throw new Error('Stage: a tab\'s name is not beside its icon');
+    if (s.view.l !== 0 || s.view.t !== s.bar.b) throw new Error('Stage: Music is not under the tabs, across the window: ' + JSON.stringify(s.view));
+    if (s.actBg !== s.accent || s.bg !== '#0e0c0a') throw new Error(`Stage: the tab open is ${s.actBg}, the accent ${s.accent}, the background ${s.bg}`);
+    const d = await look('daylight');
+    if (d.bar.w < 150 || d.bar.l !== 0 || d.view.l !== d.bar.r) throw new Error('Daylight: the rail is not wide, or Music is not beside it: ' + JSON.stringify([d.bar, d.view]));
+    if (d.btns.some(b => b.lbl.l < b.ico.r || Math.abs((b.lbl.t + b.lbl.h / 2) - (b.ico.t + b.ico.h / 2)) > 3)) throw new Error('Daylight: a name is not beside its icon');
+    if (d.bg !== '#f2f4f8') throw new Error('Daylight: the background is ' + d.bg);
+    const k = await look('dark');
+    if (k.bar.w > 90 || k.view.t !== k.bar.t) throw new Error('Dark (Studio) lost its rail: ' + JSON.stringify([k.bar, k.view]));
+    await page.evaluate(() => window.bmApp.switchDest('video'));
+  });
+
   await step('GPU fluid solver builds and steps in real Chromium, or refuses cleanly', async () => {
     const r = await page.evaluate(async () => {
       const { FluidFX } = await import('./js/fluid.js');

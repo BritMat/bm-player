@@ -197,7 +197,7 @@ export default class TvTabFeature {
       html += `<div class="tv-ch${ch.url === cur ? ' now-playing' : ''}" role="listitem" data-i="${i}">`
         + `<button class="tv-ch-play" type="button" aria-label="Play ${escapeAttr(name)}">`
         + `<span class="tv-ch-num">${i + 1}</span>`
-        + `<span class="tv-ch-logo" style="background:${tint(name)}" aria-hidden="true">${escapeHtml(initials(name))}${img}</span>`
+        + `<span class="tv-ch-logo" style="background:${escapeAttr(tint(name))}" aria-hidden="true">${escapeHtml(initials(name))}${img}</span>`
         + `<span class="tv-ch-info"><span class="tv-ch-title">${escapeHtml(name)}</span><span class="tv-ch-group">${escapeHtml(ch.group)}</span></span>`
         + `</button>`
         + `<button class="tv-ch-fav${fav ? ' active' : ''}" type="button" title="Favourite" aria-label="Favourite: ${escapeAttr(name)}" aria-pressed="${fav}">${fav ? ICONS.starFill : ICONS.star}</button>`
@@ -226,7 +226,7 @@ export default class TvTabFeature {
     section.hidden = !show || !recent.length;
     if (section.hidden) { list.textContent = ''; return; }
     list.innerHTML = recent.map((r, i) =>
-      `<button class="tv-recent" type="button" data-i="${i}"><span class="tv-ch-logo" style="background:${tint(r.title || r.url)}" aria-hidden="true">${escapeHtml(initials(r.title || r.url))}</span><span class="tv-ch-title">${escapeHtml(r.title || r.url)}</span></button>`
+      `<button class="tv-recent" type="button" data-i="${i}"><span class="tv-ch-logo" style="background:${escapeAttr(tint(r.title || r.url))}" aria-hidden="true">${escapeHtml(initials(r.title || r.url))}</span><span class="tv-ch-title">${escapeHtml(r.title || r.url)}</span></button>`
     ).join('');
   }
 
