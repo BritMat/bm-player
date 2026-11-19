@@ -338,6 +338,8 @@ function toggleTalk () {
 function voiceState (state, detail) {
   const b = $('home-talk'), label = $('home-talk-label');
   b.classList.toggle('on', ['listening', 'hearing', 'talking', 'starting'].includes(state));
+  // v3.55.1: the music's sound is made again once the microphone is let go (m-player.js mic)
+  player.mic(['listening', 'hearing', 'talking', 'starting'].includes(state));
   b.classList.toggle('hearing', state === 'hearing');
   const words = { off: 'Talk', starting: 'Asking for the microphone…', listening: 'Listening: say something', hearing: 'Listening…', talking: 'The fox is talking', denied: 'Talk', error: 'Talk' };
   label.textContent = words[state] || 'Talk';

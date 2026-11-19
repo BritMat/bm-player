@@ -799,8 +799,11 @@ async function main() {
   });
 
   // v3.48.0: an audio context made while the sound went to a call runs at 8
-  // or 16 kHz (a phone's log: "BiquadFilter 8000 outside [0, 4000]").
-  await step('an audio context made at a call\'s rate is made again at a music rate, and the phone mixes in larger blocks', async () => {
+  // or 16 kHz (a phone's log: "BiquadFilter 8000 outside [0, 4000]"). The
+  // desktop makes it again at 48000. On the phone (v3.55.1) the web engine
+  // still sent that out at the call's rate, so the song plays from the audio
+  // element instead, until the way out changes (renew).
+  await step('at a call\'s rate: the desktop makes the context again at 48000, the phone plays plain until the way out changes', async () => {
     const Real = window.AudioContext, made = [];
     window.AudioContext = class extends Real {
       constructor (o) { super(o); this.opts = o; this.sampleRate = o && o.sampleRate ? o.sampleRate : 8000; made.push(this); }
@@ -816,8 +819,20 @@ async function main() {
       made.length = 0;
       Object.defineProperty(window.navigator, 'userAgent', { configurable: true, get: () => 'Mozilla/5.0 (Linux; Android 14) BMPlayerAndroid/3.48.0' });
       eng = new AudioEngine();
+      const told = []; eng.on('plain', d => told.push(d.rate)); eng.on('renewed', d => told.push('renewed ' + d.plain));
       await eng.load('file:///a/x.mp3', '/a/x.mp3', false);
-      if (made[0].opts?.latencyHint !== 'playback' || made[1].opts?.latencyHint !== 'playback' || made[1].opts?.sampleRate !== 48000) throw new Error('the phone: ' + JSON.stringify(made.map(c => c.opts)));
+      if (made.length !== 1 || made[0].opts?.latencyHint !== 'playback' || made[0].state !== 'closed') throw new Error('the phone: ' + JSON.stringify(made.map(c => [c.opts, c.state])));
+      if (!eng.plain || eng.ctx || eng.getAnalyser() !== null || told[0] !== 8000) throw new Error(`the phone at 8000 Hz: plain ${eng.plain}, context ${!!eng.ctx}, told ${told}`);
+      eng.setVolume(60);
+      if (Math.abs(eng.el.volume - 0.6) > 1e-9) throw new Error('plain, the volume is the element\'s: ' + eng.el.volume);
+      eng.setVolume(120);
+      if (eng.el.volume !== 1) throw new Error('plain, the element stops at full: ' + eng.el.volume);
+      eng.setVolume(100);
+      // the way out changes, and the web engine is at a music rate again
+      const el0 = eng.el; eng._Ctx = Real; made.length = 0;
+      eng.renew('test');
+      if (eng.plain || !eng.ctx || eng.el === el0 || !eng.getAnalyser() || eng.el.volume !== 1 || el0.getAttribute('src')) throw new Error(`renewed: plain ${eng.plain}, context ${!!eng.ctx}, new element ${eng.el !== el0}`);
+      if (eng.ctx.sampleRate < 32000 || told[told.length - 1] !== 'renewed false') throw new Error('renewed at ' + eng.ctx.sampleRate + ', told ' + told);
       eng.destroy();
     } finally {
       window.AudioContext = Real; console.warn = warn;

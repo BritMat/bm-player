@@ -135,6 +135,13 @@ read by BM Player's built-in updater. You don't need to download them.
   the albums as tiles over the songs and a round play button in the bar.
   The app is ready sooner with the full visuals, because the fluid and the
   fox no longer make it wait while their shaders compile.
+- Bluetooth headsets on the phone (3.55.1). Songs on a neckband could sound
+  muffled, like a phone call. The app now notices when the sound's way out
+  changes (a headset on or off, its call channel, a call) and opens its
+  sound again for it. When the phone's web engine reports a call's rate,
+  songs play without the equaliser and the visualiser, at their own rate,
+  until that changes. Each change is written to the app's log, and the log
+  is shared newest first, so a share that gets cut short keeps today's lines.
 - Lyrics for songs saved from video sites, and a Visualiser button (3.54.0).
   A song named as a video is ("Song | Singers | Cover") is looked up by the
   song's own name, and the search box does the same when all the words find

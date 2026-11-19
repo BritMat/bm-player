@@ -95,6 +95,8 @@ export function initPlayerUI () {
   player.on('time', updateTime);
   player.on('queue', () => { updateModes(); if (drawerOn) renderQueue(); updateMini(); });
   player.on('speed', updateTime);
+  // The engine's sound made again (v3.55.1): its analyser is a new one, or none while songs play plain.
+  player.on('engine', () => { if (viz) viz.analyser = player.engine?.getAnalyser?.() || null; });
   on('lifecycle', d => { hidden = d.state === 'background'; applyMode(); });
   document.addEventListener('visibilitychange', () => { hidden = document.hidden; applyMode(); });
   window.bmClosePlayer = closePlayer;
@@ -308,7 +310,7 @@ function moreMenu () {
     title: s.title, sub: [s.artist, s.album].filter(Boolean).join(' · '), art: songArt(s),
     items: [
       { icon: 'speed', label: 'Speed', note: player.speed === 1 ? 'Normal' : player.speed + '×', action: speedMenu },
-      { icon: 'eq', label: 'Equaliser', note: player.engine?.available ? (eq.name || 'Custom') : 'Not on this phone', action: eqSheet },
+      { icon: 'eq', label: 'Equaliser', note: !player.engine?.available ? 'Not on this phone' : player.engine.plain ? 'Off for now' : (eq.name || 'Custom'), action: eqSheet },
       ...(player.engine?.available ? [{ icon: 'wave', label: 'Sound mode', note: soundNote(), action: () => soundSheet() }] : []),
       { icon: 'lyrics', label: 'Lyrics', action: () => { lyrics.showTab('lyrics'); setDrawer(true); } },
       ...[favItem(songFav(s))].filter(Boolean),
@@ -328,6 +330,8 @@ function speedMenu () {
 
 function eqSheet () {
   if (!player.engine?.available) { toast('The equaliser needs Web Audio, which this phone\'s web engine does not have.'); return; }
+  // v3.55.1: the songs play plain while the sound runs at a call's rate (audio-engine.js)
+  if (player.engine.plain) { toast('The equaliser is off for now: through Web Audio, songs would sound like a phone call on this headset. It comes back when the headset changes.', 5000); return; }
   const cur = player.eq();
   let gains = cur.gains.slice(0, 10), preamp = Math.max(-12, Math.min(12, +cur.preamp || 0));
   while (gains.length < 10) gains.push(0);

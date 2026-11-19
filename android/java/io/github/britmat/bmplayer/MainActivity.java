@@ -93,6 +93,7 @@ public class MainActivity extends Activity {
     private final long[] goneAt = new long[8];
     private int goneN;
     private boolean pageGone, started;
+    AudioRoute route;
 
     // The page's file input. Files has 12 to 16 (the picker), Access 7 and 21, MediaDelete its own.
     private static final int REQ_FILE = 11;
@@ -137,6 +138,9 @@ public class MainActivity extends Activity {
         }
         listenPower();
         watchNetwork();
+        // Where the sound goes (v3.55.1): logged, and the page told when it changes
+        route = new AudioRoute(this);
+        route.listen();
         pip.listen();
         handleIntent(getIntent());
     }
@@ -604,6 +608,7 @@ public class MainActivity extends Activity {
             netWatch = null;
         }
         if (pip != null) pip.release();
+        if (route != null) { route.release(); route = null; }
         // The music lives in the page: with the page gone it stops, and the service with it.
         PlaybackService.stopAll();
         if (mpv != null) mpv.destroy();

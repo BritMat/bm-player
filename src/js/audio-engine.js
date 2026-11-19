@@ -25,6 +25,14 @@
  *
  * APE, WMA and MKA in particular are not decodable by Chromium, so those
  * always take the mpv path.
+ *
+ * On the phone (v3.55.1) there is one more case. When the web engine says
+ * its sound runs at a call's rate (8 or 16 kHz, a Bluetooth headset on its
+ * call channel), Web Audio would play every song at that rate, muffled like
+ * a phone call, whatever rate the context itself is made at. The song then
+ * plays from the audio element alone, which the web engine sends out at the
+ * song's own rate (`plain`), without the equalizer and the visualiser, until
+ * the way out changes (renew()).
  */
 
 /* The equalizer's bands and the sound's effects are sound-chain.js's
@@ -58,6 +66,9 @@ export class AudioEngine {
     this._src = null; this._at = 0; this._tries = 0; this._triedAt = 0; this._recovering = false; this._wantPlay = false;
     this._vol = 1; this._muted = false;
     this._rate = 1;               // the speed chosen, and a sound mode may play faster or slower on top (v3.49.0, _applyRate)
+    // v3.55.1: on the phone, a song with no Web Audio when the sound runs at a call's rate (_graph)
+    this._phone = typeof navigator !== 'undefined' && /BMPlayerAndroid/.test(navigator.userAgent || '');
+    this.plain = false; this._probedAt = 0;
 
     const Ctx = typeof window !== 'undefined' && (window.AudioContext || window.webkitAudioContext);
     if (!Ctx) return;             // no Web Audio: stay unavailable, caller uses mpv
@@ -68,10 +79,7 @@ export class AudioEngine {
     // app opened only for a film. It also rests now (_restSoon) once nothing
     // has played for a little while.
     try {
-      this.el = new Audio();
-      this.el.preload = 'auto';
-      this.el.crossOrigin = 'anonymous';
-      this._wireElement();
+      this._newElement();
       this.available = true;
     } catch (e) {
       console.warn('[AudioEngine] unavailable, falling back to mpv:', e && e.message);
@@ -81,20 +89,34 @@ export class AudioEngine {
 
   /** The Web Audio graph, made once, the first time a song loads. False if it cannot be. */
   _graph() {
-    if (this.ctx) return true;
+    if (this.ctx || this.plain) return true;
     if (!this.available) return false;
     try {
       // On the phone (v3.48.0) the sound is mixed in larger blocks: fewer
       // wake-ups for the processor, and no gap when the phone is busy for a
       // moment. On the desktop it stays as quick as it can be.
-      const phone = typeof navigator !== 'undefined' && /BMPlayerAndroid/.test(navigator.userAgent || '');
-      const opts = phone ? { latencyHint: 'playback' } : undefined;
+      const opts = this._phone ? { latencyHint: 'playback' } : undefined;
       this.ctx = new this._Ctx(opts);
-      // Made while the sound went to a call (a headset in its call mode runs
-      // at 8 or 16 kHz, as a phone's log showed: "BiquadFilter 8000 outside
-      // [0, 4000]"), every song would sound like a phone call until the app
-      // closed. It is made again at a music rate, which the browser converts
-      // to whatever the speakers take, then and once the call is over.
+      this._probedAt = Date.now();
+      // At a call's rate (a headset on its call channel runs at 8 or 16 kHz,
+      // as a phone's log showed: "BiquadFilter 8000 outside [0, 4000]"),
+      // every song would sound like a phone call. v3.48.0 made the context
+      // again at 48000, but the web engine still sent it out at the call's
+      // rate, and on a neckband songs stayed muffled. On the phone (v3.55.1)
+      // the song plays from the audio element instead, which goes out at the
+      // song's own rate (see the top of this file).
+      if (this.ctx.sampleRate < 32000 && this._phone) {
+        const low = this.ctx.sampleRate;
+        this._closeCtx();
+        this.plain = true;
+        this.el.volume = Math.min(1, this._muted ? 0 : this._vol);
+        console.warn('[AudioEngine] the web engine\'s sound runs at ' + low + ' Hz, a call\'s rate: songs play from the audio element, at their own rate, without the equalizer and the visualiser, until the way out changes');
+        this._emit('plain', { rate: low });
+        return true;
+      }
+      if (this._phone) console.warn('[AudioEngine] sound made at ' + this.ctx.sampleRate + ' Hz' + (this.ctx.baseLatency ? ', ' + Math.round(this.ctx.baseLatency * 1000) + ' ms' : ''));
+      // On the desktop it is made again at a music rate, which the browser
+      // converts to whatever the speakers take (mpv plays what Web Audio cannot).
       if (this.ctx.sampleRate < 32000) {
         const low = this.ctx.sampleRate;
         try { this.ctx.close(); } catch (_) {}
@@ -133,11 +155,66 @@ export class AudioEngine {
     } catch (e) {
       // A failure here is expected on some configurations; it is not an error.
       console.warn('[AudioEngine] unavailable, falling back to mpv:', e && e.message);
-      try { this.ctx && this.ctx.close(); } catch (_) {}
-      this.ctx = null;
+      this._closeCtx();
       this.available = false;
       return false;
     }
+  }
+
+  /** A new audio element, wired, at the speed chosen (the old one is let go by renew). */
+  _newElement() {
+    this.el = new Audio();
+    this.el.preload = 'auto';
+    this.el.crossOrigin = 'anonymous';
+    this._wireElement();
+    if (this._rate !== 1 || rateOf(this._sound) !== 1) this._applyRate();
+  }
+
+  /** The context and its graph let go. */
+  _closeCtx() {
+    clearTimeout(this._restT); this._restT = 0;
+    try { this.chain?.destroy(); } catch (_) {}
+    try { this.ctx && this.ctx.close().catch(() => {}); } catch (_) {}
+    this.ctx = this.source = this.gain = this.analyser = this._heard = this.tap = this.chain = null;
+  }
+
+  /**
+   * The sound made again (v3.55.1): a new audio element and a new context,
+   * the song going on from the same second, playing if it was. The phone
+   * calls it when the way the sound goes out changes (a headset on or off,
+   * its call channel opened or closed, a call) and when the microphone is
+   * let go. The web engine keeps the stream it opened for the old way out,
+   * at the old rate and as a call's sound or music's, until a new one is
+   * asked for, and an audio element feeds one context only, ever.
+   */
+  renew(reason = '') {
+    if (!this.available || !this.el) return false;
+    const old = this.el, src = this._src, at = this.currentTime, play = this._wantPlay;
+    clearTimeout(this._recT); this._unwatch();
+    this._closeCtx();
+    this.plain = false;
+    // its events come after this, and are its own (_wireElement): not heard
+    try { old.pause(); old.removeAttribute('src'); old.load(); } catch (_) {}
+    this._newElement();
+    console.warn('[AudioEngine] the sound made again' + (reason ? ' (' + reason + ')' : '') + (src ? ', the song going on from ' + Math.floor(at / 60) + ':' + String(Math.floor(at % 60)).padStart(2, '0') : ''));
+    if (!src || !this.active) { this._recovering = false; this._wantPlay = false; this._emit('renewed', { plain: false }); return true; }
+    if (!this._graph()) return false;
+    this._applyGain();
+    const el = this.el;
+    this._recovering = true; this._at = at; this._wantPlay = play;
+    const onMeta = () => {
+      el.removeEventListener('loadedmetadata', onMeta);
+      if (this.el !== el || this._src !== src) return;
+      try { el.currentTime = Math.max(0, Math.min(at, (el.duration || at + 1) - 0.5)); } catch (_) {}
+      this._recovering = false;
+      if (this._wantPlay) this.play();
+      else this._restSoon();
+    };
+    el.addEventListener('loadedmetadata', onMeta);
+    el.src = src;
+    try { el.load(); } catch (_) {}
+    this._emit('renewed', { plain: this.plain });
+    return true;
   }
 
   /**
@@ -207,14 +284,17 @@ export class AudioEngine {
 
   _wireElement() {
     const e = this.el;
-    e.addEventListener('loadedmetadata', () => { if (!this._recovering) this._emit('loaded', { duration: e.duration || 0 }); });
+    // An element let go by renew() still tells of its last moments: not heard.
+    const mine = () => e === this.el;
+    e.addEventListener('loadedmetadata', () => { if (mine() && !this._recovering) this._emit('loaded', { duration: e.duration || 0 }); });
     e.addEventListener('timeupdate', () => {
-      if (this._recovering) return;                 // the same song again: its position goes on from where it was
+      if (!mine() || this._recovering) return;      // the same song again: its position goes on from where it was
       this._at = e.currentTime || 0;
       if (this._tries && this._at > this._triedAt + 30) this._tries = 0;   // half a minute on since the last loss: tries anew
       this._emit('time', { time: this._at, duration: e.duration || 0 });
     });
     e.addEventListener('play', () => {
+      if (!mine()) return;
       clearTimeout(this._restT); this._restT = 0;
       this._wantPlay = true;
       // Started some other way than play() (a test, the system's media keys):
@@ -223,9 +303,10 @@ export class AudioEngine {
       this._watch();
       this._emit('play');
     });
-    e.addEventListener('pause', () => { if (this._recovering) return; this._wantPlay = false; this._unwatch(); this._restSoon(); this._emit('pause'); });
-    e.addEventListener('ended', () => { this._wantPlay = false; this._unwatch(); this._restSoon(); this._emit('ended'); });
+    e.addEventListener('pause', () => { if (!mine() || this._recovering) return; this._wantPlay = false; this._unwatch(); this._restSoon(); this._emit('pause'); });
+    e.addEventListener('ended', () => { if (!mine()) return; this._wantPlay = false; this._unwatch(); this._restSoon(); this._emit('ended'); });
     e.addEventListener('error', () => {
+      if (!mine()) return;
       const code = e.error && e.error.code;
       if (!this.active || !this._src) return;      // put away already: nothing to carry on with
       this._lost(code);
@@ -309,6 +390,9 @@ export class AudioEngine {
 
   /* ── transport ───────────────────────────────────────────────── */
   async load(url, path, autoplay = true) {
+    // Playing plain (v3.55.1): a new song looks again whether Web Audio can
+    // be used, a minute on. This element has fed no context, so it can.
+    if (this.plain && Date.now() - this._probedAt > AudioEngine.LOOK_AGAIN_MS) { this.plain = false; this.el.volume = 1; }
     if (!this.available || !this._graph()) return false;
     this._path = path || url;
     this.active = true;
@@ -325,7 +409,7 @@ export class AudioEngine {
     clearTimeout(this._restT); this._restT = 0;
     // Browsers start the context suspended until a gesture, and it is put to
     // rest when nothing plays (_restSoon): resumed here, before the song.
-    if (this.ctx.state === 'suspended') { try { await this.ctx.resume(); } catch (_) {} }
+    if (this.ctx && this.ctx.state === 'suspended') { try { await this.ctx.resume(); } catch (_) {} }
     this._wantPlay = true;
     if (this._recovering) return true;            // it plays once it is back (_recover)
     try { await this.el.play(); return true; }
@@ -370,6 +454,8 @@ export class AudioEngine {
   }
   setMuted(on) { if (this.available) { this._muted = !!on; this._applyGain(); } }
   _applyGain() {
+    // Plain (v3.55.1): the element's own volume, which stops at 100%.
+    if (this.plain) { try { this.el.volume = Math.min(1, this._muted ? 0 : this._vol); } catch (_) {} return; }
     if (!this.gain) return;       // no graph yet: the first song starts at this volume
     const g = this._muted ? 0 : this._vol, p = this.gain.gain;
     try {
@@ -433,8 +519,7 @@ export class AudioEngine {
     try { this.stop(); } catch (_) {}
     clearTimeout(this._recT); this._unwatch();
     clearTimeout(this._restT);
-    try { this.chain?.destroy(); } catch (_) {}
-    try { this.ctx && this.ctx.close(); } catch (_) {}
+    this._closeCtx();
     this.available = false;
     this._handlers.clear();
   }
@@ -444,3 +529,5 @@ export class AudioEngine {
 AudioEngine.REST_MS = 10000;
 /** How long a song may stand still, while it should play, before it is taken as lost (v3.48.0). */
 AudioEngine.STALL_MS = 12000;
+/** Playing plain, how long before a new song looks again whether Web Audio can be used (v3.55.1). */
+AudioEngine.LOOK_AGAIN_MS = 60000;

@@ -142,6 +142,10 @@ final class Bridge {
     @JavascriptInterface
     public String logText() { return BMLog.text(); }
 
+    /** Where the sound goes now (v3.55.1, AudioRoute): JSON, or "{}" before it is known. */
+    @JavascriptInterface
+    public String audioRoute() { AudioRoute r = a.route; return r == null ? "{}" : r.state().toString(); }
+
     /** Behind the other apps, the music playing on. */
     @JavascriptInterface
     public void background() {

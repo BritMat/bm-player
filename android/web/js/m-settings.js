@@ -204,8 +204,12 @@ function showLog () {
   body.className = 'sh-log';
   body.innerHTML = '<pre class="st-sel"></pre><div class="sh-btns"><button class="m-btn" type="button" data-share>Share</button><button class="m-btn m-btn-2" type="button" data-copy>Copy</button></div>';
   body.querySelector('pre').textContent = text || 'Nothing in the log yet.';
-  body.querySelector('[data-share]').addEventListener('click', () => call('share', `BM Player ${info.version || ''} on Android ${info.release || ''} (${info.device || ''})\n\n${text}`, 'BM Player log'));
-  body.querySelector('[data-copy]').addEventListener('click', async () => { try { await navigator.clipboard.writeText(text); toast('Copied'); } catch (_) { toast('Could not copy: use Share instead.'); } });
+  // Shared and copied newest first (v3.55.1): a log shared from the phone
+  // came cut short after its first 4 KB, the oldest lines, with nothing of
+  // the day it was shared for. Cut short now, it is the old part that goes.
+  const sent = () => `BM Player ${info.version || ''} on Android ${info.release || ''} (${info.device || ''}), newest first\n\n` + text.split('\n').reverse().join('\n');
+  body.querySelector('[data-share]').addEventListener('click', () => call('share', sent(), 'BM Player log'));
+  body.querySelector('[data-copy]').addEventListener('click', async () => { try { await navigator.clipboard.writeText(sent()); toast('Copied, newest first'); } catch (_) { toast('Could not copy: use Share instead.'); } });
   sheet({ title: 'The app\'s log', sub: 'Newest at the bottom. Nothing in it is sent anywhere unless you share it.', body, wide: true });
   setTimeout(() => { const pre = body.querySelector('pre'); pre.scrollTop = pre.scrollHeight; }, 50);
 }

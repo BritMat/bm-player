@@ -58,11 +58,15 @@ export const player = {
     e.on('time', () => this.emit('time'));
     e.on('ended', () => this.ended());
     e.on('fallback', d => this.failedSong(d));
+    e.on('plain', d => this.plainSound(d));
+    e.on('renewed', d => this.emit('engine', d));
     try { const s = +localStorage.getItem(SPEED); if (s > 0 && s !== 1) e.setSpeed(s); } catch (_) {}
     try { const g = JSON.parse(localStorage.getItem(EQ) || 'null'); if (Array.isArray(g?.gains)) e.setEQ(g.gains); if (isFinite(g?.preamp)) e.setSound({ preamp: g.preamp }); } catch (_) {}
     e.setSound(this.sound());
     e.setVolume(100);
     on('remote', d => this.remote(d));
+    on('route', d => this.route(d));
+    try { this.way = JSON.parse(call('audioRoute') || '{}'); } catch (_) { this.way = {}; }
     setInterval(() => { if (!this.paused) this.save(); }, 10000);
     document.addEventListener('visibilitychange', () => { if (document.hidden) this.save(); });
   },
@@ -280,6 +284,43 @@ export const player = {
     if (!this._meant) { toast(what + '.'); this.emit('state'); return; }
     toast(what + '. Skipping it.');
     setTimeout(() => { if (this.current === s) this.next(true); }, 900);
+  },
+
+  // ── where the sound goes (v3.55.1) ────────────────────────────────
+  // Android says when the way out changes (AudioRoute.java): a headset on
+  // or off, its call channel opened or closed, a call. The web engine kept
+  // the stream it opened before, at the old rate and as music or a call,
+  // and songs on a neckband sounded like a phone call. The engine makes its
+  // sound again for the new way out.
+  route (d = {}) {
+    this.way = d;
+    if (!this.engine?.available) return;
+    this.engine.renew(d.why || 'the way out changed');
+    // Taken by a call or another app, the headset's call channel carries all
+    // the sound: nothing here can change that, and it is said once.
+    if (d.callChannel && !this.micOn && !this._toldCall) {
+      this._toldCall = true;
+      toast('The headset is on its call channel (a call, or an app using its microphone), so music sounds like a phone call until that ends.', 6000);
+    }
+  },
+
+  // The web engine's sound runs at a call's rate: the songs play from the
+  // audio element (audio-engine.js, plain), said once while the app is open.
+  plainSound (d = {}) {
+    if (this._toldPlain) return;
+    this._toldPlain = true;
+    toast('Songs play without the equaliser and the visualiser for now, so they keep their full sound' + (this.way?.bluetooth ? ' on this headset.' : '.'), 5000);
+  },
+
+  /**
+   * The fox's Talk has the microphone, or has let it go (m-home.js). While
+   * it is held the web engine sends sound out as a call's, and the engine's
+   * sound is made again once it is let go, a moment after.
+   */
+  mic (on) {
+    const was = !!this.micOn;
+    this.micOn = !!on;
+    if (was && !on) setTimeout(() => { const e = this.engine; if (!this.micOn && e?.available && (e.ctx || e.plain)) e.renew('the microphone was let go'); }, 500);
   },
 
   remote (d) {

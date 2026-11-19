@@ -22,6 +22,10 @@
  *                                   on screen gives its memory back (m-main.js)
  *   deleted     { kind, ids, asked, cancelled, denied, error }
  *                                   what deleteMedia really deleted (m-delete.js)
+ *   route       { out, bluetooth, callChannel, mode, rate, musicRate, why, ... }
+ *                                   the way the sound goes out changed: a headset
+ *                                   on or off, its call channel, a call (v3.55.1,
+ *                                   AudioRoute.java, m-player.js route)
  * and window.BMNative.back() when Back is pressed: 'handled' when the page
  * closed something, 'background' to put the app behind the others.
  *
@@ -202,7 +206,7 @@ const MOCK = {
   toast (t) { console.log('[toast]', t); },
   share (t) { window.__bmShared = t; },
   log (t) { console.log('[log]', t); },
-  logText: () => '(The Android app keeps its log. This is a desktop browser.)',
+  logText: () => window.__bmLogText || '(The Android app keeps its log. This is a desktop browser.)',
   // v3.50.0: lyrics kept on the phone (LyricsStore.java), here in the browser's storage
   lyricsRead: n => ls('mock_lyr_' + n),
   lyricsWrite (n, json) { if (!/^[a-z0-9-]{1,96}$/.test(n)) return false; ls('mock_lyr_' + n, json); return true; },

@@ -360,6 +360,43 @@ try {
       await sleep(300);
     }
   }
+  // v3.55.1: songs on a neckband sounded like a phone call. Android says when
+  // the way out changes (AudioRoute.java): the engine makes its sound again,
+  // the song going on from the same second. When the web engine's sound runs
+  // at a call's rate, the song plays from the audio element at its own rate.
+  {
+    step = 'headset';
+    console.log('\n' + step);
+    await until(() => window.__bmPlayback?.playing && window.bmLyrics.music.engine.currentTime > 1.5, null, 8000);
+    const before = await ev(() => { const e = window.bmLyrics.music.engine; window.__bmEl0 = e.el; window.__bmAn0 = e.getAnalyser(); return e.currentTime; });
+    await ev(() => window.BMNative.event('route', { out: 'Bluetooth (music channel)', bluetooth: true, a2dp: true, callChannel: false, rate: 48000, why: 'on: Bluetooth (music channel)' }));
+    ok(await until(() => { const e = window.bmLyrics.music.engine; return e.el !== window.__bmEl0 && !e.el.paused && e.currentTime > 0; }, null, 6000), 'a headset on: the sound is made again, and the song plays on');
+    const after = await ev(() => { const e = window.bmLyrics.music.engine; return { t: e.currentTime, an: !!e.getAnalyser() && e.getAnalyser() !== window.__bmAn0, title: window.__bmPlayback?.title, old: window.__bmEl0.paused && !window.__bmEl0.getAttribute('src') }; });
+    ok(after.t >= before - 0.5 && after.title === 'Night Lights', `from where it was (${before.toFixed(1)} s, then ${after.t.toFixed(1)} s), the same song`);
+    ok(after.an && after.old, 'with a new analyser for the visualiser, and the old element let go');
+    // the web engine at a call's rate: 8000 Hz, as the phone's log showed
+    await ev(() => { const e = window.bmLyrics.music.engine; window.__bmCtx = e._Ctx; e._Ctx = class extends window.__bmCtx { get sampleRate () { return 8000; } }; });
+    await ev(() => window.BMNative.event('route', { out: 'bluetooth', bluetooth: true, callChannel: false, rate: 8000, why: 'test' }));
+    ok(await until(() => { const e = window.bmLyrics.music.engine; return e.plain && !e.el.paused && e.currentTime > 0; }, null, 6000), 'at a call\'s rate the song plays from the audio element (plain)');
+    const t1 = await ev(() => window.bmLyrics.music.engine.currentTime); await sleep(1200);
+    const p = await ev(() => { const e = window.bmLyrics.music.engine; return { t: e.currentTime, an: e.getAnalyser(), ctx: !!e.ctx, toast: document.getElementById('toast')?.textContent || '' }; });
+    ok(p.t > t1 + 0.5 && p.an === null && !p.ctx, `it plays on (${t1.toFixed(1)} s, then ${p.t.toFixed(1)} s), with no Web Audio`);
+    soft(/without the equaliser/.test(p.toast), `and says so once (${p.toast.slice(0, 60)})`);
+    await ev(() => { const e = window.bmLyrics.music.engine; e._Ctx = window.__bmCtx; });
+    await ev(() => window.BMNative.event('route', { out: 'speaker', bluetooth: false, callChannel: false, rate: 48000, why: 'off: Bluetooth (music channel)' }));
+    ok(await until(() => { const e = window.bmLyrics.music.engine; return !e.plain && !!e.getAnalyser() && !e.el.paused; }, null, 6000), 'back to a music rate: Web Audio again, playing');
+    ok(await ev(() => window.bmLyrics.music.engine.el.volume === 1), 'the volume is the graph\'s again (the element at full)');
+    // paused, a change makes it again paused, at the same place
+    await ev(() => window.BMNative.event('remote', { action: 'pause' }));
+    await until(() => window.__bmPlayback?.playing === false);
+    const tp = await ev(() => window.bmLyrics.music.engine.currentTime);
+    await ev(() => window.BMNative.event('route', { out: 'wired headphones', bluetooth: false, callChannel: false, rate: 48000, why: 'test' }));
+    await sleep(1200);
+    const q = await ev(() => { const e = window.bmLyrics.music.engine; return { t: e.currentTime, paused: e.el.paused, pb: window.__bmPlayback?.playing }; });
+    ok(q.paused && q.pb === false && Math.abs(q.t - tp) < 1, `paused, it stays paused at the same place (${tp.toFixed(1)} s, then ${q.t.toFixed(1)} s)`);
+    await ev(() => window.BMNative.event('remote', { action: 'play' }));
+    ok(await until(() => window.__bmPlayback?.playing === true && !window.bmLyrics.music.engine.el.paused), 'and plays again from there');
+  }
   // v3.43.2: a sideways swipe on the music bar is the bar's, not taken by the browser as a pan
   { const c = await page.context().newCDPSession(page);
     const tch = (type, x, y) => c.send('Input.dispatchTouchEvent', { type, touchPoints: type === 'touchEnd' ? [] : [{ x, y }] });
@@ -898,9 +935,14 @@ try {
   await page.tap('#st-saver button[data-v="on"]');
   ok(await until(() => document.documentElement.classList.contains('battery-saver')), 'the battery saver turns on');
   await page.tap('#st-saver button[data-v="auto"]');
+  await ev(() => { window.__bmLogText = '11-19 19:00:00.000 I start\n11-19 19:05:00.000 I sound: on\n11-19 19:06:00.000 W page: the last line'; });
   await page.tap('#st-log');
   ok(await until(() => !document.getElementById('sheet').classList.contains('hidden') && document.querySelector('.sh-log pre')), 'the log shows');
-  await ev(() => window.BMNative.back());
+  ok(await ev(() => /the last line$/.test(document.querySelector('.sh-log pre').textContent.trim())), 'newest at the bottom on screen');
+  await page.tap('.sh-log [data-share]');
+  // v3.55.1: shared newest first, so a share cut short loses the old lines, not today's
+  ok(await until(() => /newest first\n\n11-19 19:06:00.000 W page: the last line\n11-19 19:05/.test(window.__bmShared || '')), 'shared newest first');
+  await ev(() => { delete window.__bmLogText; window.BMNative.back(); });
   await page.tap('#st-themes button[data-v="dark"]');
   await shot('08-settings');
 
