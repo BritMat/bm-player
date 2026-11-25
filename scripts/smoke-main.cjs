@@ -1325,6 +1325,22 @@ await step('PiP size button cycles three sizes, anchored and on screen', async (
     }
   });
 
+  // v3.59.0: lyrics timed by the person may replace the .lrc beside a song, the old one kept as .lrc.bak
+  await step('a .lrc beside a song: written once, refused over one there, and replaced only when asked, the old one kept', () => {
+    const { saveBeside } = require(path.join(ROOT, 'lyrics.js'));
+    const dir = path.join(TMP, 'lrc'); fs.mkdirSync(dir, { recursive: true });
+    const song = path.join(dir, 'A song.mp3'); fs.writeFileSync(song, 'x');
+    let r = saveBeside(song, '[00:01.00]first');
+    if (!r.ok) throw new Error('first save: ' + JSON.stringify(r));
+    r = saveBeside(song, '[00:02.00]second');
+    if (r.error !== 'exists') throw new Error('saved over one there: ' + JSON.stringify(r));
+    r = saveBeside(song, '[00:03.00]third', { replace: true });
+    const lrc = fs.readFileSync(path.join(dir, 'A song.lrc'), 'utf8'), bak = fs.readFileSync(path.join(dir, 'A song.lrc.bak'), 'utf8');
+    if (!r.ok || !r.replaced || !/third/.test(lrc) || !/first/.test(bak)) throw new Error('replace: ' + JSON.stringify({ r, lrc, bak }));
+    saveBeside(song, '[00:04.00]fourth', { replace: true });
+    if (!/first/.test(fs.readFileSync(path.join(dir, 'A song.lrc.bak'), 'utf8'))) throw new Error('the first .lrc.bak was written over');
+  });
+
   await step('every invoked preload channel has a handler', () => {
     const preload = fs.readFileSync(path.join(ROOT, 'preload.js'), 'utf8');
     const invoked = [...preload.matchAll(/inv\(\s*'([^']+)'/g)].map(m => m[1]);

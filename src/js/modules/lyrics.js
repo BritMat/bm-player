@@ -47,7 +47,13 @@ const SCRIPTS = [['original', 'Original'], ['latin', 'English letters'], ['both'
 
 const TIME = /^\[(\d{1,3}):(\d{1,2}(?:[.:]\d{1,3})?)\]/;
 
-/** LRC text as [{ t: seconds, text }], in order. Other tags ([ar:] and so on) and word times are left out. */
+const WORD_TIME = /<(\d{1,3}):(\d{1,2}(?:[.:]\d{1,3})?)>/;
+const secs = (m, s) => +m * 60 + parseFloat(String(s).replace(':', '.'));
+/**
+ * LRC text as [{ t: seconds, text, words? }], in order. Other tags ([ar:]
+ * and so on) are left out. v3.59.0: word times (enhanced LRC, a <mm:ss.xx>
+ * before each word) are kept as words: [{ t, w }], w with its own spaces.
+ */
 export function parseLRC(text) {
   const out = []; let offset = 0;
   for (const raw of String(text || '').split('\n')) {
@@ -55,12 +61,43 @@ export function parseLRC(text) {
     const off = /^\[offset:\s*([+-]?\d+)\s*\]$/i.exec(line);
     if (off) { offset = +off[1] / 1000; continue; }            // + brings the words sooner
     const at = []; let rest = line, m;
-    while ((m = TIME.exec(rest))) { at.push(+m[1] * 60 + parseFloat(m[2].replace(':', '.'))); rest = rest.slice(m[0].length); }
+    while ((m = TIME.exec(rest))) { at.push(secs(m[1], m[2])); rest = rest.slice(m[0].length); }
     if (!at.length) continue;
-    const words = rest.replace(/<\d{1,3}:\d{1,2}(?:[.:]\d{1,3})?>/g, '').replace(/\s+/g, ' ').trim();
-    for (const t of at) out.push({ t: Math.max(0, t - offset), text: words });
+    const words = rest.replace(new RegExp(WORD_TIME.source, 'g'), '').replace(/\s+/g, ' ').trim();
+    // word times: the text split at each, [before, mm, ss, text, mm, ss, text, ...]
+    let timed = null;
+    if (WORD_TIME.test(rest)) {
+      const parts = rest.split(new RegExp(WORD_TIME.source)); timed = [];
+      if (parts[0].trim()) timed.push({ t: at[0], w: parts[0] });
+      for (let k = 1; k + 2 < parts.length + 1; k += 3) { const w = parts[k + 2] || ''; if (w.trim()) timed.push({ t: secs(parts[k], parts[k + 1]), w }); }
+      if (!timed.length) timed = null;
+    }
+    for (const t of at) {
+      const e = { t: Math.max(0, t - offset), text: words };
+      // a line sung more than once (several times before it) has its words at the first time: moved to each
+      if (timed) e.words = timed.map(x => ({ t: Math.max(0, x.t - at[0] + t - offset), w: x.w }));
+      out.push(e);
+    }
   }
   return out.sort((a, b) => a.t - b.t);
+}
+
+/**
+ * A line's words, each with when it is sung (v3.59.0): the lyrics' own word
+ * times, or where there are none, the time to the next line shared out by
+ * how long each word is (estimated: est is true). end: when the next line
+ * starts.
+ */
+export function wordsOf (line, end) {
+  if (!line?.text) return null;
+  if (line.words?.length) return { est: false, words: line.words };
+  const parts = line.text.split(/(\s+)/).reduce((a, x) => { if (/^\s+$/.test(x) && a.length) a[a.length - 1] += x; else if (x) a.push(x); return a; }, []);
+  const weight = w => w.replace(/\s+/g, '').length + 2;
+  const total = parts.reduce((a, w) => a + weight(w), 0) || 1;
+  // sung over the gap to the next line, but not slower than about a word a second and a half
+  const span = Math.max(0.6, Math.min(isFinite(end) ? end - line.t : 4, parts.length * 1.5 + 0.5) - 0.3);
+  let t = line.t;
+  return { est: true, words: parts.map(w => { const at = t; t += span * weight(w) / total; return { t: at, w }; }) };
 }
 
 /** The line being sung at time t: the last that has started, -1 before the first. */
@@ -71,7 +108,8 @@ export function lineAt(lines, t) {
 }
 
 const el = id => document.getElementById(id);
-const OFFSETS = 'bm_lyrics_offsets';
+const OFFSETS = 'bm_lyrics_offsets', WORDS = 'bm_lyrics_words';
+const fmtStamp = t => `${Math.floor(t / 60)}:${(t % 60).toFixed(1).padStart(4, '0')}`;
 const fmtLen = s => s > 0 ? `${Math.floor(s / 60)}:${String(Math.round(s % 60)).padStart(2, '0')}` : '';
 // How long to wait before looking again for a song whose lyrics site could not be reached, in seconds.
 const RETRY = [8, 20, 45, 90, 180];
@@ -96,6 +134,9 @@ export class Lyrics {
     this.searching = false; this.results = null; this.query = '';
     this._req = 0; this._cur = -2; this._userScroll = 0; this._timer = null; this._meta = {};
     this._retryN = 0; this._retryT = 0;
+    // v3.59.0: each word lit as it is sung ('timed': where the lyrics have word times, 'all': estimated for the rest too, 'off')
+    this.wordsMode = ['timed', 'all', 'off'].includes(localStorage.getItem(WORDS)) ? localStorage.getItem(WORDS) : 'timed';
+    this.timing = null;   // the timing editor, while it is open
     this._wire();
   }
 
@@ -136,6 +177,9 @@ export class Lyrics {
     if (!act) return;
     e.preventDefault();
     if (act === 'script') { this.setScript(t.closest('[data-v]')?.dataset.v); return; }
+    if (act === 'words') { this.setWords(t.closest('[data-v]')?.dataset.v); return; }
+    if (act === 'time-words') { this.startTiming(); return; }
+    if (act && act.startsWith('tm-')) { this._timingAct(act.slice(3)); return; }
     if (act === 'search') this._openSearch();
     else if (act === 'retry' || act === 'refresh') this._lookAgain(true);
     else if (act === 'youtube-once') this._fromYoutube(this._req);
@@ -407,6 +451,7 @@ export class Lyrics {
       pane.innerHTML = '';
       const add = (tag, cls, text) => { const d = document.createElement(tag); if (cls) d.className = cls; if (text !== undefined) d.textContent = text; pane.appendChild(d); return d; };
       const note = text => add('div', 'lyr-note', text);
+      if (this.timing) { this._renderTiming(pane, add); this._cur = -2; return; }
       if (this.searching) this._renderSearch(add);
       else if (this.status === 'idle') note('Lyrics show here while a song plays.');
       else if (this.status === 'loading') note('Looking for lyrics…');
@@ -429,7 +474,10 @@ export class Lyrics {
         if (this.lines.length) {
           for (const [i, l] of this.lines.entries()) {
             const s = this._shown(l.text, l.roman);
-            const d = add('div', 'lyr-line' + (l.text ? '' : ' lyr-gap'), s.main || '♪');
+            const ws = this._words(i);
+            const d = add('div', 'lyr-line' + (l.text ? '' : ' lyr-gap') + (ws ? ' lyr-k' + (ws.est ? ' lyr-est' : '') : ''), ws ? undefined : (s.main || '♪'));
+            // v3.59.0: each word its own, lit as it is sung
+            if (ws) for (const [k, w] of ws.words.entries()) { const sp = document.createElement('span'); sp.className = 'lyr-w'; sp.dataset.k = String(k); sp.textContent = w.w; d.appendChild(sp); }
             if (s.under) { const u = document.createElement('span'); u.className = 'lyr-rom'; u.textContent = s.under; d.appendChild(u); }
             d.dataset.t = String(l.t); d.dataset.i = String(i);
           }
@@ -535,7 +583,15 @@ export class Lyrics {
       if (shown && this.raw && this.source !== 'file' && this.api?.music?.lyricsSaveLrc) btn('save-lrc', 'Save as .lrc', 'Write these lyrics beside the song as a .lrc file, with the same name. They are the song\'s own from then on, for other players too.');
       if (shown && this.raw && this.api?.music?.lyricsShare) btn('share', 'Share', 'Send the words to another app');
       if (this.pinned) btn('unpin', 'Undo choice', 'Look for this song\'s lyrics again as before');
+      // v3.59.0: tap along to give the words their times
+      if (shown && (this.lines.some(l => l.text) || this.plain) && (this.api?.music?.lyricsSaveLrc || this.api?.music?.lyricsKeep)) btn('time-words', this.lines.length ? 'Time again' : 'Time the words', 'Play the song from the start and tap as each line begins. The times are kept for this song.');
       foot.appendChild(tools);
+      if (this.lines.length) {
+        const wm = document.createElement('div'); wm.className = 'lyr-words'; wm.setAttribute('role', 'group'); wm.setAttribute('aria-label', 'Words lit as they are sung');
+        wm.innerHTML = '<span class="lyr-timing-label">Words lit</span>' + [['timed', 'When timed', 'Where the lyrics give each word its time'], ['all', 'Always', 'Where they do not, guessed from the length of each word'], ['off', 'Off', 'The line alone']]
+          .map(([v, t, title]) => `<button type="button" class="lyr-btn${this.wordsMode === v ? ' on' : ''}" data-lyr="words" data-v="${v}" aria-pressed="${this.wordsMode === v}" title="${title}">${t}</button>`).join('');
+        foot.appendChild(wm);
+      }
       if (this.lines.length) {
         const tm = document.createElement('div'); tm.className = 'lyr-timing';
         tm.innerHTML = '<span class="lyr-timing-label">Timing</span><button type="button" class="lyr-btn lyr-sq" data-lyr="earlier" title="Show the words earlier" aria-label="Show the words earlier">−</button><span class="lyr-timing-val" id="lyr-timing-val"></span><button type="button" class="lyr-btn lyr-sq" data-lyr="later" title="Show the words later" aria-label="Show the words later">+</button><button type="button" class="lyr-btn" data-lyr="timing-reset" title="Back to the lyrics\' own timing">Reset</button>';
@@ -569,9 +625,11 @@ export class Lyrics {
   }
 
   _tick (force) {
-    const i = this.lines.length ? lineAt(this.lines, this._time()) : -1;
-    if (i === this._cur && !force) return;
-    this._cur = i;
+    if (this.timing) return;
+    const at = this._time();
+    const i = this.lines.length ? lineAt(this.lines, at) : -1;
+    if (i === this._cur && !force) { this._lightWords(i, at); return; }
+    this._cur = i; this._lit = -1;
     const pane = el('np-lyrics');
     if (pane && this.lines.length && !this.searching) {
       pane.querySelector('.lyr-line.on')?.classList.remove('on');
@@ -600,6 +658,117 @@ export class Lyrics {
       if (rom) { rom.textContent = on ? s.under : ''; rom.classList.toggle('hidden', !rom.textContent); }
       else if (on && s.under) now.textContent += ' · ' + s.under;
       el('viz-lyrics')?.classList.toggle('vl-empty', !now.textContent && !next.textContent);
+      // v3.59.0: the line sung, word by word, in the visual mode too
+      const ws = on && line ? this._words(i) : null;
+      if (ws) { now.textContent = ''; for (const [k, w] of ws.words.entries()) { const sp = document.createElement('span'); sp.className = 'lyr-w'; sp.dataset.k = String(k); sp.textContent = w.w; now.appendChild(sp); } }
     }
+    this._lightWords(i, at);
+  }
+
+  /** v3.59.0: how words are lit ('timed', 'all' or 'off'), kept. */
+  setWords (v) {
+    if (!['timed', 'all', 'off'].includes(v)) return;
+    this.wordsMode = v; localStorage.setItem(WORDS, v);
+    this._render();
+  }
+  /** Line i's words with their times, when they are to be lit (and the original letters are the ones shown). */
+  _words (i) {
+    const l = this.lines[i];
+    if (!l?.text || this.wordsMode === 'off' || this.script === 'latin') return null;
+    if (!l.words?.length && this.wordsMode !== 'all') return null;
+    const next = this.lines.slice(i + 1).find(x => x.t > l.t);
+    return wordsOf(l, next ? next.t : Infinity);
+  }
+  /** The words of the line sung that have begun, lit; the rest not yet. */
+  _lightWords (i, now) {
+    const ws = i >= 0 ? this._words(i) : null;
+    let n = 0; if (ws) for (const w of ws.words) if (w.t <= now + 0.05) n++;
+    if (n === this._lit) return;
+    this._lit = n;
+    const lit = box => { if (!box) return; for (const sp of box.querySelectorAll('.lyr-w')) sp.classList.toggle('lit', +sp.dataset.k < n); };
+    lit(el('np-lyrics')?.querySelector(`.lyr-line[data-i="${i}"]`));
+    lit(el('vl-now'));
+  }
+
+  // ── the timing editor (v3.59.0) ─────────────────────────────────────
+  /**
+   * Tap along: the song from its start, and a tap (the Now button, Space or
+   * Enter) as each line begins. Undo takes the last tap back and goes back a
+   * few seconds. Saved, the lyrics are kept with their times: on the
+   * desktop as a .lrc beside the song (the one there kept as .lrc.bak), on
+   * the phone in the app, as lyrics chosen for the song.
+   */
+  startTiming () {
+    const texts = (this.lines.length ? this.lines.map(l => l.text) : String(this.plain || '').split('\n')).map(x => x.trim()).filter(Boolean);
+    if (!texts.length || !this.path) return;
+    this.timing = { texts, at: [], replace: false, said: '' };
+    this._seek(-this._offset());
+    try { const m = this.music; if (m?.engineOwns?.() && m.engine.paused) m.engine.play(); else if (!m?.engineOwns?.() && this.app?.isPaused) this.app.togglePlay?.(); } catch (_) {}
+    this._keys = e => {
+      if (!this.timing || e.target?.closest?.('input, textarea, select')) return;
+      if (e.key === ' ' || e.key === 'Enter') { e.preventDefault(); e.stopPropagation(); e.__bmHandled = true; this._timingAct('now'); }
+      else if (e.key === 'Backspace') { e.preventDefault(); e.stopPropagation(); e.__bmHandled = true; this._timingAct('undo'); }
+      else if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); e.__bmHandled = true; this._timingAct('cancel'); }
+    };
+    document.addEventListener('keydown', this._keys, true);
+    this.showTab('lyrics', true);
+    this._render();
+  }
+  _endTiming () {
+    document.removeEventListener('keydown', this._keys, true);
+    this.timing = null; this._render(); this._run();
+  }
+  /** The timed lyrics as LRC. */
+  _timedLrc () {
+    const tm = this.timing, f = t => `[${String(Math.floor(t / 60)).padStart(2, '0')}:${(t % 60).toFixed(2).padStart(5, '0')}]`;
+    return tm.at.map((t, k) => f(t) + tm.texts[k]).join('\n');
+  }
+  async _timingAct (act) {
+    const tm = this.timing; if (!tm) return;
+    // the song's own time, without a timing nudge this song may have (the new times replace the old)
+    if (act === 'now') { if (tm.at.length < tm.texts.length) { const t = Math.max(0, this._time() + this._offset() - 0.15); tm.at.push(tm.at.length ? Math.max(t, tm.at[tm.at.length - 1] + 0.05) : t); } }
+    else if (act === 'undo') { if (tm.at.length) { tm.at.pop(); this._seek(Math.max(0, (tm.at[tm.at.length - 1] || 0) - 1) - this._offset()); } }
+    else if (act === 'cancel') { this._endTiming(); return; }
+    else if (act === 'save' || act === 'replace') {
+      if (!tm.at.length) return;
+      const lrc = this._timedLrc(), m = this.api?.music;
+      let r = null;
+      try {
+        if (m?.lyricsSaveLrc) r = await m.lyricsSaveLrc(this.path, lrc, act === 'replace' ? { replace: true } : undefined);
+        else if (m?.lyricsKeep) r = await m.lyricsKeep(this.path, this._meta, lrc);
+      } catch (e) { r = { error: String(e?.message || e) }; }
+      if (r?.error === 'exists') { tm.replace = true; tm.said = 'There is a .lrc beside the song already. Replace it? The one there now is kept beside it as .lrc.bak.'; this._render(); return; }
+      if (r?.error || !r) { tm.said = 'The times could not be kept' + (r?.error ? ': ' + r.error + '.' : '.'); this._render(); return; }
+      const name = String(r.path || '').split(/[\\/]/).pop();
+      if (this.offsets[this.path]) this._nudge(0, true);   // the new times are the song's own: no nudge on top
+      this._endTiming();
+      this._apply({ source: m?.lyricsSaveLrc ? 'file' : r.source || 'file', synced: lrc, pinned: !m?.lyricsSaveLrc });
+      this.note = m?.lyricsSaveLrc ? 'Timed by you, and saved beside the song as ' + name + '.' : 'Timed by you, and kept for this song.';
+      this._render(); this._run();
+      return;
+    }
+    this._render();
+  }
+  _renderTiming (pane, add) {
+    const tm = this.timing;
+    add('div', 'lyr-note', tm.at.length < tm.texts.length ? 'Tap Now as each line begins.' : 'Every line has its time.');
+    add('div', 'lyr-hint', 'Space or Enter for Now, Backspace to take the last one back, Escape to stop.');
+    const list = add('div', 'lyr-tm-list');
+    tm.texts.forEach((x, k) => {
+      const d = document.createElement('div'); d.className = 'lyr-tm-line' + (k === tm.at.length ? ' next' : k < tm.at.length ? ' done' : '');
+      const t = document.createElement('span'); t.className = 'lyr-tm-t'; t.textContent = k < tm.at.length ? fmtStamp(tm.at[k]) : '';
+      const w = document.createElement('span'); w.textContent = x;
+      d.append(t, w); list.appendChild(d);
+    });
+    const bar = add('div', 'lyr-tools lyr-tm-bar');
+    const btn = (act, text, cls = '') => { const b = document.createElement('button'); b.type = 'button'; b.className = 'lyr-btn ' + cls; b.dataset.lyr = 'tm-' + act; b.textContent = text; bar.appendChild(b); return b; };
+    btn('now', 'Now', 'lyr-tm-now').disabled = tm.at.length >= tm.texts.length;
+    btn('undo', 'Undo').disabled = !tm.at.length;
+    btn(tm.replace ? 'replace' : 'save', tm.replace ? 'Replace' : 'Save').disabled = !tm.at.length;
+    btn('cancel', 'Stop');
+    if (tm.said) add('div', 'lyr-hint', tm.said);
+    // the next line to tap, in view
+    const nx = list.querySelector('.next');
+    if (nx) { const p = pane.getBoundingClientRect(), r = nx.getBoundingClientRect(); pane.scrollTop = Math.max(0, pane.scrollTop + (r.top - p.top) - pane.clientHeight / 3); }
   }
 }

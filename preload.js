@@ -99,7 +99,7 @@ contextBridge.exposeInMainWorld('api',{
     lyricsYoutube: (file,meta)=>inv('lyrics:youtube',file,meta),
     lyricsSaved: ()=>inv('lyrics:saved'),                            // v3.50.0: saved lyrics
     lyricsClearSaved: ()=>inv('lyrics:clearSaved'),
-    lyricsSaveLrc: (file,text)=>inv('lyrics:saveLrc',file,text),
+    lyricsSaveLrc: (file,text,opts)=>inv('lyrics:saveLrc',file,text,opts?{replace:!!opts.replace}:undefined),
     ytdlp: ()=>inv('lyrics:ytdlp'),
   },
   // A dropped file's place on disk (v3.39.0). File.path is gone from Electron

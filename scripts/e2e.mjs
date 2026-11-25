@@ -739,7 +739,8 @@ if (PART === 'a') {
       const aurora = (await import('./js/scenes/aurora.js')).default;
       const jellyfish = (await import('./js/scenes/jellyfish.js')).default;   // v3.49.0
       const garden = (await import('./js/scenes/garden.js')).default;   // v3.59.0
-      const defs = [aurora, jellyfish, garden, ...SCENE_THEMES.map(themeScene)];
+      const koi = (await import('./js/scenes/koi.js')).default;         // v3.59.0
+      const defs = [aurora, jellyfish, garden, koi, ...SCENE_THEMES.map(themeScene)];
       const sizes = [[640, 360], [1280, 720], [1920, 1080]], out = [];
       for (const [W, H] of sizes) {
         for (const def of defs) {
@@ -764,8 +765,8 @@ if (PART === 'a') {
       }
       return out;
     });
-    const bad = r.filter(x => x.errors || x.fps < 1 || (['aurora', 'jellyfish', 'garden'].includes(x.id) && !x.lit));
-    if (r.length !== 39 || bad.length) throw new Error(JSON.stringify(bad.length ? bad : r));
+    const bad = r.filter(x => x.errors || x.fps < 1 || (['aurora', 'jellyfish', 'garden', 'koi'].includes(x.id) && !x.lit));
+    if (r.length !== 42 || bad.length) throw new Error(JSON.stringify(bad.length ? bad : r));
     for (const size of ['640x360', '1280x720', '1920x1080']) {
       console.log(`      (${size}: ` + r.filter(x => x.size === size).map(x => `${x.id.replace('theme:', '')} ${x.fps}/s ${x.ms} ms` + (x.first > 20 ? ` (first ${x.first} ms)` : '')).join(', ') + ')');
     }
@@ -832,6 +833,17 @@ if (PART === 'a') {
       out.nightcore = { pace: +((eng.currentTime - t0) / ((performance.now() - w0) / 1000)).toFixed(3), pitchKept: eng.el.preservesPitch, speed: eng.speed };
       eng.setSound(off);
       out.paceAfter = eng.el.playbackRate;
+      // v3.59.0: seven semitones up, the speed kept: the pitch shifter's worklet loads from the app's own files
+      eng.setSound({ ...off, key: 7 });
+      out.worklet = await (eng.ctx.__bmPitch || Promise.reject(new Error('not asked for'))).then(() => true, e => String(e && e.message || e));
+      await eng.chain.ready(); await new Promise(z => setTimeout(z, 500));
+      const fa = c.createAnalyser(); fa.fftSize = 8192; eng.gain.connect(fa);
+      const fb = new Float32Array(fa.frequencyBinCount);
+      const kt0 = eng.currentTime, kw0 = performance.now();
+      await new Promise(z => setTimeout(z, 600)); fa.getFloatFrequencyData(fb);
+      let best = 1; for (let i = 2; i < fb.length; i++) if (fb[i] > fb[best]) best = i;
+      out.key = { hz: Math.round(best * c.sampleRate / fa.fftSize), pace: +((eng.currentTime - kt0) / ((performance.now() - kw0) / 1000)).toFixed(2) };
+      eng.gain.disconnect(fa); eng.setSound(off);
       eng.gain.disconnect(both);
       bmApp._applyEQ();
       return out;
@@ -857,7 +869,10 @@ if (PART === 'a') {
     if (!near(r.again[0], L, 0.06) || !quiet(r.again[1]) || r.live !== '') throw new Error('with all off again the sound is not as it was: ' + JSON.stringify({ again: r.again, live: r.live }));
     const nc = r.nightcore;
     if (!(nc.pace > 1.15 && nc.pace < 1.35) || nc.pitchKept !== false || nc.speed !== 1 || r.paceAfter !== 1) throw new Error('Nightcore did not play a quarter faster with the pitch following, and the speed shown left as it was: ' + JSON.stringify({ nc, after: r.paceAfter }));
-    console.log(`      (left ear: off ${L}, equalizer ${r.eq[0]}, boost ${r.boost[0]}, night ${r.night[0]}, all off again ${r.again[0]}; Nightcore ran at ${nc.pace} times)`);
+    if (r.worklet !== true) throw new Error('the key\'s pitch shifter did not load: ' + r.worklet);
+    const want = 330 * Math.pow(2, 7 / 12);
+    if (Math.abs(r.key.hz - want) > 12 || Math.abs(r.key.pace - 1) > 0.1) throw new Error(`seven semitones up: ${r.key.hz} Hz (not about ${Math.round(want)}), at ${r.key.pace} times the speed`);
+    console.log(`      (left ear: off ${L}, equalizer ${r.eq[0]}, boost ${r.boost[0]}, night ${r.night[0]}, all off again ${r.again[0]}; Nightcore ran at ${nc.pace} times; the key +7 put 330 Hz at ${r.key.hz})`);
   });
 }
 
@@ -2421,6 +2436,50 @@ if (PART === 'd') {
     if (r.again.source !== 'file' || r.again.lines.join('|') !== 'invented words to keep|and a second line') throw new Error('the next time: ' + JSON.stringify(r.again));
     if (!/already/.test(r.twice) || !/invented words/.test(fs.readFileSync(lrc, 'utf8'))) throw new Error('written over: ' + r.twice);
     if (typeof r.saved !== 'number') throw new Error('the saved count did not come back: ' + r.saved);
+  });
+
+  // v3.59.0: the timing editor through the real app and file system: tapped
+  // along to the song, saved over the .lrc beside it (kept as .lrc.bak), and
+  // each word lit as it is sung.
+  await step('the words timed by tapping along, saved over the .lrc beside the song with the old one kept, and lit word by word', async () => {
+    const lrc = GOOD[1].replace(/\.wav$/, '.lrc');
+    const r = await page.evaluate(async f => {
+      const L = window.bmLyrics, wait = async c => { for (let i = 0; i < 60 && !c(); i++) await new Promise(z => setTimeout(z, 100)); };
+      bmMusic.play(f, 0);
+      await wait(() => L.path === f && L.status === 'ready');
+      L.showTab('lyrics');
+      const btn = document.querySelector('#np-lyrics [data-lyr="time-words"]');
+      if (!btn) return { error: 'no Time again button' };
+      btn.click();
+      await wait(() => L.timing && bmMusic.engine.currentTime < 0.5 && !bmMusic.engine.paused);
+      await new Promise(z => setTimeout(z, 700));
+      document.dispatchEvent(new KeyboardEvent('keydown', { key: ' ', bubbles: true }));
+      await new Promise(z => setTimeout(z, 900));
+      document.querySelector('#np-lyrics [data-lyr="tm-now"]').click();
+      const stamps = L.timing.at.slice();
+      document.querySelector('#np-lyrics [data-lyr="tm-save"]').click();
+      await wait(() => L.timing?.replace);
+      const asked = L.timing?.said || '';
+      document.querySelector('#np-lyrics [data-lyr="tm-replace"]')?.click();
+      await wait(() => !L.timing);
+      // the words lit, guessed from their lengths
+      L.setWords('all');
+      const at = L.lines[0].t + 0.05; bmMusic.engine.seek(at); bmMusic.engine.pause();
+      await new Promise(z => setTimeout(z, 400)); L._cur = -2; L._tick(true);
+      const line = document.querySelector('#np-lyrics .lyr-line.on');
+      const lit = line ? [...line.querySelectorAll('.lyr-w')].map(w => w.classList.contains('lit')) : null;
+      L.setWords('timed');
+      return { stamps, asked, note: L.note, lines: L.lines.map(l => [l.t, l.text]), lit };
+    }, GOOD[1]);
+    if (r.error) throw new Error(r.error);
+    if (r.stamps.length !== 2 || !(r.stamps[0] > 0.3 && r.stamps[1] > r.stamps[0] + 0.5)) throw new Error('the taps: ' + JSON.stringify(r.stamps));
+    if (!/Replace it/.test(r.asked)) throw new Error('not asked before replacing: ' + r.asked);
+    const now = fs.readFileSync(lrc, 'utf8'), bak = fs.existsSync(lrc + '.bak') ? fs.readFileSync(lrc + '.bak', 'utf8') : '';
+    if (!/^\[00:0\d\.\d\d\]invented words to keep\n\[00:0\d\.\d\d\]and a second line\n$/.test(now)) throw new Error('the .lrc now: ' + JSON.stringify(now));
+    if (!/\[00:00\.50\]invented words to keep/.test(bak)) throw new Error('the old one was not kept as .lrc.bak: ' + JSON.stringify(bak));
+    if (!/Timed by you/.test(r.note)) throw new Error('said: ' + r.note);
+    if (!r.lit || !r.lit[0] || r.lit.every(Boolean)) throw new Error('the words lit at the line\'s start: ' + JSON.stringify(r.lit));
+    console.log(`      (tapped at ${r.stamps.map(t => t.toFixed(2)).join(' and ')} s; ${r.lit.filter(Boolean).length} of ${r.lit.length} words lit at the line's start)`);
   });
 
   if (VID) {

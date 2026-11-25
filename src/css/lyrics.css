@@ -64,3 +64,18 @@
 .lyr-pl { margin-bottom: 4px; }
 .viz-lyrics .vl-roman { margin-top: 4px; font-size: clamp(14px, 1.8vw, 24px); font-weight: 600; color: rgba(255,255,255,.88); text-shadow: 0 2px 8px rgba(0,0,0,.65); }
 .viz-lyrics .vl-roman.hidden { display: none; }
+
+/* v3.59.0: each word lit as it is sung, and the timing editor */
+.lyr-line.lyr-k .lyr-w { transition: color .12s, opacity .12s; }
+.lyr-line.on.lyr-k .lyr-w { opacity: .5; }
+.lyr-line.on.lyr-k .lyr-w.lit { opacity: 1; color: var(--accent); }
+.viz-lyrics .vl-now .lyr-w { opacity: .55; transition: opacity .12s, color .12s; }
+.viz-lyrics .vl-now .lyr-w.lit { opacity: 1; color: color-mix(in srgb, var(--accent) 70%, #fff); }
+.lyr-words { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; margin-top: 6px; }
+.lyr-tm-list { margin: 8px 0; }
+.lyr-tm-line { display: flex; gap: 10px; padding: 4px; border-radius: 6px; color: var(--text-muted); font-size: 13px; }
+.lyr-tm-line.done { color: var(--text); }
+.lyr-tm-line.next { background: color-mix(in srgb, var(--accent) 18%, transparent); color: var(--text); font-weight: 700; }
+.lyr-tm-t { flex: 0 0 3.6em; font-variant-numeric: tabular-nums; color: var(--accent); }
+.lyr-tm-bar { position: sticky; bottom: 0; padding: 6px 0; background: var(--bg-panel, var(--bg)); }
+.lyr-tm-now { font-weight: 700; min-width: 5em; }

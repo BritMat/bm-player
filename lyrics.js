@@ -144,10 +144,11 @@ const SONG = /\.(mp3|flac|aac|ogg|oga|wav|m4a|m4b|wma|opus|ape|mka|aiff?|alac|we
  * The song's lyrics written beside it, as song.lrc (v3.50.0), so they are
  * the song's own from now on: found first, by this player and by others.
  * Only beside a song that is there, and never over a file that is there
- * already. text: LRC, or words without times. Gives { ok, path } or
- * { error }.
+ * already, unless opts.replace (v3.59.0, lyrics timed by the person), and
+ * then the one there is kept as .lrc.bak first. text: LRC, or words without
+ * times. Gives { ok, path } or { error }.
  */
-function saveBeside(file, text) {
+function saveBeside(file, text, opts) {
   const words = String(text || '').replace(/\r\n?/g, '\n').trim();
   if (typeof file !== 'string' || !path.isAbsolute(file) || /^https?:/i.test(file)) return { error: 'not a file on this computer' };
   let isFile = false;
@@ -159,7 +160,14 @@ function saveBeside(file, text) {
   let names = [];
   try { names = fs.readdirSync(dir).map(n => n.toLowerCase()); } catch (_) { return { error: 'the folder could not be read' }; }
   const p = path.join(dir, base + '.lrc');
-  if (names.includes((base + '.lrc').toLowerCase())) return { error: 'exists', path: p };
+  const there = names.includes((base + '.lrc').toLowerCase());
+  // v3.59.0: lyrics timed by the person (the timing editor) may replace the .lrc there, which is kept as .lrc.bak
+  if (there && !(opts && opts.replace)) return { error: 'exists', path: p };
+  if (there) {
+    try { const bak = p + '.bak'; if (!fs.existsSync(bak)) fs.copyFileSync(p, bak); } catch (_) { return { error: 'the old .lrc could not be kept, so it was left as it was', path: p }; }
+    try { fs.writeFileSync(p, words + '\n'); } catch (e) { return { error: 'the folder may not be written to', path: p }; }
+    return { ok: true, path: p, replaced: true };
+  }
   try { fs.writeFileSync(p, words + '\n', { flag: 'wx' }); } catch (e) { return { error: e && e.code === 'EEXIST' ? 'exists' : 'the folder may not be written to', path: p }; }
   return { ok: true, path: p };
 }

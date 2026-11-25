@@ -3593,6 +3593,39 @@ async function main() {
     } finally { perf.setSessionTier(keepSession || null); console.warn = warn; r.destroy(); }
   });
 
+  // v3.59.0: the Koi Pond, on the same runner: a ripple, food, the petals
+  // off, a still pointer, the music's beat, a new size, nothing thrown.
+  await step('the Koi Pond runs on the scene runner: a ripple, food, the petals and the dance, a new size and the beat', async () => {
+    const { SceneRunner } = await import(pathToFileURL(path.join(ROOT, 'src/js/scenes/runner.js')).href);
+    const koi = (await import(pathToFileURL(path.join(ROOT, 'src/js/scenes/koi.js')).href)).default;
+    const { perf } = await import(pathToFileURL(path.join(ROOT, 'src/js/perf.js')).href);
+    let clock = 0, beat = 0; const queue = []; const opts = { raf: f => queue.push(f), caf: () => {}, now: () => clock, gap: () => 12 };
+    let box = { left: 0, top: 0, width: 200, height: 120 };
+    const cv = window.document.createElement('canvas'); cv.getBoundingClientRect = () => box;
+    const r = new SceneRunner(cv, { ...opts, level: () => beat });
+    const warn = console.warn; let said = ''; console.warn = (...a) => { said += a.join(' '); };
+    const tick = n => { for (let i = 0; i < n; i++) { clock += 16; queue.splice(0).forEach(f => f()); } };
+    const keepSession = perf._session;
+    try {
+      if (!r.run(koi, { tap: 'touch', petals: true, dance: true }) || koi.id !== 'koi' || koi.name !== 'Koi Pond') throw new Error('it did not start');
+      tick(10);
+      r.pointer('down', 100, 60); tick(6);
+      r.set('tap', 'feed'); r.set('tap', 'nonsense'); r.pointer('down', 60, 40); tick(6);
+      r.set('petals', false); r.set('dance', false); tick(4); r.set('dance', true);
+      r.pointer('move', 90, 50); tick(20);
+      beat = 0.9; tick(4); beat = 0.1; tick(4); beat = 0.95; tick(4);
+      box = { left: 0, top: 0, width: 320, height: 180 }; r.resize(); tick(8);
+      r.pointer('leave', 0, 0);
+      const c = r.cost();
+      if (c.errors || c.frames < 20) throw new Error(`${JSON.stringify(c)} ${said}`);
+      r.stop();
+      perf.setSessionTier('low');
+      if (!r.run(koi, {})) throw new Error('it did not start at low quality');
+      tick(6);
+      if (r.cost().errors) throw new Error('at low quality: ' + said);
+    } finally { perf.setSessionTier(keepSession || null); console.warn = warn; r.destroy(); }
+  });
+
   /* ── v3.47.0: what a feature adds from its own file (app/registry.js) ── */
   await step('a feature adds a menu action, a key and a setting from its own file', async () => {
     const R = await import(pathToFileURL(path.join(ROOT, 'src/js/app/registry.js')).href);

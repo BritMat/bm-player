@@ -59,7 +59,7 @@ function register(ipcMain) {
   // Saved lyrics (v3.50.0): how many songs have some, cleared, and a song's written beside it as .lrc.
   ipcMain.handle('lyrics:saved', () => ({ count: savedCount(cacheDir('lyrics')) }));
   ipcMain.handle('lyrics:clearSaved', () => ({ removed: clearSaved(cacheDir('lyrics')) }));
-  ipcMain.handle('lyrics:saveLrc', (_, file, text) => saveBeside(songArg(file), text));
+  ipcMain.handle('lyrics:saveLrc', (_, file, text, opts) => saveBeside(songArg(file), text, { replace: !!(opts && opts.replace) }));
   ipcMain.handle('lyrics:ytdlp', () => ytdlp.status());
   // A lyrics file for this song: the one dropped on the lyrics (only these
   // kinds of file), or one chosen in a dialog.

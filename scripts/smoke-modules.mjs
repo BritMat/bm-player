@@ -626,6 +626,20 @@ async function main() {
     localStorage.removeItem('bm_music_plays');
   });
 
+  await step('karaoke: word times kept from the lyrics, and guessed from each word\'s length where there are none', async () => {
+    const { parseLRC, wordsOf } = await load('src/js/modules/lyrics.js');
+    const L = parseLRC('[00:10.00]<00:10.00>Hello <00:10.60>there <00:11.30>world<00:12.00>\n[00:13.00]plain line here\n[00:20.00][00:30.00]<00:20.00>twice <00:20.50>sung');
+    if (L.length !== 4 || L[0].text !== 'Hello there world') throw new Error('lines: ' + JSON.stringify(L));
+    if (JSON.stringify(L[0].words.map(w => [w.t, w.w])) !== JSON.stringify([[10, 'Hello '], [10.6, 'there '], [11.3, 'world']])) throw new Error('words: ' + JSON.stringify(L[0].words));
+    if (L[1].words) throw new Error('a line without word times has words');
+    if (L[3].t !== 30 || L[3].words[1].t !== 30.5) throw new Error('a line sung again: its words at its own time: ' + JSON.stringify(L[3]));
+    const g = wordsOf(L[1], 16);
+    if (!g.est || g.words.length !== 3 || g.words[0].t !== 13 || !(g.words[1].t > 13 && g.words[2].t < 16)) throw new Error('guessed: ' + JSON.stringify(g));
+    if (g.words.map(w => w.w).join('') !== 'plain line here') throw new Error('the words do not make the line: ' + g.words.map(w => w.w).join('|'));
+    const real = wordsOf(L[0], 13);
+    if (real.est || real.words.length !== 3) throw new Error('real word times taken as guessed');
+  });
+
   const bad = results.filter(r => !r).length;
   console.log(`\n${results.length - bad}/${results.length} checks passed.\n`);
   process.exit(bad ? 1 : 0);
