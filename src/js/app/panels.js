@@ -96,6 +96,13 @@ export default class PanelsFeature {
       else if(this._hasVideo&&this.sleep?.mode==='end'){ this._holdAtEnd=true; this.sleep.atEnd(); }
     });
     // Kept for keep-open=no, should that ever change.
+    // A film loaded: what it keeps comes back (v3.59.0, film-memory.js). Not a song the music gave mpv, nor a TV channel.
+    this.api?.mpv.onEvent?.(async ev=>{
+      if(ev?.event!=='file-loaded'||!this.filmMemory) return;
+      let path=null; try{path=await this.api.mpv.cmd('get_property','path');}catch(_){}
+      if(typeof path!=='string'||/^[a-z][a-z0-9+.-]*:\/\//i.test(path)||window.bmMusic?._mpvSong===path){this.filmMemory.open(null);return;}
+      this.filmMemory.open(path);this.filmMemory.tracks(this._lastTracks);
+    });
     this.api?.mpv.onEvent?.(ev=>{
       if(ev?.event!=='end-file') return;
       // A file mpv could not play. This was ignored, so a broken file, a

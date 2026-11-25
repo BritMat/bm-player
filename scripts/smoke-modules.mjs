@@ -506,6 +506,72 @@ async function main() {
     } finally { document.createElement = realCreate; localStorage.removeItem('bm_gl_renderer'); }
   });
 
+  // ── v3.59.0: picture quality, where the sound goes, what each film keeps ──
+  const fakeMpv = () => { const said = []; return { said, cmd: (c, k, v) => { said.push([c, k, v]); return Promise.resolve(null); } }; };
+  await step('picture quality: auto is Fast in Lite and Balanced elsewhere, each preset says its scalers to mpv', async () => {
+    const { Quality, PRESETS } = await load('src/js/modules/quality.js');
+    localStorage.removeItem('bm_quality');
+    const m = fakeMpv(); let lite = true;
+    const q = new Quality({ mpv: () => m, lite: () => lite });
+    if (q.used !== 'fast') throw new Error('auto in Lite: ' + q.used);
+    lite = false; if (q.used !== 'balanced') throw new Error('auto elsewhere: ' + q.used);
+    q.setPreset('high');
+    const got = Object.fromEntries(m.said.filter(x => x[0] === 'set_property').map(x => [x[1], x[2]]));
+    for (const [k, v] of Object.entries(PRESETS.high)) if (got[k] !== v) throw new Error(`high: ${k} is ${got[k]}, not ${v}`);
+    if (got['video-sync'] !== 'audio' || got.interpolation !== 'no') throw new Error('smooth motion was on: ' + got['video-sync']);
+    q.setMotion(true); q.setHdr('natural');
+    const later = Object.fromEntries(m.said.map(x => [x[1], x[2]]));
+    if (later['video-sync'] !== 'display-resample' || later.interpolation !== 'yes' || later['tone-mapping'] !== 'bt.2390') throw new Error('motion and HDR: ' + JSON.stringify(later));
+    const kept = new Quality({ mpv: () => fakeMpv(), lite: () => false });
+    if (kept.preset !== 'high' || !kept.motion || kept.hdr !== 'natural') throw new Error('not kept: ' + JSON.stringify(kept));
+    q.setPreset('nonsense'); if (q.preset !== 'high') throw new Error('an unknown preset was taken');
+    localStorage.removeItem('bm_quality');
+  });
+  await step('where the sound goes: the browser device is found by the name mpv gives it', async () => {
+    const { matchDevice } = await load('src/js/modules/output.js');
+    const devs = [
+      { kind: 'audiooutput', deviceId: 'default', label: 'Default - Speakers (Realtek(R) Audio)' },
+      { kind: 'audiooutput', deviceId: 'a1', label: 'Speakers (Realtek(R) Audio)' },
+      { kind: 'audiooutput', deviceId: 'b2', label: 'Headphones (WH-1000XM4 Stereo)' },
+      { kind: 'audioinput', deviceId: 'c3', label: 'Microphone (Realtek(R) Audio)' },
+    ];
+    if (matchDevice('Speakers (Realtek(R) Audio)', devs)?.deviceId !== 'a1') throw new Error('the speakers');
+    if (matchDevice('Headphones (WH-1000XM4 Stereo)', devs)?.deviceId !== 'b2') throw new Error('the headphones');
+    if (matchDevice('HDMI (LG TV)', devs) !== null) throw new Error('a device that is not there was matched');
+    if (matchDevice('', devs) !== null) throw new Error('nothing matched something');
+  });
+  await step('what each film keeps: the series from the name, its tracks matched by language, kept and given back', async () => {
+    const { FilmMemory, seriesOf, pickTrack } = await load('src/js/modules/film-memory.js');
+    const cases = [['D:/TV/Dark/Dark.S01E02.1080p.mkv', 'dark'], ['/m/The Office (US) - s03e07 - Branch Wars.mkv', 'the office (us)'], ['/m/show_name_2x05.avi', 'show name'], ['/m/Inception.2010.mkv', null], ['/m/Clip S1.mp4', null]];
+    for (const [p, want] of cases) if (seriesOf(p) !== want) throw new Error(`${p}: ${seriesOf(p)}`);
+    const tracks = [{ id: 1, type: 'video' }, { id: 1, type: 'audio', lang: 'jpn' }, { id: 2, type: 'audio', lang: 'eng', title: 'Commentary' }, { id: 3, type: 'audio', lang: 'eng' }, { id: 1, type: 'sub', lang: 'eng' }];
+    if (pickTrack(tracks, 'audio', { id: 2, lang: 'eng', title: '' }, false) !== 3) throw new Error('by language, not by number, in another episode');
+    if (pickTrack(tracks, 'audio', { id: 2, lang: 'eng', title: 'Commentary' }, true) !== 2) throw new Error('its own number in the same film');
+    if (pickTrack(tracks, 'sub', { off: true }) !== 'no') throw new Error('subtitles off');
+    localStorage.removeItem('bm_film_memory');
+    const m = fakeMpv(); const zoom = []; const said = [];
+    const fm = new FilmMemory({ mpv: () => m, picture: { setZoom: z => zoom.push(['z', z]), setPan: (x, y) => zoom.push(['p', x, y]) }, osd: t => said.push(t) });
+    fm.open('D:/TV/Dark/Dark.S01E01.mkv'); fm.tracks(tracks); fm._quietUntil = 0;
+    const chosen = tracks.map(t => ({ ...t, selected: (t.type === 'audio' && t.id === 1) || (t.type === 'video') }));
+    fm.tracks(chosen); fm.delay('sub', -0.5); fm.view(150, [20, 0]);
+    // the next episode, never opened: the series' choices, by language, and no zoom
+    m.said.length = 0; fm.open('E:/Other/Dark.S01E02.mkv');
+    const ep2 = [{ id: 1, type: 'video' }, { id: 1, type: 'audio', lang: 'eng' }, { id: 2, type: 'audio', lang: 'jpn' }, { id: 1, type: 'sub', lang: 'eng' }];
+    fm.tracks(ep2);
+    const got = Object.fromEntries(m.said.map(x => [x[1], x[2]]));
+    if (got.aid !== 2 || got.sid !== 'no' || got['sub-delay'] !== -0.5) throw new Error('the next episode: ' + JSON.stringify(got));
+    if (zoom.length) throw new Error('the zoom went to another episode');
+    if (!/last episode/.test(said.at(-1) || '')) throw new Error('not said: ' + said.at(-1));
+    // the first episode again: its own, with its zoom
+    m.said.length = 0; fm.open('D:/TV/Dark/Dark.S01E01.mkv'); fm.tracks(tracks);
+    if (!zoom.some(z => z[0] === 'z' && z[1] === 150)) throw new Error('its zoom: ' + JSON.stringify(zoom));
+    // a song mpv plays, with its cover as a video: nothing kept
+    const n = Object.keys(fm.files).length;
+    fm.open('/music/a.mp3'); fm._quietUntil = 0; fm.tracks([{ id: 1, type: 'video', albumart: true, selected: true }, { id: 1, type: 'audio', selected: true }]);
+    if (Object.keys(fm.files).length !== n) throw new Error('a song was kept as a film');
+    localStorage.removeItem('bm_film_memory');
+  });
+
   const bad = results.filter(r => !r).length;
   console.log(`\n${results.length - bad}/${results.length} checks passed.\n`);
   process.exit(bad ? 1 : 0);

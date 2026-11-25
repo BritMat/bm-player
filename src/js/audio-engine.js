@@ -123,6 +123,7 @@ export class AudioEngine {
         this.ctx = new this._Ctx({ ...(opts || {}), sampleRate: 48000 });
         console.warn('[AudioEngine] the sound ran at ' + low + ' Hz (a call\'s rate): made again at 48000');
       }
+      if (this._sinkId) this._applySink().catch(() => {});   // the device chosen (v3.59.0)
       this.source = this.ctx.createMediaElementSource(this.el);
 
       this.gain = this.ctx.createGain();
@@ -159,6 +160,25 @@ export class AudioEngine {
       this.available = false;
       return false;
     }
+  }
+
+  /**
+   * The device songs go to (v3.59.0, output.js): a browser device id, or ''
+   * for the system's own. The context is sent there where it can be
+   * (AudioContext.setSinkId), else the element (plain, or before Web Audio).
+   * Kept, and given again to a context or an element made after.
+   */
+  async setSink(id = '') {
+    this._sinkId = id || '';
+    return this._applySink();
+  }
+  async _applySink() {
+    const id = this._sinkId || '';
+    try {
+      if (this.ctx && typeof this.ctx.setSinkId === 'function') { if ((this.ctx.sinkId || '') !== id) await this.ctx.setSinkId(id); return true; }
+      if (this.el && typeof this.el.setSinkId === 'function') { if ((this.el.sinkId || '') !== id) await this.el.setSinkId(id); return true; }
+    } catch (e) { console.warn('[AudioEngine] the sound could not go to that device:', e && e.message); throw e; }
+    return !id;
   }
 
   /** A new audio element, wired, at the speed chosen (the old one is let go by renew). */

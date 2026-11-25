@@ -1101,6 +1101,13 @@
     <button class="btn-reset-eq" id="btn-reset-eq">Reset EQ</button>
     <!-- v3.46.0: sound.js -->
     <div class="snd-section" id="snd-section">
+      <!-- v3.59.0: where the sound goes, and Dolby and DTS sent on -->
+      <div id="snd-output">
+        <div class="ctx-section-label">Where the sound goes</div>
+        <select class="snd-select" data-out-device aria-label="Where the sound goes"><option value="auto">The system's own</option></select>
+        <p class="snd-note" data-out-note></p>
+        <label class="ctx-checkbox"><input type="checkbox" data-out-pass> Send Dolby and DTS to an amplifier <span class="set-val">(as they are, for a receiver or soundbar that decodes them. The volume and effects do not reach them.)</span></label>
+      </div>
       <!-- v3.49.0, Sound lab: one tap for a whole sound -->
       <div class="ctx-section-label">Sound mode</div>
       <p class="snd-note">One tap for a whole sound, in films and songs. Slowed and Nightcore play songs slower or faster, lower or higher, as a record would. A film keeps its own speed.</p>
@@ -1154,6 +1161,22 @@
     <button class="panel-close" data-panel="picture" aria-label="Close picture panel">✕</button>
   </div>
   <div class="panel-body">
+    <div class="ctx-section-label">Quality</div>
+    <div class="eq-presets snd-chips" role="group" aria-label="Picture quality">
+      <button class="eq-preset-btn" data-q-preset="auto">Auto</button>
+      <button class="eq-preset-btn" data-q-preset="fast">Fast</button>
+      <button class="eq-preset-btn" data-q-preset="balanced">Balanced</button>
+      <button class="eq-preset-btn" data-q-preset="high">High</button>
+    </div>
+    <p class="snd-note"><span data-q-used></span> High is the sharpest, with debanding, and asks the graphics card for the most.</p>
+    <label class="ctx-checkbox"><input type="checkbox" data-q-motion> Smooth motion <span class="set-val">(frames matched to the screen, so pans stop juddering)</span></label>
+    <div class="ctx-section-label">HDR films</div>
+    <div class="eq-presets snd-chips" role="group" aria-label="HDR films on this screen">
+      <button class="eq-preset-btn" data-q-hdr="auto">Auto</button>
+      <button class="eq-preset-btn" data-q-hdr="natural">Natural</button>
+      <button class="eq-preset-btn" data-q-hdr="bright">Bright</button>
+    </div>
+    <p class="snd-note">How an HDR film is shown on an ordinary screen. Natural keeps dark films dark, Bright lifts the middle for a dim screen.</p>
     <div class="ctx-section-label">Colour</div>
     <div class="ctx-row pic-row"><span class="ctx-row-label">Brightness</span><input type="range" class="ctx-slider" data-pic="brightness" min="-100" max="100" step="1" value="0" aria-label="Brightness"><span class="ctx-val" data-pic-val="brightness">0</span></div>
     <div class="ctx-row pic-row"><span class="ctx-row-label">Contrast</span><input type="range" class="ctx-slider" data-pic="contrast" min="-100" max="100" step="1" value="0" aria-label="Contrast"><span class="ctx-val" data-pic-val="contrast">0</span></div>

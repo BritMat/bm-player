@@ -23,7 +23,7 @@ export default class MpvEventsFeature {
       if(s.state==='ready'){
         settings.applyToMpv(this.api?.mpv); applySubStyle(this.api); this._mpvReadyHook?.();   // the subtitle look from the start too (v3.39.0)
         if(st)st.textContent='';   // "restarting" stayed in the title bar for good
-        this.picture?.applyAll(); this._applyEQ();   // the picture and the sound as set (v3.46.0)
+        this.picture?.applyAll(); this.quality?.applyAll(); this.output?.refresh().then(() => this.output?.applyAll()); this._applyEQ();   // the picture, its quality (v3.59.0) and the sound as set (v3.46.0)
         this._carryOn();
       }
     });
@@ -91,9 +91,9 @@ export default class MpvEventsFeature {
         this._updateVizMeta();
       }
       if(p.name==='speed'){if(this._shadowOn)this.shadow.follow({speed:+p.data});const sb=el('speed-badge');if(sb)sb.textContent=(+p.data).toFixed(2).replace(/\.?0+$/,'')+'x';this.speedMenu?.onSpeedChange(p.data);}
-      if(p.name==='sub-delay'){this._ctxSubDelay=Number(p.data)||0;this._syncCtxDelays();}
-      if(p.name==='audio-delay'){this._ctxAudioDelay=Number(p.data)||0;this._syncCtxDelays();}
-      if(p.name==='track-list'){this._lastTracks=Array.isArray(p.data)?p.data:[];this.renderTrackMenus(this._lastTracks);this.updateVisualizerVisibility(this._lastTracks);this.emitPlugin('track-change',{tracks:this._lastTracks});}
+      if(p.name==='sub-delay'){this._ctxSubDelay=Number(p.data)||0;this._syncCtxDelays();this.filmMemory?.delay('sub',this._ctxSubDelay);}
+      if(p.name==='audio-delay'){this._ctxAudioDelay=Number(p.data)||0;this._syncCtxDelays();this.filmMemory?.delay('audio',this._ctxAudioDelay);}
+      if(p.name==='track-list'){this._lastTracks=Array.isArray(p.data)?p.data:[];this.renderTrackMenus(this._lastTracks);this.updateVisualizerVisibility(this._lastTracks);this.emitPlugin('track-change',{tracks:this._lastTracks});this.filmMemory?.tracks(this._lastTracks);}
       if(p.name==='demuxer-cache-state'&&p.data&&this.duration>0){const pct=(p.data['cache-end']||0)/this.duration*100;const buf=el('seek-buffer');if(buf)buf.style.width=pct+'%';}
     });
     // Files opened from outside (double-click, drag and drop) come through

@@ -968,6 +968,11 @@ html.is-fs.lite-window body.playing:not(.pip-mode):has(#controls-bar.faded) #pla
 .snd-section .ctx-section-label, #panel-picture .ctx-section-label { margin-top: 14px; }
 .snd-section .ctx-section-label:first-child, #panel-picture .panel-body > .ctx-section-label:first-child { margin-top: 0; }
 .snd-note { font-size: 11.5px; line-height: 1.45; color: var(--text-muted); margin: 6px 0 8px; }
+.snd-note:empty { display: none; }
+/* v3.59.0: where the sound goes */
+.snd-select { width: 100%; margin: 4px 0 2px; padding: 7px 9px; border-radius: 8px; border: 1px solid var(--border, rgba(255,255,255,.12));
+  background: var(--bg-elevated, var(--surface, #1b1f2a)); color: var(--text, inherit); font: inherit; font-size: 12.5px; }
+.snd-select:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 .snd-note kbd { background: var(--bar-bg); border: 1px solid var(--border); border-radius: 4px; padding: 0 5px; font-size: 10.5px; font-family: 'Consolas', monospace; color: var(--accent); }
 .snd-chips { margin: 4px 0 6px; flex-wrap: wrap; }
 .pic-row { margin-top: 9px; }

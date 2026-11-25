@@ -51,13 +51,13 @@ export class Picture {
     if (this.zoom === 100) this.pan = [0, 0];
     this._applyView();
     if (say) this.osd(this.zoom === 100 ? 'Zoom: normal' : `Zoom: ${this.zoom}%`);
-    this.sync();
+    this.sync(); this.onView?.(this.zoom, this.pan);   // kept for the film (v3.59.0, film-memory.js)
   }
   zoomBy(steps) { this.setZoom(this.zoom + steps * 10, true); }
   /** Moves the zoomed picture, in per cent of the room it has to move. */
   setPan(x, y) {
     this.pan = [clamp(Math.round(+x || 0), -100, 100), clamp(Math.round(+y || 0), -100, 100)];
-    this._applyView(); this.sync();
+    this._applyView(); this.sync(); this.onView?.(this.zoom, this.pan);
   }
   panBy(dx, dy) {
     if (this.zoom <= 100) { this.osd('Zoom in first to move the picture'); return; }
@@ -73,7 +73,7 @@ export class Picture {
   resetView(say) {
     this.zoom = 100; this.pan = [0, 0];
     this._applyView(); this.sync();
-    if (say) this.osd('Zoom: normal');
+    if (say) { this.osd('Zoom: normal'); this.onView?.(this.zoom, this.pan); }   // asked for, not a new film's
   }
   /** Everything back as the film is. */
   reset() {
