@@ -738,7 +738,8 @@ if (PART === 'a') {
       const { themeScene, SCENE_THEMES } = await import('./js/theme-scenes.js');
       const aurora = (await import('./js/scenes/aurora.js')).default;
       const jellyfish = (await import('./js/scenes/jellyfish.js')).default;   // v3.49.0
-      const defs = [aurora, jellyfish, ...SCENE_THEMES.map(themeScene)];
+      const garden = (await import('./js/scenes/garden.js')).default;   // v3.59.0
+      const defs = [aurora, jellyfish, garden, ...SCENE_THEMES.map(themeScene)];
       const sizes = [[640, 360], [1280, 720], [1920, 1080]], out = [];
       for (const [W, H] of sizes) {
         for (const def of defs) {
@@ -763,8 +764,8 @@ if (PART === 'a') {
       }
       return out;
     });
-    const bad = r.filter(x => x.errors || x.fps < 1 || ((x.id === 'aurora' || x.id === 'jellyfish') && !x.lit));
-    if (r.length !== 36 || bad.length) throw new Error(JSON.stringify(bad.length ? bad : r));
+    const bad = r.filter(x => x.errors || x.fps < 1 || (['aurora', 'jellyfish', 'garden'].includes(x.id) && !x.lit));
+    if (r.length !== 39 || bad.length) throw new Error(JSON.stringify(bad.length ? bad : r));
     for (const size of ['640x360', '1280x720', '1920x1080']) {
       console.log(`      (${size}: ` + r.filter(x => x.size === size).map(x => `${x.id.replace('theme:', '')} ${x.fps}/s ${x.ms} ms` + (x.first > 20 ? ` (first ${x.first} ms)` : '')).join(', ') + ')');
     }

@@ -3550,6 +3550,42 @@ async function main() {
     } finally { perf.setSessionTier(keepSession || null); console.warn = warn; r.destroy(); }
   });
 
+  // v3.59.0: the Butterfly Garden, on the same runner: it starts, draws, grows
+  // a flower where a tap lands, sends a gust in the other mode, takes the
+  // breeze off and on, a pointer held still, a new size and the beat, with
+  // nothing thrown. Low quality has fewer leaves and butterflies.
+  await step('the Butterfly Garden runs on the scene runner: a tap grows a flower or sends a gust, the breeze, a new size and the beat', async () => {
+    const { SceneRunner } = await import(pathToFileURL(path.join(ROOT, 'src/js/scenes/runner.js')).href);
+    const garden = (await import(pathToFileURL(path.join(ROOT, 'src/js/scenes/garden.js')).href)).default;
+    const { perf } = await import(pathToFileURL(path.join(ROOT, 'src/js/perf.js')).href);
+    let clock = 0, beat = 0; const queue = []; const opts = { raf: f => queue.push(f), caf: () => {}, now: () => clock, gap: () => 12 };
+    let box = { left: 0, top: 0, width: 200, height: 120 };
+    const cv = window.document.createElement('canvas'); cv.getBoundingClientRect = () => box;
+    const r = new SceneRunner(cv, { ...opts, level: () => beat });
+    const warn = console.warn; let said = ''; console.warn = (...a) => { said += a.join(' '); };
+    const tick = n => { for (let i = 0; i < n; i++) { clock += 16; queue.splice(0).forEach(f => f()); } };
+    const keepSession = perf._session;
+    try {
+      if (!r.run(garden, { tap: 'grow', breeze: true }) || garden.id !== 'garden' || garden.name !== 'Butterfly Garden') throw new Error('it did not start');
+      tick(10);
+      r.pointer('down', 100, 40); tick(6);
+      r.set('tap', 'gust'); r.set('tap', 'nonsense'); r.pointer('down', 60, 60); tick(4);
+      r.set('breeze', false); tick(4); r.set('breeze', true);
+      r.pointer('move', 90, 50); tick(20);
+      beat = 0.9; tick(4); beat = 0.1; tick(4); beat = 0.95; tick(4);
+      box = { left: 0, top: 0, width: 320, height: 180 }; r.resize(); tick(8);
+      r.pointer('leave', 0, 0);
+      const c = r.cost();
+      if (c.errors || c.frames < 20) throw new Error(`${JSON.stringify(c)} ${said}`);
+      if (cv.width !== Math.round(320 * r.dpr)) throw new Error('the canvas did not take the new size: ' + cv.width);
+      r.stop();
+      perf.setSessionTier('low');
+      if (!r.run(garden, {})) throw new Error('it did not start at low quality');
+      tick(6);
+      if (r.cost().errors) throw new Error('at low quality: ' + said);
+    } finally { perf.setSessionTier(keepSession || null); console.warn = warn; r.destroy(); }
+  });
+
   /* ── v3.47.0: what a feature adds from its own file (app/registry.js) ── */
   await step('a feature adds a menu action, a key and a setting from its own file', async () => {
     const R = await import(pathToFileURL(path.join(ROOT, 'src/js/app/registry.js')).href);

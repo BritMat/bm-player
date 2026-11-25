@@ -25,11 +25,13 @@ const playPart = name => once('play:' + name, { voice: () => import('../play/fox
 
 // The scenes Home can show instead of the theme's own (v3.48.0), each loaded
 // the first time it is chosen. 'theme' is the theme's own background.
-const SCENES = [['theme', 'The theme\'s own'], ['aurora', 'Aurora Lake'], ['jellyfish', 'Jellyfish Drift']];
-const scenePart = id => once('scene:' + id, { aurora: () => import('../scenes/aurora.js'), jellyfish: () => import('../scenes/jellyfish.js') }[id]);
+const SCENES = [['theme', 'The theme\'s own'], ['aurora', 'Aurora Lake'], ['jellyfish', 'Jellyfish Drift'], ['garden', 'Butterfly Garden']];
+const scenePart = id => once('scene:' + id, { aurora: () => import('../scenes/aurora.js'), jellyfish: () => import('../scenes/jellyfish.js'), garden: () => import('../scenes/garden.js') }[id]);
 const AURORA_COLOURS = [['green', 'Green'], ['violet', 'Violet'], ['both', 'Both']];
 // v3.49.0: Jellyfish Drift's two looks (scenes/jellyfish.js LOOKS)
 const JELLY_LOOKS = [['natural', 'Natural'], ['glow', 'Glow']];
+// v3.59.0: what a tap does in the Butterfly Garden (scenes/garden.js TAPS)
+const GARDEN_TAPS = [['grow', 'Grow a flower'], ['gust', 'Gust']];
 const store = (k, v) => { try { if (v === undefined) return localStorage.getItem(k); localStorage.setItem(k, v); } catch (_) { return null; } return null; };
 
 export default class EffectsFeature {
@@ -377,19 +379,24 @@ export default class EffectsFeature {
       +'</div><label class="scene-opt-check"><input type="checkbox" id="scene-shoot"> Shooting stars</label></div>'
       +'<div class="scene-opts" id="scene-jellyfish-opts"><div class="scene-opt-row" role="group" aria-label="How the jellyfish look">'
       +JELLY_LOOKS.map(([k,l])=>`<button type="button" data-look="${k}">${l}</button>`).join('')
-      +'</div></div></div>';
+      +'</div></div>'
+      +'<div class="scene-opts" id="scene-garden-opts"><div class="scene-opt-row" role="group" aria-label="What a tap does">'
+      +GARDEN_TAPS.map(([k,l])=>`<button type="button" data-tap="${k}">${l}</button>`).join('')
+      +'</div><label class="scene-opt-check"><input type="checkbox" id="scene-breeze"> Breeze</label></div></div>';
     ws.appendChild(pick);
     const menu=el('scene-menu'), btn=el('scene-btn');
     const open=on=>{ menu.classList.toggle('hidden',!on); btn.setAttribute('aria-expanded',String(on)); if(on)this._sceneMarks(); };
     btn.addEventListener('click',e=>{ e.stopPropagation(); open(menu.classList.contains('hidden')); });
     menu.addEventListener('click',e=>{
       e.stopPropagation();
-      const s=e.target.closest('[data-scene]'), c=e.target.closest('[data-colour]'), lk=e.target.closest('[data-look]');
+      const s=e.target.closest('[data-scene]'), c=e.target.closest('[data-colour]'), lk=e.target.closest('[data-look]'), tp=e.target.closest('[data-tap]');
       if(s){ this.setScene(s.dataset.scene); if(s.dataset.scene==='theme') open(false); else this._sceneMarks(); }
       if(c){ store('bm_aurora_colour',c.dataset.colour); this._sceneRunner?.set('colour',c.dataset.colour); this._sceneMarks(); }
       if(lk){ store('bm_jelly_look',lk.dataset.look); this._sceneRunner?.set('look',lk.dataset.look); this._sceneMarks(); }
+      if(tp){ store('bm_garden_tap',tp.dataset.tap); this._sceneRunner?.set('tap',tp.dataset.tap); this._sceneMarks(); }
     });
     el('scene-shoot')?.addEventListener('change',e=>{ store('bm_aurora_shoot',e.target.checked?'1':'0'); this._sceneRunner?.set('shoot',e.target.checked); });
+    el('scene-breeze')?.addEventListener('change',e=>{ store('bm_garden_breeze',e.target.checked?'1':'0'); this._sceneRunner?.set('breeze',e.target.checked); });
     document.addEventListener('click',e=>{ if(!menu.classList.contains('hidden')&&!e.target.closest('#scene-pick')) open(false); });
     document.addEventListener('keydown',e=>{ if(e.key==='Escape'&&!menu.classList.contains('hidden')){ e.__bmHandled=true; open(false); } },true);
     // a touch on the sky or the water, not on the fox or a button
@@ -412,6 +419,10 @@ export default class EffectsFeature {
     const look=store('bm_jelly_look')||'natural';
     for(const b of document.querySelectorAll('#scene-menu [data-look]')){ const on=b.dataset.look===look; b.classList.toggle('on',on); b.setAttribute('aria-pressed',String(on)); }
     el('scene-jellyfish-opts')?.classList.toggle('hidden',id!=='jellyfish');
+    const tap=store('bm_garden_tap')||'grow';
+    for(const b of document.querySelectorAll('#scene-menu [data-tap]')){ const on=b.dataset.tap===tap; b.classList.toggle('on',on); b.setAttribute('aria-pressed',String(on)); }
+    el('scene-garden-opts')?.classList.toggle('hidden',id!=='garden');
+    const bz=el('scene-breeze'); if(bz) bz.checked=store('bm_garden_breeze')!=='0';
     const sh=el('scene-shoot'); if(sh) sh.checked=store('bm_aurora_shoot')!=='0';
   }
   /** The scene on Home: 'theme' (the theme's own) or one of SCENES. Kept for the next start. */
@@ -429,7 +440,7 @@ export default class EffectsFeature {
     if(id!=='theme'){
       try{ def=(await scenePart(id)).default; }
       catch(e){ console.error('[BM Player] the scene '+id+' could not be loaded:',e); this.showOSD('That scene could not be loaded'); }
-      opts={ colour: store('bm_aurora_colour')||'green', shoot: store('bm_aurora_shoot')!=='0', look: store('bm_jelly_look')||'natural' };
+      opts={ colour: store('bm_aurora_colour')||'green', shoot: store('bm_aurora_shoot')!=='0', look: store('bm_jelly_look')||'natural', tap: store('bm_garden_tap')||'grow', breeze: store('bm_garden_breeze')!=='0' };
     } else if(lite) def=themeScene(document.documentElement.getAttribute('data-theme')||'dark');
     if(tok!==this._sceneTok)return;
     this._sceneOn=!!def&&id!=='theme';
