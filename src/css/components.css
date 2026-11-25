@@ -1057,7 +1057,10 @@ html.is-fs.lite-window body.playing:not(.pip-mode):has(#controls-bar.faded) #pla
 .eq-save-row { display: flex; gap: 6px; margin: 8px 0; }
 .eq-save-row input { flex: 1; min-width: 0; background: var(--bg); color: var(--text); border: 1px solid var(--border); border-radius: 6px; padding: 5px 8px; font: inherit; font-size: 12px; }
 /* fifteen bands in the panel's width */
-#eq-bands { gap: 1px; padding: 12px 4px; }
-#eq-bands .eq-band-val { width: 22px; font-size: 8.5px; }
-#eq-bands .eq-band-label { font-size: 8.5px; }
-#eq-bands .eq-band input[type="range"] { width: 18px; }
+#eq-bands { gap: 0; padding: 12px 2px; overflow: hidden; }
+#eq-bands .eq-band { min-width: 0; gap: 6px; }
+#eq-bands .eq-band-val { width: auto; min-width: 0; max-width: 100%; padding: 2px 1px; font-size: 8px; border: 0; background: none; }
+#eq-bands .eq-band-label { font-size: 8px; white-space: nowrap; }
+#eq-bands .eq-band input[type="range"] { width: 16px; }
+#eq-bands .eq-band input[type="range"]::-webkit-slider-thumb { width: 14px; height: 18px; margin-left: -5px; }
+#snd-flow input[type="range"]:disabled { opacity: .4; }
