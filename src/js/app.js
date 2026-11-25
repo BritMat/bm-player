@@ -27,6 +27,7 @@ import { Picture } from './modules/picture.js';
 import { Quality } from './modules/quality.js';
 import { Output } from './modules/output.js';
 import { FilmMemory } from './modules/film-memory.js';
+import { MusicFlowPanel } from './modules/music-flow.js';   // v3.59.0
 import { Sound } from './modules/sound.js';
 import { SleepTimer } from './modules/sleep-timer.js';
 import { Lyrics } from './modules/lyrics.js';
@@ -426,6 +427,8 @@ window.addEventListener('DOMContentLoaded',()=>{
   window.bmApp=new BMPlayer();
   window.bmMusic=new MusicDash(window.api);
   window.bmApp._applyEQ?.();   // the sound's kept effects for the engine as well (v3.46.0)
+  // v3.59.0: between songs, and songs made equally loud
+  try { window.bmApp.musicFlow=new MusicFlowPanel({ music: window.bmMusic, osd: (m, ms) => window.bmApp.showOSD(m, ms) }); window.bmApp.musicFlow.wire(document.getElementById('snd-flow')); } catch (e) { console.warn('[BM Player] the music flow settings:', e); }
   // Lyrics (v3.38.0), for the music: the Now Playing tab and the visual mode.
   try { window.bmLyrics=new Lyrics({ api: window.api, music: window.bmMusic, app: window.bmApp }); } catch (e) { console.warn('[BM Player] lyrics unavailable:', e); }
   try { wireStudio(); } catch (e) { console.warn('[BM Player] studio layout:', e); }   // v3.51.0: the themes menu, the panel beside the songs

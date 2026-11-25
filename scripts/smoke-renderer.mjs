@@ -630,15 +630,18 @@ async function main() {
     // what the chain counts is what is connected, from the song to the volume, and nothing besides
     const wired = when => {
       const L = c.links;
-      if (L[0][0] !== eng.source || L[L.length - 1][1] !== eng.gain) throw new Error(when + ': the chain does not run from the song to the volume');
+      if (L[0][0] !== eng._in || L[L.length - 1][1] !== eng.gain) throw new Error(when + ': the chain does not run from the songs to the volume');
       for (const [a, b] of L) if (!a.outs.has(b)) throw new Error(when + ': a link the chain counts is not connected');
-      if (eng.source.outs.size !== 1) throw new Error(when + ': the song feeds ' + eng.source.outs.size + ' nodes');
+      if (eng._in.outs.size !== 1) throw new Error(when + ': the songs feed ' + eng._in.outs.size + ' nodes');
+      // v3.59.0: the song reaches the chain through its deck, its level then its fade, and the meter's tap
+      const deck = eng._decks.get(eng.el);
+      if (!deck || deck.src !== eng.source || !eng.source.outs.has(deck.level) || !deck.level.outs.has(deck.fade) || !deck.fade.outs.has(eng._in) || !eng.source.outs.has(eng.tapIn)) throw new Error(when + ': the song does not reach the chain through its deck');
       if (eng._heard.outs.size !== 2 || !eng._heard.outs.has(eng.analyser)) throw new Error(when + ': the point the visualiser hears feeds ' + [...eng._heard.outs].map(n => n.kind));
       for (const [id, n] of c.made) if (!c.live.includes(id) && n.output.outs.size) throw new Error(when + ': ' + id + ' is out of the chain and still connected');
     };
     eng.ctx.state = 'suspended';
     if (live() !== '' || eng.filters !== null) throw new Error('with everything off there is something in the chain: ' + live());
-    if (!eng.source.outs.has(eng._heard) || !eng._heard.outs.has(eng.gain)) throw new Error('with everything off the song does not go straight to the volume');
+    if (!eng._in.outs.has(eng._heard) || !eng._heard.outs.has(eng.gain)) throw new Error('with everything off the song does not go straight to the volume');
     wired('everything off');
     eng.setEQBand(3, 4);
     if (live() !== 'eq' || eng.filters[3].gain.value !== 4) throw new Error('one band: ' + live()); wired('one band');
@@ -702,7 +705,7 @@ async function main() {
       eng.setSound({ mode: m, voice: true });
       if (live() !== 'voice,' + m + ',limit') throw new Error(m + ' with clear voice: ' + live());
       const L = c.links;
-      if (L[0][0] !== eng.source || L[L.length - 1][1] !== eng.gain) throw new Error(m + ': the chain does not run from the song to the volume');
+      if (L[0][0] !== eng._in || L[L.length - 1][1] !== eng.gain) throw new Error(m + ': the chain does not run from the songs to the volume');
       for (const [a, b] of L) if (!a.outs.has(b)) throw new Error(m + ': a link the chain counts is not connected');
     }
     eng.setSound({ mode: 'off', voice: false });

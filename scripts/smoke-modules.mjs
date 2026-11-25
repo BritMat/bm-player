@@ -572,6 +572,57 @@ async function main() {
     localStorage.removeItem('bm_film_memory');
   });
 
+  // v3.59.0: songs made equally loud: where the level comes from, never past the peak, and BS.1770's gates
+  await step('even loudness: tags first, then what was measured, never past the peak, and the quiet parts gated out', async () => {
+    const { levelFor, integrate, TARGET } = await load('src/js/loudness.js');
+    const near = (a, b) => Math.abs(a - b) < 0.05;
+    if (levelFor('off', { rgTrack: -6 }).db !== 0) throw new Error('off still levelled');
+    let r = levelFor('track', { rgTrack: -6.5, rgAlbum: -4 });
+    if (!near(r.db, -6.5) || r.from !== 'tags') throw new Error('the song\'s tags: ' + JSON.stringify(r));
+    r = levelFor('album', { rgTrack: -6.5, rgAlbum: -4 });
+    if (!near(r.db, -4) || r.from !== 'album tags') throw new Error('album mode: ' + JSON.stringify(r));
+    r = levelFor('album', { rgTrack: -6.5 });
+    if (!near(r.db, -6.5)) throw new Error('album mode with no album tag: ' + JSON.stringify(r));
+    r = levelFor('track', {}, { lufs: -24, peak: 0.2 });
+    if (!near(r.db, TARGET + 24) || r.from !== 'measured') throw new Error('measured: ' + JSON.stringify(r));
+    // lifted 8 dB a peak of 0.5 would pass full: held at 5.5 (0.5 dB under it)
+    r = levelFor('track', { rgTrack: 8, rgTrackPeak: 0.5 });
+    if (!near(r.db, -20 * Math.log10(0.5) - 0.5)) throw new Error('past the peak: ' + JSON.stringify(r));
+    if (levelFor('track', {}, null).from !== null) throw new Error('nothing known, and a level');
+    // integrate: a steady -20 LUFS with silence and a quiet tail is -20
+    const p = l => Math.pow(10, (l + 0.691) / 10);
+    const blocks = [...Array(50).fill(p(-20)), ...Array(20).fill(0), ...Array(10).fill(p(-45))];
+    if (!near(integrate(blocks), -20)) throw new Error('gated: ' + integrate(blocks));
+    if (integrate([0, 0]) !== null) throw new Error('silence measured');
+  });
+
+  await step('play counts: half a song or four minutes heard is a play, a jump is not hearing, and the smart lists', async () => {
+    localStorage.removeItem('bm_music_plays');
+    const { Plays } = await load('src/js/modules/plays.js');
+    const pl = new Plays();
+    pl.start('/m/a.mp3');
+    for (let t = 0; t <= 60; t += 0.25) pl.time('/m/a.mp3', t, 200);     // a minute of a 200 s song
+    if (pl.count('/m/a.mp3')) throw new Error('counted after a minute of 200 s');
+    pl.time('/m/a.mp3', 150, 200);                                         // a seek ahead: not heard
+    for (let t = 150; t <= 160; t += 0.25) pl.time('/m/a.mp3', t, 200);
+    if (pl.count('/m/a.mp3')) throw new Error('a seek counted as hearing');
+    for (let t = 160; t <= 200; t += 0.25) pl.time('/m/a.mp3', t, 200);
+    if (pl.count('/m/a.mp3') !== 1) throw new Error('half heard and not counted: ' + pl.count('/m/a.mp3'));
+    for (let t = 0; t <= 200; t += 0.25) pl.time('/m/a.mp3', t, 200);
+    if (pl.count('/m/a.mp3') !== 1) throw new Error('counted twice in one play');
+    pl.start('/m/long.flac');
+    for (let t = 0; t <= 241; t += 0.25) pl.time('/m/long.flac', t, 1200);
+    if (pl.count('/m/long.flac') !== 1) throw new Error('four minutes of a long one not counted');
+    pl.add('/m/long.flac');
+    const tracks = [{ path: '/m/a.mp3', added: 3 }, { path: '/m/long.flac', added: 1 }, { path: '/m/new.mp3', added: 9 }];
+    const names = l => l.map(t => t.path.split('/').pop()).join(',');
+    if (names(pl.list('most', tracks)) !== 'long.flac,a.mp3') throw new Error('most played: ' + names(pl.list('most', tracks)));
+    if (names(pl.list('recent', tracks)) !== 'new.mp3,a.mp3,long.flac') throw new Error('recently added: ' + names(pl.list('recent', tracks)));
+    if (names(pl.list('never', tracks)) !== 'new.mp3') throw new Error('never played: ' + names(pl.list('never', tracks)));
+    if (new Plays().count('/m/long.flac') !== 2) throw new Error('not kept');
+    localStorage.removeItem('bm_music_plays');
+  });
+
   const bad = results.filter(r => !r).length;
   console.log(`\n${results.length - bad}/${results.length} checks passed.\n`);
   process.exit(bad ? 1 : 0);

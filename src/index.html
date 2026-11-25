@@ -1108,6 +1108,23 @@
         <p class="snd-note" data-out-note></p>
         <label class="ctx-checkbox"><input type="checkbox" data-out-pass> Send Dolby and DTS to an amplifier <span class="set-val">(as they are, for a receiver or soundbar that decodes them. The volume and effects do not reach them.)</span></label>
       </div>
+      <!-- v3.59.0: between songs, and songs made equally loud (modules/music-flow.js) -->
+      <div id="snd-flow">
+        <div class="ctx-section-label">Between songs</div>
+        <div class="eq-presets snd-chips" role="group" aria-label="Between songs">
+          <button class="eq-preset-btn" data-flow="off">Off</button>
+          <button class="eq-preset-btn" data-flow="gapless">Gapless</button>
+          <button class="eq-preset-btn" data-flow="crossfade">Crossfade</button>
+        </div>
+        <label class="eq-preamp"><span>Crossfade</span><input type="range" min="1" max="12" step="1" value="6" data-flow-secs aria-label="Crossfade, in seconds"><span class="eq-band-val" data-flow-secs-val>6 s</span></label>
+        <div class="ctx-section-label">Even loudness</div>
+        <p class="snd-note">Songs from the library at the same loudness, from their ReplayGain tags, or as this app measured them the last time they played.</p>
+        <div class="eq-presets snd-chips" role="group" aria-label="Even loudness">
+          <button class="eq-preset-btn" data-level="off">Off</button>
+          <button class="eq-preset-btn" data-level="track">Song by song</button>
+          <button class="eq-preset-btn" data-level="album">Album by album</button>
+        </div>
+      </div>
       <!-- v3.49.0, Sound lab: one tap for a whole sound -->
       <div class="ctx-section-label">Sound mode</div>
       <p class="snd-note">One tap for a whole sound, in films and songs. Slowed and Nightcore play songs slower or faster, lower or higher, as a record would. A film keeps its own speed.</p>

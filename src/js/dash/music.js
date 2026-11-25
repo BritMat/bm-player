@@ -23,6 +23,8 @@ import { Visualizer, vizSettings } from '../visualizer.js';
 import { AudioEngine } from '../audio-engine.js';
 import { rateOf } from '../sound-chain.js';   // v3.49.0: Slowed and Nightcore for a song mpv plays
 import SpeedMenu from '../modules/speed-menu.js';
+import { Leveller } from '../loudness.js';               // v3.59.0: songs made equally loud
+import { Plays, SMART } from '../modules/plays.js';      // v3.59.0: the smart lists
 
 const AUDIO = new Set(['mp3', 'flac', 'aac', 'ogg', 'wav', 'm4a', 'wma', 'opus', 'ape', 'mka', 'm4b']);
 const PAGE = 100;
@@ -49,6 +51,11 @@ export class MusicDash{constructor(api){this.api=api;
   this.engineEnabled = localStorage.getItem('bm_audio_engine') !== '0'
     && (window.__BM_FLAGS__?.audioEngine !== false);
   this.engine = new AudioEngine();
+  // v3.59.0: songs that flow into each other, made equally loud, and counted
+  this.level = new Leveller(this.engine, { tags: p => this.tags?.[p] || null, osd: (m, ms) => window.bmApp?.showOSD?.(m, ms) });
+  this.plays = new Plays();
+  let flow = null; try { flow = JSON.parse(localStorage.getItem('bm_flow') || 'null'); } catch (_) {}
+  this.engine.setFlow(flow || { mode: 'gapless', seconds: 6 });
   if (this.engine.available) this._wireEngine();
   else this.engineEnabled = false;
   // The music's own speed (v3.38.0), kept from song to song and between runs,
@@ -212,8 +219,49 @@ async addFolder(){
   }
   this._load(folder);
 }
+/** The smart lists at the top of the library (v3.59.0): Most played, Recently added, Never played. */
+_addSmart(){
+  const s=el('music-lib-sections');if(!s||s.querySelector('.music-smart'))return;
+  const box=document.createElement('div'); box.className='music-smart'; box.setAttribute('role','group'); box.setAttribute('aria-label','Smart lists');
+  for(const [k,label] of SMART){
+    const d=document.createElement('div');
+    d.className='music-folder-item music-smart-item'; d.dataset.path='smart:'+k; d.tabIndex=0; d.setAttribute('role','button');
+    d.title=k==='most'?'The songs you play most':k==='recent'?'The songs that came into your folders last':'Songs you have not played here yet';
+    const ic=document.createElement('span'); ic.className='mf-icon'; setIcon(ic,k==='most'?'heart':k==='recent'?'clock':'music');
+    const nm=document.createElement('span'); nm.className='mf-name'; nm.textContent=label;
+    d.append(ic,nm);
+    d.addEventListener('click',()=>this._loadSmart(k));
+    d.addEventListener('keydown',e=>{ if(e.target===d&&(e.key==='Enter'||e.key===' ')){ e.preventDefault(); this._loadSmart(k); } });
+    box.appendChild(d);
+  }
+  s.prepend(box);
+}
+/** A smart list, from the songs of every folder, in its own order. */
+async _loadSmart(kind){
+  const key='smart:'+kind;
+  this._activePath=key;
+  document.querySelectorAll('.music-folder-item').forEach(e=>e.classList.toggle('active',e.dataset.path===key));
+  const lbl=el('music-path-title');if(lbl)lbl.textContent=(SMART.find(x=>x[0]===kind)||[])[1]||'';
+  const seen=new Set(),all=[];
+  for(const f of this.folders){
+    let files=[];
+    try{ files=await this.api?.gallery?.scan(f)||[]; }catch(_){}
+    if(this._activePath!==key) return;
+    for(const t of files){ if(AUDIO.has(String(t.name||'').split('.').pop().toLowerCase())&&!seen.has(t.path)){ seen.add(t.path); all.push(t); } }
+  }
+  this._smart=kind;
+  this.tracks=this.plays.list(kind,all);
+  this.tags=this.tags||{};
+  this._filter=''; this._album='';
+  const fi=el('music-filter'); if(fi) fi.value='';
+  this._renderTracks(this._sorted(this.tracks,this._sortKey()));
+  this._buildQueue();
+  this._updateHead();
+  this._loadTags(this.tracks);
+}
 _addFolder(fp){
   const s=el('music-lib-sections');if(!s)return;
+  this._addSmart();
   s.querySelector('.music-empty-lib')?.remove();
   const n=baseName(fp);
   const d=document.createElement('div');
@@ -249,7 +297,7 @@ _removeFolder(fp){
   window.bmApp?.showOSD?.('Taken out of the library. The files are still there.');
 }
 async _load(fp){
-  this._activePath=fp;
+  this._activePath=fp; this._smart=null;
   document.querySelectorAll('.music-folder-item').forEach(e=>e.classList.toggle('active',e.dataset.path===fp));
   const lbl=el('music-path-title');if(lbl)lbl.textContent=baseName(fp);
   let files=[];
@@ -357,6 +405,8 @@ _sorted(t,by){
     const m=this._meta(x);
     return (m.title+' '+m.artist+' '+m.album+' '+x.name).toLowerCase().includes(q);
   });
+  // a smart list (v3.59.0) keeps its own order: the most played first, the newest first
+  if(this._smart) return list;
   const meta=x=>this._meta(x);
   const byName=(x,y)=>byText(x.name,y.name);
   const str=(x,k)=>(sortKey(meta(x)[k])||'\uffff').toLowerCase();   // untagged sorts last
@@ -439,7 +489,7 @@ _updateHead(){
   if(p) p.disabled=none;
   if(s) s.disabled=none;
   const sel=el('music-sort');
-  if(sel){ sel.disabled=!!this.groupByAlbum; sel.title=this.groupByAlbum?'Grouped by album, so the songs are in album order':''; }
+  if(sel){ sel.disabled=!!this.groupByAlbum||!!this._smart; sel.title=this._smart?'A smart list keeps its own order':this.groupByAlbum?'Grouped by album, so the songs are in album order':''; }
   this._renderCover();
   this._renderAlbums();
 }
@@ -520,6 +570,7 @@ _buildQueue(){
   }
   this.queueIdx=Math.max(0,this.queue.findIndex(t=>t.path===this.currentPath));
   this._renderQueue();
+  this._prepNext();
 }
 
 // repeat: 'off' -> 'all' -> 'one'
@@ -533,6 +584,7 @@ _cycleRepeat(){
     b.title='Repeat ('+this.repeat+')'; b.setAttribute('aria-label',b.title);
   }
   localStorage.setItem('bm_music_repeat',this.repeat);
+  this._prepNext();
   return this.repeat;
 }
 _setShuffle(on){
@@ -617,6 +669,8 @@ skipBroken(){
 _mpvOpen(fp){
   this._mpvSong=fp;
   if(this._filmSpeed==null)this._filmSpeed=window.bmApp?.speedMenu?._current||1;
+  // v3.59.0: songs made equally loud, by mpv's own ReplayGain from the song's tags
+  this.api?.mpv?.cmd('set_property','replaygain',this.level?.mode==='album'?'album':this.level?.mode==='track'?'track':'no')?.catch?.(()=>{});
   this.api?.mpv?.open([fp]);
   this._mpvRate();
 }
@@ -860,6 +914,9 @@ _markPlaying(){
         if(!app.isSeeking) app.setSeekPct?.(pct/100);
       }
     });
+    e.on('time', d=>{ if(e.active&&!e.paused) this.plays.time(e._path,d.time,d.duration); });
+    // v3.59.0: the next song came in by itself, gapless or crossfaded
+    e.on('advanced', d=>this._flowedTo(d.path));
     e.on('play', ()=>this._engineState(true));
     e.on('pause',()=>this._engineState(false));
     e.on('ended',()=>this.advance(true));
@@ -899,6 +956,7 @@ _markPlaying(){
     if(this._filmSpeed!=null){const v=this._filmSpeed;this._filmSpeed=null;this.api?.mpv?.cmd('set_property','speed',v);}
     // and its pitch kept, whatever a sound mode did to the song's (v3.49.0)
     this.api?.mpv?.cmd('set_property','audio-pitch-correction',true)?.catch?.(()=>{});
+    this.api?.mpv?.cmd('set_property','replaygain','no')?.catch?.(()=>{});   // a film plays as it is (v3.59.0)
     if(!this.engineOwns?.()) return false;
     this._yielding=true;
     this.engine.stop();
@@ -961,7 +1019,7 @@ play(fp,idx){
       this._mpvSong=null;
       // Stop mpv first or both would play at once.
       this.api?.mpv?.cmd('stop');
-      this.engine.load(fileURL(fp),fp,true);
+      this.engine.load(fileURL(fp),fp,true,{levelDb:this.level.level(fp).db});
       this.engine.setSpeed(this.speed);
       // Hand the visualiser a real analyser. It already prefers one over its
       // synthetic fallback; it has simply never been given one.
@@ -976,6 +1034,12 @@ play(fp,idx){
       this._mpvOpen(fp);   // at the music's speed (v3.38.0)
     }
     window.bmApp?.speedMenu?.sync?.(); this._npSpeed?.sync();   // the speed shown is now the music's (v3.38.0)
+    this._showSong(fp);
+    if(useEngine) this._prepNext();
+}
+/** Now Playing, the lyrics and the list for the song that plays (from play(), and for a song that flowed in). */
+_showSong(fp){
+    this.plays.start(fp);
     const _m=this.tags?.[fp]||{};const title=_m.title||cleanTitle(fp.split(/[\\/]/).pop());
     // Its lyrics (v3.38.0): beside it, inside it, or online.
     window.bmLyrics?.song(fp,{title,artist:_m.artist||null,album:_m.album||null,duration:_m.duration||this._dur?.[fp]||null});
@@ -991,6 +1055,41 @@ play(fp,idx){
     // was always Bars in this view, whatever was chosen).
     this._viz?.setMode(vizSettings().style);this._viz?.start();
     this._markPlaying();this._renderQueue();this._applyTagsToNowPlaying(fp);
+}
+/** The song that would play next, and its place in the queue, or null at the end. */
+_upNext(){
+  if(this.repeat==='one'&&this.currentPath) return {path:this.currentPath,idx:this.queueIdx};
+  const n=this.queueIdx+1;
+  if(n<this.queue.length) return {path:this.queue[n].path,idx:n};
+  // round to the top under repeat all; shuffled, the queue is shuffled anew there, so that one starts as before
+  if(this.repeat==='all'&&this.queue.length&&!this.shuffle) return {path:this.queue[0].path,idx:0};
+  return null;
+}
+/**
+ * The engine told which song comes next (v3.59.0), so it can wait loaded and
+ * come in without a gap, or crossfaded. None when the engine is not the one
+ * playing, the next is one it cannot read, or the sleep timer stops playing
+ * at the end of this song. The next track of the same album runs on into it
+ * with no crossfade, as a live album or a mix is meant to.
+ */
+_prepNext(){
+  const e=this.engine; if(!e?.available) return;
+  const up=this.engineOwns()&&e.flow.mode!=='off'?this._upNext():null;
+  if(!up||!e.canPlay(up.path)||window.bmApp?.sleep?.mode==='end'){ e.queueNext(null); this._pendingIdx=null; return; }
+  const a=this.tags?.[this.currentPath]||{}, b=this.tags?.[up.path]||{};
+  const runsOn=!!(a.album&&sameText(a.album,b.album)&&a.trackNo&&b.trackNo===a.trackNo+1);
+  this._pendingIdx=up.idx;
+  e.queueNext(fileURL(up.path),up.path,{levelDb:this.level.level(up.path).db,join:runsOn?'gapless':null});
+}
+/** The next song came in by itself: everything shown follows it. */
+_flowedTo(fp){
+  if(!fp) return;
+  const idx=this._pendingIdx!=null&&this.queue[this._pendingIdx]?.path===fp?this._pendingIdx:this.queue.findIndex(q=>q.path===fp);
+  this._pendingIdx=null;
+  this.currentPath=fp; this._fails=0;
+  if(idx>=0) this.queueIdx=idx;
+  this._showSong(fp);
+  this._prepNext();
 }
 _renderQueue(){
   const q=el('np-queue');if(!q)return;
