@@ -1045,3 +1045,19 @@ html.is-fs.lite-window body.playing:not(.pip-mode):has(#controls-bar.faded) #pla
 .games-frame-box { flex: 1; min-height: 0; background: var(--bg); }
 .games-frame { width: 100%; height: 100%; border: 0; display: block; background: var(--bg); }
 #btn-games-rescan[hidden], #btn-games-unfolder[hidden], #btn-games-uncore[hidden] { display: none; }
+
+/* v3.59.0: the key, a semitone at a time */
+.snd-key { display: flex; align-items: center; gap: 6px; margin: 4px 0 10px; }
+.snd-key-val { min-width: 2.5em; text-align: center; font-variant-numeric: tabular-nums; font-weight: 600; }
+
+/* v3.59.0: the equalizer as a curve, its presets and saving one */
+.eq-curve { display: block; width: 100%; height: 150px; margin: 8px 0; border-radius: 8px; border: 1px solid var(--border); background: var(--bg); cursor: crosshair; touch-action: none; }
+#eq-presets .eq-del { margin-left: 6px; opacity: .6; font-weight: 700; }
+#eq-presets .eq-del:hover { opacity: 1; }
+.eq-save-row { display: flex; gap: 6px; margin: 8px 0; }
+.eq-save-row input { flex: 1; min-width: 0; background: var(--bg); color: var(--text); border: 1px solid var(--border); border-radius: 6px; padding: 5px 8px; font: inherit; font-size: 12px; }
+/* fifteen bands in the panel's width */
+#eq-bands { gap: 1px; padding: 12px 4px; }
+#eq-bands .eq-band-val { width: 22px; font-size: 8.5px; }
+#eq-bands .eq-band-label { font-size: 8.5px; }
+#eq-bands .eq-band input[type="range"] { width: 18px; }

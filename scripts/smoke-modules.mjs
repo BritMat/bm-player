@@ -368,13 +368,16 @@ async function main() {
   // in-app engine. What mpv is given must be what 3.46.0 gave it, exactly,
   // for each of these settings (the strings below were taken from that
   // version's sound.js), so films sound as they did.
-  await step('sound chain: mpv gets the filters 3.46.0 gave it, and none when every effect is off', async () => {
+  // v3.59.0: the equalizer has fifteen bands, the same peaking filter in both
+  // players, and ten gains from before are spread over them, so its strings
+  // are the new ones; everything else is as 3.46.0 gave it.
+  await step('sound chain: mpv gets the filters 3.46.0 gave it (the equalizer as 3.59.0 makes it), and none when every effect is off', async () => {
     const { lavfi } = await load('src/js/sound-chain.js');
     const cases = [
       ["nothing", {"eq": [0, 0, 0, 0, 0, 0, 0, 0, 0, 0]}, ""],
-      ["one band", {"eq": [0, 6, 0, 0, 0, 0, 0, 0, 0, 0]}, "lavfi=[equalizer=f=62:width_type=o:width=2:g=6]"],
-      ["rock", {"eq": [5, 4, -2, -4, -2, 2, 5, 6, 6, 5]}, "lavfi=[equalizer=f=31:width_type=o:width=2:g=5,equalizer=f=62:width_type=o:width=2:g=4,equalizer=f=125:width_type=o:width=2:g=-2,equalizer=f=250:width_type=o:width=2:g=-4,equalizer=f=500:width_type=o:width=2:g=-2,equalizer=f=1000:width_type=o:width=2:g=2,equalizer=f=2000:width_type=o:width=2:g=5,equalizer=f=4000:width_type=o:width=2:g=6,equalizer=f=8000:width_type=o:width=2:g=6,equalizer=f=16000:width_type=o:width=2:g=5]"],
-      ["half dB", {"eq": [0, 0, 0, 0, 0, 0, 0, 0, 0, -3.5]}, "lavfi=[equalizer=f=16000:width_type=o:width=2:g=-3.5]"],
+      ["one band", {"eq": [0, 0, 6, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]}, "lavfi=[equalizer=f=63:width_type=q:width=1.8:g=6]"],
+      ["rock, ten gains from before, spread over fifteen", {"eq": [5, 4, -2, -4, -2, 2, 5, 6, 6, 5]}, "lavfi=[equalizer=f=25:width_type=q:width=1.8:g=5,equalizer=f=40:width_type=q:width=1.8:g=4.5,equalizer=f=63:width_type=q:width=1.8:g=4,equalizer=f=160:width_type=q:width=1.8:g=-2.5,equalizer=f=250:width_type=q:width=1.8:g=-4,equalizer=f=400:width_type=q:width=1.8:g=-2.5,equalizer=f=630:width_type=q:width=1.8:g=-0.5,equalizer=f=1000:width_type=q:width=1.8:g=2,equalizer=f=1600:width_type=q:width=1.8:g=4,equalizer=f=2500:width_type=q:width=1.8:g=5.5,equalizer=f=4000:width_type=q:width=1.8:g=6,equalizer=f=6300:width_type=q:width=1.8:g=6,equalizer=f=10000:width_type=q:width=1.8:g=5.5,equalizer=f=16000:width_type=q:width=1.8:g=5]"],
+      ["half dB", {"eq": [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -3.5]}, "lavfi=[equalizer=f=16000:width_type=q:width=1.8:g=-3.5]"],
       ["mono", {"eq": [0, 0, 0, 0, 0, 0, 0, 0, 0, 0], "channels": "mono"}, "lavfi=[aformat=channel_layouts=stereo,pan=stereo|c0=0.5*c0+0.5*c1|c1=0.5*c0+0.5*c1]"],
       ["left", {"eq": [0, 0, 0, 0, 0, 0, 0, 0, 0, 0], "channels": "left"}, "lavfi=[aformat=channel_layouts=stereo,pan=stereo|c0=c0|c1=c0]"],
       ["right", {"eq": [0, 0, 0, 0, 0, 0, 0, 0, 0, 0], "channels": "right"}, "lavfi=[aformat=channel_layouts=stereo,pan=stereo|c0=c1|c1=c1]"],
@@ -384,7 +387,7 @@ async function main() {
       ["boost 150", {"eq": [0, 0, 0, 0, 0, 0, 0, 0, 0, 0], "boost": 1.5}, "lavfi=[volume=1.5,alimiter=limit=0.95]"],
       ["boost 200", {"eq": [0, 0, 0, 0, 0, 0, 0, 0, 0, 0], "boost": 2.0}, "lavfi=[volume=2,alimiter=limit=0.95]"],
       ["boost 100", {"eq": [0, 0, 0, 0, 0, 0, 0, 0, 0, 0], "boost": 1.0}, ""],
-      ["all", {"eq": [3, 0, 0, 0, 0, 0, 0, 0, 0, 0], "channels": "mono", "night": true, "boost": 1.5}, "lavfi=[equalizer=f=31:width_type=o:width=2:g=3,aformat=channel_layouts=stereo,pan=stereo|c0=0.5*c0+0.5*c1|c1=0.5*c0+0.5*c1,acompressor=threshold=0.05:ratio=4:attack=8:release=250:makeup=2,volume=1.5,alimiter=limit=0.95]"],
+      ["all", {"eq": [3, 0, 0, 0, 0, 0, 0, 0, 0, 0], "channels": "mono", "night": true, "boost": 1.5}, "lavfi=[equalizer=f=25:width_type=q:width=1.8:g=3,equalizer=f=40:width_type=q:width=1.8:g=2,aformat=channel_layouts=stereo,pan=stereo|c0=0.5*c0+0.5*c1|c1=0.5*c0+0.5*c1,acompressor=threshold=0.05:ratio=4:attack=8:release=250:makeup=2,volume=1.5,alimiter=limit=0.95]"],
     ];
     for (const [name, s, want] of cases) { const got = lavfi(s); if (got !== want) throw new Error(`${name}: ${got}\n      expected ${want}`); }
   });
@@ -420,7 +423,7 @@ async function main() {
       ["lofi", {"mode": "lofi"}, "lavfi=[highpass=f=200,lowpass=f=3800,vibrato=f=0.5:d=0.6]"],
       ["wide", {"mode": "wide"}, "lavfi=[aformat=channel_layouts=stereo,pan=stereo|c0=1.3*c0-0.3*c1|c1=1.3*c1-0.3*c0,alimiter=limit=0.95]"],
       ["clear voice", {"voice": true}, "lavfi=[dialoguenhance,pan=stereo|c0=c0+0.4*c2|c1=c1+0.4*c2,alimiter=limit=0.95]"],
-      ["preamp", {"preamp": -3.5, "eq": [2]}, "lavfi=[volume=-3.5dB,equalizer=f=31:width_type=o:width=2:g=2]"],
+      ["preamp", {"preamp": -3.5, "eq": [2]}, "lavfi=[volume=-3.5dB,equalizer=f=25:width_type=q:width=1.8:g=2]"],
       ["preamp up", {"preamp": 3}, "lavfi=[volume=3dB,alimiter=limit=0.95]"],
     ];
     for (const [name, s, want] of cases) { const got = lavfi(s); if (got !== want) throw new Error(`${name}: ${got}\n      expected ${want}`); }

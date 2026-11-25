@@ -116,6 +116,15 @@
   <link rel="modulepreload" href="js/modules/lyrics-prefs.js">
   <link rel="modulepreload" href="js/modules/lyrics-saver.js">
   <link rel="modulepreload" href="js/modules/studio.js">
+  <!-- v3.59.0 -->
+  <link rel="modulepreload" href="js/modules/quality.js">
+  <link rel="modulepreload" href="js/modules/output.js">
+  <link rel="modulepreload" href="js/modules/film-memory.js">
+  <link rel="modulepreload" href="js/modules/music-flow.js">
+  <link rel="modulepreload" href="js/modules/plays.js">
+  <link rel="modulepreload" href="js/loudness.js">
+  <link rel="modulepreload" href="js/eq-presets.js">
+  <link rel="modulepreload" href="js/eq-curve.js">
   <link rel="stylesheet" href="css/fonts.css">
   <link rel="stylesheet" href="css/style.css">
   <!-- Critical inline styles - MUST override external style.css -->
@@ -1086,18 +1095,15 @@
     <button class="panel-close" data-panel="eq" aria-label="Close equalizer and sound panel">✕</button>
   </div>
   <div class="panel-body">
-    <div class="eq-presets" id="eq-presets">
-      <button class="eq-preset-btn active" data-p="flat">Flat</button>
-      <button class="eq-preset-btn" data-p="bass">Bass</button>
-      <button class="eq-preset-btn" data-p="treble">Treble</button>
-      <button class="eq-preset-btn" data-p="rock">Rock</button>
-      <button class="eq-preset-btn" data-p="pop">Pop</button>
-      <button class="eq-preset-btn" data-p="jazz">Jazz</button>
-      <button class="eq-preset-btn" data-p="classical">Classical</button>
-    </div>
+    <!-- v3.59.0: presets built in and of your own (eq-presets.js), drawn by panels.js -->
+    <div class="eq-presets" id="eq-presets" role="group" aria-label="Equalizer presets"></div>
+    <!-- v3.59.0: the fifteen bands as a curve over the music (eq-curve.js): drag a dot, or draw across -->
+    <canvas class="eq-curve" id="eq-curve" aria-label="The equalizer's curve. Drag a band's dot, or draw across. The sliders below do the same."></canvas>
     <div class="eq-bands" id="eq-bands"></div>
     <!-- v3.49.0: the preamp, the whole sound up or down before the bands -->
     <label class="eq-preamp" for="eq-preamp"><span>Preamp</span><input type="range" id="eq-preamp" min="-12" max="12" step="0.5" value="0" aria-label="Preamp"><span class="eq-band-val" id="eq-preamp-val">0 dB</span></label>
+    <div class="eq-save-row"><input type="text" id="eq-name" maxlength="40" placeholder="A name for this curve" aria-label="A name for this curve"><button class="eq-preset-btn" id="eq-save">Save preset</button></div>
+    <label class="ctx-checkbox"><input type="checkbox" id="eq-tie"> <span id="eq-tie-label">Use this preset whenever the sound goes to this output</span></label>
     <button class="btn-reset-eq" id="btn-reset-eq">Reset EQ</button>
     <!-- v3.46.0: sound.js -->
     <div class="snd-section" id="snd-section">
@@ -1138,6 +1144,24 @@
         <button class="eq-preset-btn" data-snd-mode="hall">Concert hall</button>
         <button class="eq-preset-btn" data-snd-mode="lofi">Lo-fi</button>
         <button class="eq-preset-btn" data-snd-mode="wide">Wider stereo</button>
+      </div>
+      <!-- v3.59.0: the key, the speed kept, and a voice changer (sound-chain.js) -->
+      <div class="ctx-section-label">Key</div>
+      <div class="snd-key" role="group" aria-label="Key">
+        <button class="eq-preset-btn" data-snd-key="-1" aria-label="A semitone lower">&minus;</button>
+        <span class="snd-key-val" data-snd-key-val aria-live="polite">0</span>
+        <button class="eq-preset-btn" data-snd-key="1" aria-label="A semitone higher">+</button>
+        <button class="eq-preset-btn" data-snd-key="0">As made</button>
+      </div>
+      <div class="ctx-section-label">Voice changer</div>
+      <div class="eq-presets snd-chips" role="group" aria-label="Voice changer">
+        <button class="eq-preset-btn" data-snd-vfx="off">Off</button>
+        <button class="eq-preset-btn" data-snd-vfx="chipmunk">Chipmunk</button>
+        <button class="eq-preset-btn" data-snd-vfx="deep">Deep</button>
+        <button class="eq-preset-btn" data-snd-vfx="robot">Robot</button>
+        <button class="eq-preset-btn" data-snd-vfx="alien">Alien</button>
+        <button class="eq-preset-btn" data-snd-vfx="echo">Echo</button>
+        <button class="eq-preset-btn" data-snd-vfx="radio">Old radio</button>
       </div>
       <div class="ctx-section-label">Clear voice</div>
       <p class="snd-note">Brings the words forward over the music and the bangs, for films.</p>

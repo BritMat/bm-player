@@ -536,7 +536,7 @@ async function main() {
     if (eng.el.playbackRate !== 1.25) throw new Error('the speed set before the graph was lost');
     await eng.load('file:///a/y.mp3', '/a/y.mp3', false);
     if (window.__audioContexts.n !== made + 1) throw new Error('a second song made a second AudioContext');
-    if (eng.filters.length !== 10) throw new Error('expected 10 EQ bands, got ' + eng.filters.length);
+    if (eng.filters.length !== 15) throw new Error('expected 15 EQ bands (v3.59.0), got ' + eng.filters.length);
     // source -> the equalizer -> heard -> gain -> destination, and the
     // analyser listening at heard, BEFORE the gain (v3.36.0): the visualiser
     // must not depend on the volume. Followed by the nodes themselves: since
@@ -545,7 +545,7 @@ async function main() {
     if (!eng.gain.outs.has(eng.ctx.destination)) throw new Error('the gain is not reaching the output: ' + chain.join(', '));
     if (!eng._heard.outs.has(eng.analyser) || eng._heard === eng.gain) throw new Error('the analyser is not fed from before the volume: ' + chain.join(', '));
     if (eng.gain.outs.has(eng.analyser)) throw new Error('the analyser listens after the volume again');
-    if (![...eng.filters[9].outs].includes(eng._heard)) throw new Error('the analyser does not hear the equalizer: it is not before the point it listens at');
+    if (![...eng.filters[eng.filters.length - 1].outs].includes(eng._heard)) throw new Error('the analyser does not hear the equalizer: it is not before the point it listens at');
     if (!eng.analyser.outs.has(eng.tap)) throw new Error('the analyser has no silent tap to keep it fed');
     // volume and mute are the gain's, and the audio element stays at full
     eng.setVolume(50);
@@ -611,8 +611,12 @@ async function main() {
     eng.setEQBand(1, -40);
     if (eng.filters[0].gain.value !== 12)  throw new Error('high gain not clamped: ' + eng.filters[0].gain.value);
     if (eng.filters[1].gain.value !== -12) throw new Error('low gain not clamped: ' + eng.filters[1].gain.value);
-    eng.setEQ([1,2,3,4,5,6,7,8,9,10]);
-    if (eng.getEQ().join(',') !== '1,2,3,4,5,6,7,8,9,10') throw new Error('setEQ did not apply: ' + eng.getEQ());
+    eng.setEQ([1,2,3,4,5,6,7,8,9,10,11,12,-1,-2,-3]);
+    if (eng.getEQ().join(',') !== '1,2,3,4,5,6,7,8,9,10,11,12,-1,-2,-3') throw new Error('setEQ did not apply: ' + eng.getEQ());
+    // ten gains from before v3.59.0 are spread over the fifteen bands (sound-chain.js eqFrom)
+    eng.setSound({ eq: [6, 0, 0, 0, 0, 0, 0, 0, 0, -6] });
+    const g = eng.getEQ();
+    if (g.length !== 15 || g[0] !== 6 || g[14] !== -6 || g[7] !== 0) throw new Error('ten gains were not spread over fifteen: ' + g);
     eng.resetEQ();
     if (eng.getEQ().some(g => g !== 0)) throw new Error('resetEQ left gain behind');
     eng.destroy();
@@ -1525,13 +1529,13 @@ async function main() {
     // Every .eq-preset-btn was taken for an equalizer preset: the Fluid
     // panel's quality buttons set the equalizer back to flat (v3.46.0).
     await step('buttons that only look like the equalizer\'s presets leave the equalizer alone', async () => {
-      doc.querySelector('#eq-presets .eq-preset-btn[data-p="rock"]').click();
+      doc.querySelector('#eq-presets .eq-preset-btn[data-p="Rock"]').click();
       const before = JSON.stringify(app.eqValues);
       if (before === JSON.stringify(app.eqValues.map(() => 0))) throw new Error('the Rock preset set nothing');
       for (const sel of ['#fluid-presets .eq-preset-btn[data-tier="medium"]', '#snd-section [data-snd-night="off"]', '#panel-picture [data-pic-fill="off"]']) {
         doc.querySelector(sel)?.click();
         if (JSON.stringify(app.eqValues) !== before) throw new Error(sel + ' changed the equalizer to ' + JSON.stringify(app.eqValues));
-        if (!doc.querySelector('#eq-presets .eq-preset-btn[data-p="rock"]').classList.contains('active')) throw new Error(sel + ' took the mark off Rock');
+        if (!doc.querySelector('#eq-presets .eq-preset-btn[data-p="Rock"]').classList.contains('active')) throw new Error(sel + ' took the mark off Rock');
       }
       doc.getElementById('btn-reset-eq').click();
       if (app.eqValues.some(v => v)) throw new Error('Reset EQ left ' + JSON.stringify(app.eqValues));
@@ -1550,7 +1554,7 @@ async function main() {
       const fx = eng.getFx();
       if (!fx.night || fx.channels !== 'mono' || fx.boost !== 1.5) throw new Error('the engine has ' + JSON.stringify(fx));
       app.eqValues[1] = 4; app._applyEQ();
-      if (!last('af').startsWith('lavfi=[equalizer=f=62:')) throw new Error('the equalizer is not first: ' + last('af'));
+      if (!last('af').startsWith('lavfi=[equalizer=f=40:')) throw new Error('the equalizer is not first: ' + last('af'));
       const kept = JSON.parse(window.localStorage.getItem('bm_sound') || '{}');
       if (kept.night !== true || kept.channels !== 'mono' || 'boost' in kept) throw new Error('kept: ' + JSON.stringify(kept));
       app.eqValues[1] = 0; app.sound.reset();

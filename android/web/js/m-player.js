@@ -14,11 +14,13 @@
  * app opened.
  */
 import { AudioEngine } from './audio-engine.js';
+import { eqFrom, EQ_FREQUENCIES } from './sound-chain.js';   // v3.59.0: fifteen bands
+import { EqPresets } from './eq-presets.js';                  // v3.59.0: presets of your own, and by output
 import { call, on } from './m-android.js';
 import { lib } from './m-library.js';
 import { toast, fmtTime } from './m-ui.js';
 
-const KEEP = 'bm_m_queue', SPEED = 'bm_m_speed', EQ = 'bm_m_eq', KEEPQ = 'bm_m_keepq', SOUND = 'bm_m_sound';
+const KEEP = 'bm_m_queue', SPEED = 'bm_m_speed', EQ = 'bm_m_eq', KEEPQ = 'bm_m_keepq', SOUND = 'bm_m_sound', FLOW = 'bm_m_flow';
 const listeners = new Map();
 
 /** Whether the queue is kept for the next time the app opens (Settings, v3.43.0). */
@@ -39,7 +41,11 @@ export const player = {
   failed: 0,            // songs in a row that would not play
 
   on (type, fn) { if (!listeners.has(type)) listeners.set(type, new Set()); listeners.get(type).add(fn); },
-  emit (type, data) { for (const fn of listeners.get(type) || []) { try { fn(data); } catch (e) { console.error('[BM Player] player ' + type + ':', e); } } },
+  emit (type, data) {
+    for (const fn of listeners.get(type) || []) { try { fn(data); } catch (e) { console.error('[BM Player] player ' + type + ':', e); } }
+    // v3.59.0: any change to the queue, its order or repeat: the song waiting next is told again, once
+    if (type === 'queue' && !this._nextSoon) { this._nextSoon = true; queueMicrotask(() => { this._nextSoon = false; this.prepNext(); }); }
+  },
 
   get current () { return this.at >= 0 ? this.queue[this.order[this.at]] || null : null; },
   get paused () { return !this.engine || this.engine.paused; },
@@ -60,8 +66,12 @@ export const player = {
     e.on('fallback', d => this.failedSong(d));
     e.on('plain', d => this.plainSound(d));
     e.on('renewed', d => this.emit('engine', d));
+    // v3.59.0: songs that flow, gapless or crossfaded (audio-engine.js)
+    e.on('advanced', d => this.flowed(d));
+    try { e.setFlow(JSON.parse(localStorage.getItem(FLOW) || 'null') || { mode: 'gapless', seconds: 6 }); } catch (_) { e.setFlow({ mode: 'gapless', seconds: 6 }); }
     try { const s = +localStorage.getItem(SPEED); if (s > 0 && s !== 1) e.setSpeed(s); } catch (_) {}
-    try { const g = JSON.parse(localStorage.getItem(EQ) || 'null'); if (Array.isArray(g?.gains)) e.setEQ(g.gains); if (isFinite(g?.preamp)) e.setSound({ preamp: g.preamp }); } catch (_) {}
+    try { const g = this.eq(); e.setEQ(g.gains); if (isFinite(g.preamp)) e.setSound({ preamp: g.preamp }); } catch (_) {}
+    this.presets = new EqPresets();
     e.setSound(this.sound());
     e.setVolume(100);
     on('remote', d => this.remote(d));
@@ -107,6 +117,39 @@ export const player = {
     this.emit('track', s);
     this.tell();
     this.save();
+    this.prepNext();
+  },
+
+  // ── songs that flow (v3.59.0) ─────────────────────────────────────
+  /** Where in the order the next song is, as next(true) would go, or -1: none waits (shuffled, a new round is a new order). */
+  _nextAt () {
+    if (this.at < 0 || !this.order.length) return -1;
+    if (this.repeat === 'one') return this.at;
+    if (this.at < this.order.length - 1) return this.at + 1;
+    return this.repeat === 'all' && !this.shuffle ? 0 : -1;
+  },
+  /** The engine told which song comes next, so it waits loaded and comes in without a gap. */
+  prepNext () {
+    const e = this.engine; if (!e?.available) return;
+    const at = e.flow.mode === 'off' ? -1 : this._nextAt(), s = at >= 0 ? this.queue[this.order[at]] : null;
+    if (!s?.url) { this._pendingAt = -1; e.queueNext(null); return; }
+    const cur = this.current, runsOn = !!(cur && cur.albumId && cur.albumId === s.albumId && at === this.at + 1);
+    this._pendingAt = at;
+    e.queueNext(s.url, s.path || s.url, { join: runsOn ? 'gapless' : null });
+  },
+  /** The next song came in by itself. */
+  flowed () {
+    if (this._pendingAt >= 0) this.at = this._pendingAt;
+    this._pendingAt = -1; this.failed = 0;
+    this.emit('track', this.current); this.tell(); this.save();
+    this.emit('queue');
+  },
+  /** How one song goes into the next: 'off', 'gapless' or 'crossfade', and the crossfade's seconds. Kept. */
+  setFlow (mode, seconds) {
+    const e = this.engine; if (!e) return;
+    e.setFlow({ mode, seconds });
+    try { localStorage.setItem(FLOW, JSON.stringify(e.flow)); } catch (_) {}
+    this.prepNext();
   },
 
   // ── controls ──────────────────────────────────────────────────────
@@ -241,7 +284,15 @@ export const player = {
     this.engine?.setSound({ preamp });
     try { localStorage.setItem(EQ, JSON.stringify({ gains, name, preamp })); } catch (_) {}
   },
-  eq () { try { return JSON.parse(localStorage.getItem(EQ) || 'null') || { gains: new Array(10).fill(0), name: 'Flat', preamp: 0 }; } catch (_) { return { gains: new Array(10).fill(0), name: 'Flat', preamp: 0 }; } },
+  eq () {
+    let g = null; try { g = JSON.parse(localStorage.getItem(EQ) || 'null'); } catch (_) {}
+    if (!g || !Array.isArray(g.gains)) return { gains: new Array(EQ_FREQUENCIES.length).fill(0), name: 'Flat', preamp: 0 };
+    // ten bands, kept before v3.59.0: spread over the fifteen, sounding as they did
+    if (g.gains.length !== EQ_FREQUENCIES.length) g.gains = eqFrom(g.gains);
+    return g;
+  },
+  /** The output the sound goes to, as the equalizer's presets are tied to it (v3.59.0). */
+  outName (d = this.way || {}) { return { speaker: 'The speaker', wired: 'Wired headphones', usb: 'USB', bluetooth: 'Bluetooth' }[d.out] || ''; },
 
   /**
    * The sound mode, clear voice and night mode (v3.49.0, Sound lab), kept
@@ -250,13 +301,17 @@ export const player = {
    * or faster too (the engine does that from the mode), and the speed menu goes
    * on showing the speed chosen.
    */
+  // v3.59.0: the key (semitones, the speed kept) and the voice changer, not kept between runs
   sound () {
-    try { const o = JSON.parse(localStorage.getItem(SOUND) || '{}'); return { mode: typeof o.mode === 'string' ? o.mode : 'off', voice: o.voice === true, night: o.night === true }; }
-    catch (_) { return { mode: 'off', voice: false, night: false }; }
+    const now = { key: this._key || 0, voicefx: this._vfx || 'off' };
+    try { const o = JSON.parse(localStorage.getItem(SOUND) || '{}'); return { mode: typeof o.mode === 'string' ? o.mode : 'off', voice: o.voice === true, night: o.night === true, ...now }; }
+    catch (_) { return { mode: 'off', voice: false, night: false, ...now }; }
   },
   setSound (next) {
-    const o = { ...this.sound(), ...next };
-    try { localStorage.setItem(SOUND, JSON.stringify(o)); } catch (_) {}
+    if ('key' in next) this._key = Math.max(-12, Math.min(12, Math.round(+next.key || 0)));
+    if ('voicefx' in next) this._vfx = next.voicefx || 'off';
+    const o = { ...this.sound(), ...next, key: this._key || 0, voicefx: this._vfx || 'off' };
+    try { localStorage.setItem(SOUND, JSON.stringify({ mode: o.mode, voice: o.voice, night: o.night })); } catch (_) {}
     this.engine?.setSound(o);
     this.emit('sound', o); this.tell();
   },
@@ -293,9 +348,17 @@ export const player = {
   // and songs on a neckband sounded like a phone call. The engine makes its
   // sound again for the new way out.
   route (d = {}) {
+    const was = this.outName();
     this.way = d;
     if (!this.engine?.available) return;
     this.engine.renew(d.why || 'the way out changed');
+    // v3.59.0: an output with its own equalizer preset gets it, and the curve from before comes back after
+    const now = this.outName(d);
+    if (now !== was && this.presets) {
+      const c = this.eq(); this.presets.set(c.gains, c.preamp, c.name);
+      const used = this.presets.outputChanged(now);
+      if (used) { this.setEQ(this.presets.eq.slice(), used, this.presets.preamp); toast(now + ': the ' + used + ' equaliser', 2500); this.emit('eq'); }
+    }
     // Taken by a call or another app, the headset's call channel carries all
     // the sound: nothing here can change that, and it is said once.
     if (d.callChannel && !this.micOn && !this._toldCall) {

@@ -21,9 +21,13 @@
  * v3.49.0, Sound lab: the sound modes (Slowed + reverb, Nightcore, 8D, Bass
  * boost, Vocal remover, Concert hall, Lo-fi, Wider stereo), one at a time,
  * and clear voice for films. Both are kept, as night mode is.
+ *
+ * v3.59.0: the key, up or down in semitones with the speed kept, and a
+ * voice changer (chipmunk, deep, robot, alien, echo, old radio), in films
+ * and songs. Like the boost, neither is kept: each start is as it was made.
  */
-import { CHANNELS, MODES } from '../sound-chain.js';
-export { CHANNELS, MODES };
+import { CHANNELS, MODES, VOICES } from '../sound-chain.js';
+export { CHANNELS, MODES, VOICES };
 const KEY = 'bm_sound';
 export const BOOSTS = [100, 150, 200];
 
@@ -33,6 +37,7 @@ export class Sound {
     this.apply = apply || (() => {});
     this.osd = osd || (() => {});
     this.night = false; this.channels = 'stereo'; this.boost = 100; this.mode = 'off'; this.voice = false;
+    this.key = 0; this.voicefx = 'off';
     try {
       const s = JSON.parse(localStorage.getItem(KEY) || '{}');
       this.night = s.night === true;
@@ -41,7 +46,7 @@ export class Sound {
       this.voice = s.voice === true;
     } catch (_) {}
   }
-  get fx() { return { night: this.night, channels: this.channels, boost: this.boost, mode: this.mode, voice: this.voice }; }
+  get fx() { return { night: this.night, channels: this.channels, boost: this.boost, mode: this.mode, voice: this.voice, key: this.key, voicefx: this.voicefx }; }
   _save() { try { localStorage.setItem(KEY, JSON.stringify({ night: this.night, channels: this.channels, mode: this.mode, voice: this.voice })); } catch (_) {} }
   _changed(say) { this._save(); this.apply(); this.sync(); if (say) this.osd(say); }
   setNight(on) { this.night = !!on; this._changed(this.night ? 'Night mode: quiet parts up, loud parts down' : 'Night mode off'); }
@@ -60,7 +65,17 @@ export class Sound {
     this._changed(m === 'off' ? 'Sound mode off' : 'Sound mode: ' + MODES.find(([k]) => k === m)[1]);
   }
   setVoice(on) { this.voice = !!on; this._changed(this.voice ? 'Clear voice: the words come forward' : 'Clear voice off'); }
-  reset() { this.night = false; this.channels = 'stereo'; this.boost = 100; this.mode = 'off'; this.voice = false; this._changed(); }
+  /** The key in semitones, -12 to 12 (v3.59.0). */
+  setKey(n) {
+    this.key = Math.max(-12, Math.min(12, Math.round(+n || 0)));
+    this._changed(this.key ? `Key: ${this.key > 0 ? '+' : ''}${this.key} semitone${Math.abs(this.key) === 1 ? '' : 's'}, the speed kept` : 'Key as it was made');
+  }
+  setVoiceFx(v) {
+    if (!VOICES.some(([k]) => k === v)) v = 'off';
+    this.voicefx = v;
+    this._changed(v === 'off' ? 'Voice changer off' : 'Voice changer: ' + VOICES.find(([k]) => k === v)[1].toLowerCase());
+  }
+  reset() { this.night = false; this.channels = 'stereo'; this.boost = 100; this.mode = 'off'; this.voice = false; this.key = 0; this.voicefx = 'off'; this._changed(); }
 
   /** The panel's buttons (index.html, the Sound part of #panel-eq). */
   wire(root) {
@@ -71,6 +86,8 @@ export class Sound {
     for (const b of root.querySelectorAll('[data-snd-boost]')) b.addEventListener('click', () => this.setBoost(b.dataset.sndBoost));
     for (const b of root.querySelectorAll('[data-snd-mode]')) b.addEventListener('click', () => this.setMode(b.dataset.sndMode));
     for (const b of root.querySelectorAll('[data-snd-voice]')) b.addEventListener('click', () => this.setVoice(b.dataset.sndVoice === 'on'));
+    for (const b of root.querySelectorAll('[data-snd-key]')) b.addEventListener('click', () => { const v = b.dataset.sndKey; this.setKey(v === '0' ? 0 : this.key + (+v)); });
+    for (const b of root.querySelectorAll('[data-snd-vfx]')) b.addEventListener('click', () => this.setVoiceFx(b.dataset.sndVfx));
     this.sync();
   }
   sync() {
@@ -81,5 +98,7 @@ export class Sound {
     mark('[data-snd-boost]', b => +b.dataset.sndBoost === this.boost);
     mark('[data-snd-mode]', b => b.dataset.sndMode === this.mode);
     mark('[data-snd-voice]', b => (b.dataset.sndVoice === 'on') === this.voice);
+    mark('[data-snd-vfx]', b => b.dataset.sndVfx === this.voicefx);
+    const kv = root.querySelector('[data-snd-key-val]'); if (kv) kv.textContent = (this.key > 0 ? '+' : '') + this.key;
   }
 }

@@ -53,11 +53,13 @@ const h = { visible: false, fg: true, mode: 'fox', fox: null, fluid: null, theme
 
 // v3.48.0: the scenes Home can show instead of the theme's own, loaded when chosen
 const SCENES = [['theme', 'The theme\'s own', 'Its colours\' own background'], ['aurora', 'Aurora Lake', 'A mountain lake under the northern lights'],
-  ['jellyfish', 'Jellyfish Drift', 'Jellyfish pulsing in deep water, in time with the music']];
+  ['jellyfish', 'Jellyfish Drift', 'Jellyfish pulsing in deep water, in time with the music'],
+  ['garden', 'Butterfly Garden', 'Butterflies over a garden bed, landing on the flowers']];   // v3.59.0
+const TAPS = [['grow', 'Grow a flower'], ['gust', 'Gust']];   // v3.59.0: the Butterfly Garden's (scenes/garden.js)
 const LOOKS = [['natural', 'Natural'], ['glow', 'Glow']];       // v3.49.0: Jellyfish Drift's (scenes/jellyfish.js)
 const COLOURS = [['green', 'Green'], ['violet', 'Violet'], ['both', 'Both']];
 const store = (k, v) => { try { if (v === undefined) return localStorage.getItem(k); localStorage.setItem(k, v); } catch (_) { return null; } return null; };
-const loadScene = id => ({ aurora: () => import('./scenes/aurora.js'), jellyfish: () => import('./scenes/jellyfish.js') }[id]?.() || Promise.resolve(null));
+const loadScene = id => ({ aurora: () => import('./scenes/aurora.js'), jellyfish: () => import('./scenes/jellyfish.js'), garden: () => import('./scenes/garden.js') }[id]?.() || Promise.resolve(null));
 
 const MODE_ICON = {
   fox: '<svg viewBox="0 0 24 24"><path d="M4 3l4.2 4.6h7.6L20 3l-.9 9.2L12 21l-7.1-8.8z" fill="currentColor"/></svg>',
@@ -153,6 +155,11 @@ function sceneSheet () {
     const look = store('bm_m_jelly_look') || 'natural';
     items.push(...LOOKS.map(([k, l]) => ({ label: 'Look: ' + l, on: look === k, action: () => { store('bm_m_jelly_look', k); h.scene?.set('look', k); } })));
   }
+  if (h.sceneId === 'garden') {
+    const tap = store('bm_m_garden_tap') || 'grow', breeze = store('bm_m_garden_breeze') !== '0';
+    items.push(...TAPS.map(([k, l]) => ({ label: 'A tap: ' + l.toLowerCase(), on: tap === k, action: () => { store('bm_m_garden_tap', k); h.scene?.set('tap', k); } })));
+    items.push({ label: 'Breeze', note: breeze ? 'On' : 'Off', on: breeze, action: () => { store('bm_m_garden_breeze', breeze ? '0' : '1'); h.scene?.set('breeze', !breeze); } });
+  }
   sheet({ title: 'Scene', sub: 'What is behind the fox. A scene of its own, or the theme\'s.', items });
 }
 
@@ -179,7 +186,7 @@ async function applyScene () {
     h.scene = new SceneRunner(cv, { still: perf.tier === 'low', level: () => meter(player.paused ? null : player.engine?.getAnalyser?.()) });
     wireScene();
   }
-  if (h.scene.def?.id !== def.id) { h.scene.rest(true); h.scene.run(def, { colour: store('bm_m_aurora_colour') || 'green', shoot: store('bm_m_aurora_shoot') !== '0', look: store('bm_m_jelly_look') || 'natural' }); }
+  if (h.scene.def?.id !== def.id) { h.scene.rest(true); h.scene.run(def, { colour: store('bm_m_aurora_colour') || 'green', shoot: store('bm_m_aurora_shoot') !== '0', look: store('bm_m_jelly_look') || 'natural', tap: store('bm_m_garden_tap') || 'grow', breeze: store('bm_m_garden_breeze') !== '0' }); }
   sync();
 }
 

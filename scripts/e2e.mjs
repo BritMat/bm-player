@@ -2525,23 +2525,29 @@ if (PART === 'd') {
     const SUB_EN = VID.replace(/\.[^.]+$/, '.en.srt'), SUB_ML = VID.replace(/\.[^.]+$/, '.ml.srt');
     fs.writeFileSync(SUB_EN, '1\n00:00:00,000 --> 00:01:00,000\nThe first line of the test\n');
     fs.writeFileSync(SUB_ML, '1\n00:00:00,000 --> 00:01:00,000\nപരീക്ഷണത്തിന്റെ ആദ്യ വരി\n');
-    const startFilm = async () => {
-      await page.evaluate(v => { bmApp.playMedia([v]); }, VID);
+    // v3.59.0: another film beside it, for what each film keeps of its own (film-memory.js)
+    const VID2 = VID.replace(/(\.[^.]+)$/, ' (other)$1'); try { fs.copyFileSync(VID, VID2); } catch (_) {}
+    const startFilm = async (v = VID) => {
+      await page.evaluate(v => { bmApp.playMedia([v]); }, v);
       let t = 0; for (let k = 0; k < 30 && !(t > 0.5); k++) { await page.waitForTimeout(200); t = (await mpvGet('time-pos')) || 0; }
       if (!(t > 0.5)) throw new Error('the film did not start');
     };
 
-    await step('picture: colour, zoom and filling the screen reach the real mpv, and the next film is at its own size', async () => {
+    await step('picture: colour, zoom and filling the screen reach the real mpv, another film is at its own size, and the first keeps its zoom', async () => {
       await startFilm();
       await page.evaluate(() => { const p = bmApp.picture; p.set('brightness', 20); p.set('contrast', -10); p.setZoom(200); p.setPan(50, 0); p.setFill(true); });
       await page.waitForTimeout(300);
       const got = {}; for (const k of ['brightness', 'contrast', 'video-zoom', 'video-pan-x', 'panscan']) got[k] = await mpvGet(k);
       if (got.brightness !== 20 || got.contrast !== -10 || Math.abs(got['video-zoom'] - 1) > 1e-3 || !(got['video-pan-x'] > 0) || got.panscan !== 1) throw new Error('mpv has ' + JSON.stringify(got));
-      await startFilm();
+      await startFilm(VID2);
       const z = await mpvGet('video-zoom'), b = await mpvGet('brightness');
-      await page.evaluate(() => bmApp.picture.reset());
-      if (z !== 0) throw new Error('the next film kept the zoom: ' + z);
+      // the first film again: its own zoom back (v3.59.0)
+      await startFilm(); await page.waitForTimeout(1800);
+      const z1 = await mpvGet('video-zoom');
+      await page.evaluate(() => { bmApp.picture.reset(); localStorage.removeItem('bm_film_memory'); bmApp.filmMemory.files = {}; bmApp.filmMemory.seriesRec = {}; });
+      if (z !== 0) throw new Error('another film took the zoom: ' + z);
       if (b !== 20) throw new Error('the next film lost the brightness: ' + b);
+      if (Math.abs(z1 - 1) > 1e-3) throw new Error('the first film again did not get its zoom back: ' + z1);
     });
 
     await step('sound: night mode, mono and a boost are one filter the real mpv takes, and the film plays on', async () => {

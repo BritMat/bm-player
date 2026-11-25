@@ -450,7 +450,8 @@ try {
   ok(await until(() => { const e = window.bmLyrics.music.engine; return Math.abs(e.el.playbackRate - e.speed * 1.25) < 1e-6 && e.el.preservesPitch === false && !e.chain.live.includes('hall'); }), 'Nightcore: a quarter faster, the pitch following, the hall gone');
   await page.tap('#sheet .snd [data-voice="on"]');
   ok(await until(() => window.bmLyrics.music.engine.chain.live.includes('voice')), 'clear voice goes in');
-  ok(await until(() => ['mode="nightcore"', 'voice="on"', 'night="off"'].every(a => document.querySelector(`#sheet .snd [data-${a}]`)?.classList.contains('on')) && document.querySelectorAll('#sheet .snd .chip.on').length === 3), 'the sheet shows what is on');
+  // v3.59.0: and the voice changer, off
+  ok(await until(() => ['mode="nightcore"', 'voice="on"', 'night="off"', 'vfx="off"'].every(a => document.querySelector(`#sheet .snd [data-${a}]`)?.classList.contains('on')) && document.querySelectorAll('#sheet .snd .chip.on').length === 4), 'the sheet shows what is on');
   await shot('03b-sound-modes');
   ok(await ev(() => { const k = JSON.parse(localStorage.getItem('bm_m_sound') || '{}'); return k.mode === 'nightcore' && k.voice === true; }), 'and they are kept for next time');
   await ev(() => window.BMNative.back());

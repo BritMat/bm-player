@@ -47,7 +47,8 @@ export class Output {
       if (typeof s.device === 'string' && s.device) { this.device = s.device; this.label = String(s.label || ''); }
       this.passthrough = s.passthrough === true;
     } catch (_) {}
-    try { navigator.mediaDevices?.addEventListener?.('devicechange', () => this.refresh()); } catch (_) {}
+    try { navigator.mediaDevices?.addEventListener?.('devicechange', () => { this.refresh(); this._watchOut(); }); } catch (_) {}
+    this.onOutput = null; this._outNow = null;   // v3.59.0: told when the sound moves to another output (the equalizer's own preset)
   }
 
   _set (name, value) { try { return this.mpv()?.cmd('set_property', name, value)?.catch?.(() => {}); } catch (_) {} }
@@ -62,6 +63,26 @@ export class Output {
     } catch (_) {}
     this.sync();
     return this.list;
+  }
+
+  /**
+   * Where the sound goes now, by name (v3.59.0): the device chosen, or for
+   * the system's own, the one the system uses at the moment (the browser's
+   * "Default - ..." entry). '' when the system does not say.
+   */
+  async current () {
+    if (this.device !== 'auto') return this.label || this.device;
+    try {
+      const devs = await navigator.mediaDevices?.enumerateDevices?.() || [];
+      const d = devs.find(x => x.kind === 'audiooutput' && x.deviceId === 'default');
+      return d ? String(d.label || '').replace(/^Default\s*-\s*/i, '').trim() : '';
+    } catch (_) { return ''; }
+  }
+  async _watchOut () {
+    const now = await this.current();
+    if (now === this._outNow) return;
+    const was = this._outNow; this._outNow = now;
+    if (was !== null) this.onOutput?.(now);
   }
 
   /** The browser's id of the chosen device, for the in-app engine. '' is the system's own. */
@@ -83,6 +104,7 @@ export class Output {
 
   /** Everything said to mpv and to the engine again: after mpv starts. */
   applyAll () {
+    this._watchOut();
     this._set('audio-device', this.device);
     this._set('audio-spdif', this.passthrough ? SPDIF : '');
     this._applySongs();
@@ -97,6 +119,7 @@ export class Output {
     this._set('audio-device', this.device);
     this._applySongs();
     if (say) this.osd('Sound to ' + (d ? d.description : "the system's own device"));
+    this._watchOut();
   }
   setPassthrough (on, say) {
     this.passthrough = !!on; this._save();
