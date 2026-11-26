@@ -63,7 +63,7 @@ export class HiFi {
   async setCorrection (curve) {
     this.hp = curve || null;
     const out = await this._outName();
-    if (out) { if (curve) this.byOutput[out] = curve; else delete this.byOutput[out]; }
+    if (out) { if (curve) { this.byOutput[out] = curve; this.output()?.follow?.(); } else delete this.byOutput[out]; }
     this._changed(curve ? 'Headphone correction: ' + curve.name : 'Headphone correction off');
   }
   async _outName () { try { return await this.output()?.current?.() || ''; } catch (_) { return ''; } }

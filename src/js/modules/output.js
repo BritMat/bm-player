@@ -47,8 +47,23 @@ export class Output {
       if (typeof s.device === 'string' && s.device) { this.device = s.device; this.label = String(s.label || ''); }
       this.passthrough = s.passthrough === true;
     } catch (_) {}
-    try { navigator.mediaDevices?.addEventListener?.('devicechange', () => { this.refresh(); this._watchOut(); }); } catch (_) {}
     this.onOutput = null; this._outNow = null;   // v3.59.0: told when the sound moves to another output (the equalizer's own preset)
+    this._following = false;
+  }
+
+  /**
+   * Following the output the sound goes to (v3.59.0), from when something
+   * hangs on it: an equalizer preset or a headphone correction tied to an
+   * output. Asking the system for its devices starts Chromium's audio
+   * service, a process of its own (200 MB more in all on the laptop's
+   * check), which a player that only shows pictures, or plays with no tie,
+   * has no need of. The equalizer panel asks too, while it is open.
+   */
+  follow () {
+    if (this._following) return;
+    this._following = true;
+    try { navigator.mediaDevices?.addEventListener?.('devicechange', () => { this.refresh(); this._watchOut(); }); } catch (_) {}
+    this._watchOut();
   }
 
   _set (name, value) { try { return this.mpv()?.cmd('set_property', name, value)?.catch?.(() => {}); } catch (_) {} }
@@ -104,7 +119,7 @@ export class Output {
 
   /** Everything said to mpv and to the engine again: after mpv starts. */
   applyAll () {
-    this._watchOut();
+    if (this._following) this._watchOut();
     this._set('audio-device', this.device);
     this._set('audio-spdif', this.passthrough ? SPDIF : '');
     this._applySongs();
@@ -119,7 +134,7 @@ export class Output {
     this._set('audio-device', this.device);
     this._applySongs();
     if (say) this.osd('Sound to ' + (d ? d.description : "the system's own device"));
-    this._watchOut();
+    if (this._following) this._watchOut();
   }
   setPassthrough (on, say) {
     this.passthrough = !!on; this._save();

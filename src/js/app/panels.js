@@ -52,9 +52,12 @@ export default class PanelsFeature {
       if(!out){e.target.checked=false;this.showOSD('The system does not say which output this is');return;}
       if(e.target.checked&&!eqp.name){e.target.checked=false;this.showOSD('Pick a preset, or save this curve as one, first');return;}
       eqp.tie(out,e.target.checked?eqp.name:'');
+      if(e.target.checked)this.output?.follow?.();
       this.showOSD(e.target.checked?eqp.name+' comes on whenever the sound goes to '+out:out+' keeps whatever curve is on');
       this._eqShow();
     });
+    // v3.59.0: the output followed only when a preset or a correction is tied to one (output.js follow)
+    if(Object.keys(eqp.byOutput||{}).length||Object.keys(this.hifi?.byOutput||{}).length)this.output?.follow?.();
     if(this.output)this.output.onOutput=name=>{this.hifi?.outputChanged(name);const used=eqp.outputChanged(name);if(used==null)return;this.eqValues=eqp.eq.slice();this.eqPreamp=eqp.preamp;this._eqShow();this._applyEQ();this.showOSD((name||'The system\'s own device')+': the '+used+' equalizer');};
     el('btn-reset-eq')?.addEventListener('click',()=>{eqp.use('Flat');this.eqValues=eqp.eq.slice();this.eqPreamp=0;eqp.set(this.eqValues,0,'Flat');this._eqShow();this._applyEQ();});
     // The preamp (v3.49.0): the whole sound up or down before the bands.
@@ -73,6 +76,8 @@ export default class PanelsFeature {
     this._showPreamp();
     const eqp=this.eqp,box=el('eq-presets');if(!eqp||!box)return;
     box.innerHTML=eqp.names().map(n=>'<button class="eq-preset-btn'+(n===eqp.name?' active':'')+'" data-p="'+esc(n)+'" aria-pressed="'+(n===eqp.name)+'">'+esc(n)+(eqp.isMine(n)?'<span class="eq-del" role="button" tabindex="-1" data-eq-del="'+esc(n)+'" aria-label="Delete the preset '+esc(n)+'" title="Delete this preset">×</span>':'')+'</button>').join('');
+    // which output this is, asked only with the panel open: asking starts the audio service (output.js follow)
+    if(!el('panel-eq')?.classList.contains('open'))return;
     const out=await this.output?.current?.().catch?.(()=>'')??'';
     const tie=el('eq-tie'),lbl=el('eq-tie-label');
     if(tie){tie.disabled=!out;tie.checked=!!out&&!!eqp.name&&eqp.tiedTo(out)===eqp.name;}

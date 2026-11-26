@@ -530,7 +530,7 @@ async function main() {
     q.setPreset('nonsense'); if (q.preset !== 'high') throw new Error('an unknown preset was taken');
     localStorage.removeItem('bm_quality');
   });
-  await step('where the sound goes: the browser device is found by the name mpv gives it', async () => {
+  await step('where the sound goes: the browser device is found by the name mpv gives it, and asked for only when something is tied to an output', async () => {
     const { matchDevice } = await load('src/js/modules/output.js');
     const devs = [
       { kind: 'audiooutput', deviceId: 'default', label: 'Default - Speakers (Realtek(R) Audio)' },
@@ -542,6 +542,23 @@ async function main() {
     if (matchDevice('Headphones (WH-1000XM4 Stereo)', devs)?.deviceId !== 'b2') throw new Error('the headphones');
     if (matchDevice('HDMI (LG TV)', devs) !== null) throw new Error('a device that is not there was matched');
     if (matchDevice('', devs) !== null) throw new Error('nothing matched something');
+    // v3.59.0, from the laptop's check: asking the system for its devices starts the audio service (200 MB more),
+    // so the output is followed only once a preset or a correction is tied to one
+    const { Output } = await load('src/js/modules/output.js');
+    const asked = [], listened = [];
+    const had = Object.getOwnPropertyDescriptor(globalThis, 'navigator');
+    Object.defineProperty(globalThis, 'navigator', { configurable: true, value: { mediaDevices: { enumerateDevices: async () => { asked.push(1); return devs; }, addEventListener: (k) => listened.push(k) } } });
+    try {
+      const out = new Output({ mpv: () => fakeMpv(), engine: () => null });
+      out.applyAll(); out.setDevice('auto');
+      await new Promise(z => setTimeout(z, 20));
+      if (asked.length || listened.length) throw new Error('the devices were asked for with nothing tied to an output: ' + JSON.stringify({ asked: asked.length, listened }));
+      const heard = []; out.onOutput = n => heard.push(n);
+      out.follow(); out.follow();
+      await new Promise(z => setTimeout(z, 20));
+      if (asked.length !== 1 || listened.join() !== 'devicechange') throw new Error('follow did not start following, once: ' + JSON.stringify({ asked: asked.length, listened }));
+      if (out._outNow !== 'Speakers (Realtek(R) Audio)' || heard.length) throw new Error('the output in use, without a change said: ' + JSON.stringify({ now: out._outNow, heard }));
+    } finally { if (had) Object.defineProperty(globalThis, 'navigator', had); else delete globalThis.navigator; }
   });
   await step('what each film keeps: the series from the name, its tracks matched by language, kept and given back', async () => {
     const { FilmMemory, seriesOf, pickTrack } = await load('src/js/modules/film-memory.js');

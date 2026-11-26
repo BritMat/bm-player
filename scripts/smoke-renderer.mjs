@@ -798,8 +798,10 @@ async function main() {
         await eng.load('file:///a/z.mp3', '/a/z.mp3', true);
         m = fakeMedia(eng.el); m.at(33); m.ready = 2; seen = [];
         eng._unwatch(); eng._watch();
-        await tick(700);
-        if (!eng._recovering && !seen.some(e => e[0] === 'recovered')) throw new Error('a song that stood still was not loaded again');
+        // looked at until it happens, three seconds at most: a fixed 700 ms failed once on the laptop's check (v3.59.0)
+        const t0 = Date.now();
+        while (!eng._recovering && !seen.some(e => e[0] === 'recovered') && Date.now() - t0 < 3000) await tick(20);
+        if (!eng._recovering && !seen.some(e => e[0] === 'recovered')) throw new Error('a song that stood still was not loaded again: ' + JSON.stringify({ wantPlay: eng._wantPlay, paused: eng.el.paused, active: eng.active, tries: eng._tries, at: eng._at, watching: !!eng._watchT, seen }));
       } finally { AudioEngine.STALL_MS = was; }
       eng.destroy();
     } finally { console.warn = warn; }

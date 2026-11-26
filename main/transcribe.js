@@ -5,7 +5,8 @@
  * github.com/ggml-org/whisper.cpp). Nothing is sent anywhere.
  *
  *   whisper.cpp  fetched the first time it is wanted, from its own GitHub
- *                releases (Windows, Linux); on the Mac, Homebrew's
+ *                releases (Windows, Linux: the nightly build a numbered
+ *                release names, see findAsset); on the Mac, Homebrew's
  *                (brew install whisper-cpp), or one found on the PATH
  *   a model      tiny (75 MB), base (142 MB) or small (466 MB), fetched the
  *                first time from Hugging Face, where whisper.cpp keeps them,
@@ -46,7 +47,7 @@ const MODELS = {
   small: { file: 'ggml-small.bin', sha1: '55356645c2b361a969dfd0ef2c5a50d530afd8d5', mb: 466 },
 };
 const HF = 'https://huggingface.co/ggerganov/whisper.cpp/resolve/main/';
-const RELEASES = 'https://api.github.com/repos/ggml-org/whisper.cpp/releases/latest';
+const RELEASES = 'https://api.github.com/repos/ggml-org/whisper.cpp/releases';
 const PIECE = 30, AHEAD = 90, LIVE_PIECE = 8;
 const EXE = process.platform === 'win32' ? 'whisper-cli.exe' : 'whisper-cli';
 
@@ -56,6 +57,25 @@ function assetName (platform = process.platform, arch = process.arch) {
   if (platform === 'linux' && arch === 'x64') return 'whisper-bin-ubuntu-x64.tar.gz';
   if (platform === 'linux' && arch === 'arm64') return 'whisper-bin-ubuntu-arm64.tar.gz';
   return null;
+}
+
+/**
+ * The release that has this computer's file, and the file. Since v1.9.3
+ * whisper.cpp's numbered releases carry no programs: those are on the
+ * nightly build (a b* tag) that each release names in its notes ("Nightly
+ * build: [b4938](...)"). So: the latest release if it has the file, then the
+ * nightly it names, then the newest release of any kind that has it.
+ * getJson(url) gives the parsed answer of GitHub's API, or null.
+ */
+async function findAsset (name, getJson) {
+  const has = r => r && !r.draft && (r.assets || []).find(a => a.name === name);
+  const latest = await getJson(RELEASES + '/latest');
+  let a = has(latest); if (a) return { rel: latest, asset: a };
+  const nightly = /Nightly build:\W*\[?(b\d+)\]?/i.exec((latest && latest.body) || '');
+  if (nightly) { const r = await getJson(RELEASES + '/tags/' + nightly[1]); a = has(r); if (a) return { rel: r, asset: a }; }
+  const list = await getJson(RELEASES + '?per_page=30');
+  for (const r of Array.isArray(list) ? list : []) { a = has(r); if (a) return { rel: r, asset: a }; }
+  return { rel: latest, asset: null };
 }
 
 // ── subtitles: read, moved, added up, written ───────────────────────
@@ -139,9 +159,9 @@ function makeService ({ userData, mpvBin, send, ua, env = process.env } = {}) {
     const have = cliNow(); if (have) return have;
     const name = assetName();
     if (!name) throw new Error(process.platform === 'darwin' ? 'whisper.cpp is needed: install it with Homebrew (brew install whisper-cpp), then try again' : 'whisper.cpp has no ready-made version for this computer; install it so whisper-cli is on the PATH');
-    const rel = await (await electronNet.fetch(RELEASES, { headers: { 'User-Agent': ua, Accept: 'application/vnd.github+json' } })).json();
-    const asset = (rel.assets || []).find(a => a.name === name);
-    if (!asset) throw new Error(`whisper.cpp's latest release (${rel.tag_name || '?'}) has no ${name}`);
+    const getJson = async url => { const r = await electronNet.fetch(url, { headers: { 'User-Agent': ua, Accept: 'application/vnd.github+json' } }); return r.ok ? r.json() : null; };
+    const { rel, asset } = await findAsset(name, getJson);
+    if (!asset) throw new Error(`no whisper.cpp release has ${name} (the latest is ${(rel && rel.tag_name) || 'not known'})`);
     const file = path.join(dir, name);
     await fetchTo(asset.browser_download_url, file, { ua, progress: (got, total) => say('transcribe:progress', { what: 'whisper.cpp', got, total: total || asset.size }) });
     // GitHub gives each release file's SHA-256 now; checked where it does
@@ -266,4 +286,4 @@ function register (ipcMain) {
   app.on?.('before-quit', () => service?.stop());
 }
 
-module.exports = { register, makeService, parseSrt, addPiece, writeSrt, nextPiece, addRange, assetName, MODELS };
+module.exports = { register, makeService, parseSrt, addPiece, writeSrt, nextPiece, addRange, assetName, findAsset, MODELS };

@@ -1364,7 +1364,7 @@ await step('PiP size button cycles three sizes, anchored and on screen', async (
   });
 
   // v3.59.0: subtitles from the audio: whisper's pieces read, moved and added up, and what to write next
-  await step('subtitles from the audio: pieces read, moved to their place, added up, and the next piece chosen', () => {
+  await step('subtitles from the audio: pieces read, moved to their place, added up, the next piece chosen, and the release with the programs found', async () => {
     const T = require(path.join(ROOT, 'main/transcribe.js'));
     const piece = T.parseSrt('1\n00:00:00,000 --> 00:00:02,500\n Hello there.\n\n2\n00:00:03,000 --> 00:00:05,000\n[BLANK_AUDIO]\n\n3\n00:00:06,000 --> 00:00:31,000\n The end.\n');
     if (piece.length !== 2 || piece[0].text !== 'Hello there.') throw new Error('read: ' + JSON.stringify(piece));
@@ -1381,6 +1381,26 @@ await step('PiP size button cycles three sizes, anchored and on screen', async (
     if (T.nextPiece([[0, 200]], 100, 600) !== null) throw new Error('far enough ahead, and still writing');
     if (T.nextPiece([[0, 599.8]], 590, 600) !== null) throw new Error('past the end');
     if (T.assetName('win32', 'x64') !== 'whisper-bin-x64.zip' || T.assetName('linux', 'x64') !== 'whisper-bin-ubuntu-x64.tar.gz' || T.assetName('darwin', 'arm64') !== null) throw new Error('the release file for each computer');
+    // v3.59.0, from the laptop's check: v1.9.6, the latest release, has no programs. They are on the nightly it names.
+    const file = n => ({ name: n, browser_download_url: 'https://x/' + n });
+    const api = answers => async url => { const k = url.replace(/^.*\/releases/, ''); asked.push(k); return k in answers ? answers[k] : null; };
+    let asked = [];
+    let got = await T.findAsset('whisper-bin-x64.zip', api({
+      '/latest': { tag_name: 'v1.9.6', body: '## Overview\n\nNew version has been released.\n\n**Nightly build:** [b4938](https://github.com/ggml-org/whisper.cpp/releases/tag/b4938)\n', assets: [] },
+      '/tags/b4938': { tag_name: 'b4938', prerelease: true, assets: [file('whisper-bin-ubuntu-x64.tar.gz'), file('whisper-bin-x64.zip')] },
+    }));
+    if (!got.asset || got.rel.tag_name !== 'b4938' || asked.join(' ') !== '/latest /tags/b4938') throw new Error('the nightly a release names: ' + JSON.stringify({ tag: got.rel && got.rel.tag_name, asked }));
+    asked = [];
+    got = await T.findAsset('whisper-bin-x64.zip', api({ '/latest': { tag_name: 'v1.8.2', assets: [file('whisper-bin-x64.zip')] } }));
+    if (got.rel.tag_name !== 'v1.8.2' || asked.length !== 1) throw new Error('a release that has the file is used as it is');
+    asked = [];
+    got = await T.findAsset('whisper-bin-ubuntu-x64.tar.gz', api({
+      '/latest': { tag_name: 'v1.9.7', body: 'no nightly named', assets: [] },
+      '?per_page=30': [{ tag_name: 'b5001', draft: true, assets: [file('whisper-bin-ubuntu-x64.tar.gz')] }, { tag_name: 'b5000', prerelease: true, assets: [file('whisper-bin-ubuntu-x64.tar.gz')] }],
+    }));
+    if (got.rel.tag_name !== 'b5000') throw new Error('the newest release with the file, drafts left out: ' + (got.rel && got.rel.tag_name));
+    got = await T.findAsset('whisper-bin-x64.zip', api({ '/latest': { tag_name: 'v2.0.0', assets: [] }, '?per_page=30': [] }));
+    if (got.asset !== null || got.rel.tag_name !== 'v2.0.0') throw new Error('none found: the latest is said');
   });
 
   await step('every invoked preload channel has a handler', () => {
