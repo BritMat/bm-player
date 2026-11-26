@@ -408,6 +408,9 @@ if (PART === 'a') {
       const R = e => { const r = e.getBoundingClientRect(); return { l: Math.round(r.left), t: Math.round(r.top), w: Math.round(r.width), h: Math.round(r.height), r: Math.round(r.right), b: Math.round(r.bottom) }; };
       const bar = document.querySelector('.sidebar'), btns = [...bar.querySelectorAll('.sidebar-btn[data-dest]')];
       const act = bar.querySelector('.sidebar-btn.active'), cs = getComputedStyle(document.documentElement);
+      // the open tab's colour as it ends up: on a busy machine (GitHub's Linux runner, v3.59.0) no frame came in
+      // the 450 ms, the 0.14 s fade had not moved, and its first colour, transparent, was read
+      for (const a of act.getAnimations()) { try { a.finish(); } catch (_) {} }
       const c = document.createElement('canvas').getContext('2d'); const norm = v => { c.fillStyle = '#000'; c.fillStyle = v; return c.fillStyle; };
       return { bar: R(bar), btns: btns.map(b => ({ ...R(b), ico: R(b.querySelector('.ico')), lbl: R(b.querySelector('.sb-label')) })), view: R(document.getElementById('music-view')),
         win: innerWidth, actBg: norm(getComputedStyle(act).backgroundColor), accent: norm(cs.getPropertyValue('--accent').trim()), bg: norm(cs.getPropertyValue('--bg').trim()) };
