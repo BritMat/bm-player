@@ -40,6 +40,7 @@ export default class SleepFeature {
     }
   }
   _sleepChanged(){
+    window.bmMusic?._prepNext?.();   // v3.59.0: stopping at the end of this song, nothing waits to flow in
     const s=this.sleep,badge=el('sleep-badge'),txt=el('sleep-badge-text');
     clearInterval(this._sleepTick);this._sleepTick=0;
     const paint=()=>{

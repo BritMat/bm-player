@@ -21,6 +21,7 @@ import { ICONS, setIcon } from './icons.js';
 import { call, on } from './m-android.js';
 import { favItem, songFav } from './m-favs.js';
 import { soundSheet, soundNote } from './m-sound.js';
+import { EqCurve } from './eq-curve.js';   // v3.59.0
 import './viz-settings.js';
 import './md-browser.js';
 
@@ -30,10 +31,8 @@ const AWAKE = 'bm_m_awake';
 export const awakeOn = () => { try { return localStorage.getItem(AWAKE) !== '0'; } catch (_) { return true; } };
 export function setAwake (on) { try { localStorage.setItem(AWAKE, on ? '1' : '0'); } catch (_) {} keepAwake(); }
 
-const EQ_BANDS = ['31', '62', '125', '250', '500', '1k', '2k', '4k', '8k', '16k'];
-const EQ_PRESETS = [['Flat', [0, 0, 0, 0, 0, 0, 0, 0, 0, 0]], ['Bass', [8, 7, 5, 3, 1, 0, 0, 0, 0, 0]], ['Treble', [0, 0, 0, 0, 0, 1, 3, 5, 7, 8]],
-  ['Vocal', [-2, -1, 0, 2, 4, 4, 3, 1, 0, -1]], ['Rock', [5, 4, -2, -4, -2, 2, 5, 6, 6, 5]], ['Pop', [-1, 2, 4, 4, 1, -1, -2, -2, -1, 1]],
-  ['Jazz', [3, 2, 1, 2, -1, -1, 0, 1, 2, 3]], ['Classical', [4, 3, 2, 1, -1, -1, -1, 0, 2, 3]]];
+// v3.59.0: fifteen bands, two thirds of an octave apart (sound-chain.js EQ_FREQUENCIES)
+const EQ_BANDS = ['25', '40', '63', '100', '160', '250', '400', '630', '1k', '1.6k', '2.5k', '4k', '6.3k', '10k', '16k'];
 const TOOLS = { 'np-viz-btn': ['sparkle', 'Visualiser'], 'viz-btn-settings': ['palette', 'Style'], 'viz-btn-presets': ['grid', 'Presets'], 'viz-btn-lyrics': ['lyrics', 'Words'], 'np-full': ['fullscreen', 'Full screen'] };
 
 export function initPlayerUI () {
@@ -310,12 +309,30 @@ function moreMenu () {
     title: s.title, sub: [s.artist, s.album].filter(Boolean).join(' · '), art: songArt(s),
     items: [
       { icon: 'speed', label: 'Speed', note: player.speed === 1 ? 'Normal' : player.speed + '×', action: speedMenu },
-      { icon: 'eq', label: 'Equaliser', note: !player.engine?.available ? 'Not on this phone' : player.engine.plain ? 'Off for now' : (eq.name || 'Custom'), action: eqSheet },
+      { icon: 'eq', label: 'Equaliser', note: !player.engine?.available ? 'Not on this phone' : player.engine.pure ? 'Off with Pure' : player.engine.plain ? 'Off for now' : (eq.name || 'Custom'), action: eqSheet },
       ...(player.engine?.available ? [{ icon: 'wave', label: 'Sound mode', note: soundNote(), action: () => soundSheet() }] : []),
+      ...(player.engine?.available ? [{ icon: 'queueNext', label: 'Between songs', note: flowNote(), action: flowSheet }] : []),
       { icon: 'lyrics', label: 'Lyrics', action: () => { lyrics.showTab('lyrics'); setDrawer(true); } },
       ...[favItem(songFav(s))].filter(Boolean),
       { icon: 'more', label: 'More about this song', action: () => songMenu(s, { fromPlayer: true }) },
       { icon: 'x', label: 'Stop and close', note: 'The music bar goes until something plays', action: stopAndClose },
+    ],
+  });
+}
+
+// v3.59.0: songs that flow into each other (audio-engine.js)
+function flowNote () {
+  const f = player.engine?.flow || { mode: 'off' };
+  return player.engine?.plain ? 'Off for now' : f.mode === 'gapless' ? 'Gapless' : f.mode === 'crossfade' ? 'Crossfade, ' + f.seconds + ' s' : 'Off';
+}
+function flowSheet () {
+  const f = player.engine.flow;
+  sheet({
+    title: 'Between songs', sub: 'Gapless: no silence between songs. Crossfade: the next comes in over the end of this one. Songs from the same album run on into each other.',
+    items: [
+      { label: 'Off', note: 'Each song ends, then the next starts', on: f.mode === 'off', action: () => player.setFlow('off') },
+      { label: 'Gapless', on: f.mode === 'gapless', action: () => player.setFlow('gapless') },
+      ...[3, 6, 10].map(n => ({ label: 'Crossfade, ' + n + ' seconds', on: f.mode === 'crossfade' && f.seconds === n, action: () => player.setFlow('crossfade', n) })),
     ],
   });
 }
@@ -331,33 +348,68 @@ function speedMenu () {
 function eqSheet () {
   if (!player.engine?.available) { toast('The equaliser needs Web Audio, which this phone\'s web engine does not have.'); return; }
   // v3.55.1: the songs play plain while the sound runs at a call's rate (audio-engine.js)
-  if (player.engine.plain) { toast('The equaliser is off for now: through Web Audio, songs would sound like a phone call on this headset. It comes back when the headset changes.', 5000); return; }
-  const cur = player.eq();
-  let gains = cur.gains.slice(0, 10), preamp = Math.max(-12, Math.min(12, +cur.preamp || 0));
-  while (gains.length < 10) gains.push(0);
+  if (player.engine.plain) { toast(player.engine.pure ? 'The equaliser is off while Pure is on (Sound mode, Pure).' : 'The equaliser is off for now: through Web Audio, songs would sound like a phone call on this headset. It comes back when the headset changes.', 5000); return; }
+  // v3.59.0: fifteen bands, the curve over the music, presets of your own and by output (eq-presets.js)
+  const P = player.presets, cur = player.eq();
+  let gains = cur.gains.slice(), preamp = Math.max(-12, Math.min(12, +cur.preamp || 0)), name = cur.name || '';
+  const out = player.outName();
   const body = document.createElement('div');
   body.className = 'eq';
-  body.innerHTML = `<div class="eq-presets">${EQ_PRESETS.map(([n]) => `<button type="button" class="chip${n === cur.name ? ' on' : ''}" data-p="${n}">${n}</button>`).join('')}</div>` +
-    `<div class="eq-bands">${EQ_BANDS.map((f, i) => `<label class="eq-band"><span class="eq-val" id="eq-v${i}">${gains[i] > 0 ? '+' : ''}${gains[i]}</span><input type="range" min="-12" max="12" step="1" value="${gains[i]}" data-i="${i}" aria-label="${f} Hz"><span class="eq-f">${f}</span></label>`).join('')}</div>` +
+  const chips = () => P.names().map(n => `<button type="button" class="chip${n === name ? ' on' : ''}" data-p="${esc(n)}">${esc(n)}${P.isMine(n) ? `<span class="eq-del" data-del="${esc(n)}" aria-label="Delete ${esc(n)}">×</span>` : ''}</button>`).join('');
+  body.innerHTML = `<div class="eq-presets">${chips()}</div>` +
+    `<canvas class="eq-curve" aria-label="The equaliser's curve: drag a dot, or draw across"></canvas>` +
+    `<div class="eq-bands">${EQ_BANDS.map((f, i) => `<label class="eq-band"><span class="eq-val" id="eq-v${i}">${gains[i] > 0 ? '+' : ''}${gains[i]}</span><input type="range" min="-12" max="12" step="0.5" value="${gains[i]}" data-i="${i}" aria-label="${f} Hz"><span class="eq-f">${f}</span></label>`).join('')}</div>` +
     // v3.49.0: the preamp, the whole sound up or down before the bands
-    `<label class="eq-pre"><span>Preamp</span><input type="range" min="-12" max="12" step="1" value="${preamp}" data-pre aria-label="Preamp"><span class="eq-val" id="eq-vpre">${preamp > 0 ? '+' : ''}${preamp} dB</span></label>`;
-  const set = (g, name) => { gains = g; player.setEQ(gains, name, preamp); };
-  body.addEventListener('click', e => {
-    const b = e.target.closest('[data-p]'); if (!b) return;
-    const p = EQ_PRESETS.find(x => x[0] === b.dataset.p); if (!p) return;
-    set(p[1].slice(), p[0]);
-    for (const c of body.querySelectorAll('.chip')) c.classList.toggle('on', c === b);
+    `<label class="eq-pre"><span>Preamp</span><input type="range" min="-12" max="12" step="1" value="${preamp}" data-pre aria-label="Preamp"><span class="eq-val" id="eq-vpre">${preamp > 0 ? '+' : ''}${preamp} dB</span></label>` +
+    `<div class="eq-save"><input type="text" maxlength="40" placeholder="A name for this curve" aria-label="A name for this curve" data-name><button type="button" class="chip" data-save>Save</button></div>` +
+    (out ? `<label class="eq-tie"><input type="checkbox" data-tie> <span data-tie-label></span></label>` : '');
+  const curve = new EqCurve(body.querySelector('.eq-curve'), {
+    gains, analyser: () => player.paused ? null : player.engine?.analyser || null, shown: () => body.isConnected,
+    onChange: g => { gains = g; name = ''; show(true); apply(); },
+  });
+  const apply = () => { P.set(gains, preamp, name); name = P.name; player.setEQ(gains, name || 'Custom', preamp); };
+  const show = fromCurve => {
     body.querySelectorAll('input[type=range][data-i]').forEach((r, i) => { r.value = gains[i]; body.querySelector('#eq-v' + i).textContent = (gains[i] > 0 ? '+' : '') + gains[i]; });
+    if (!fromCurve) curve.set(gains);
+    body.querySelector('.eq-presets').innerHTML = chips();
+    const t = body.querySelector('[data-tie]'), l = body.querySelector('[data-tie-label]');
+    if (t) t.checked = !!name && P.tiedTo(out) === name;
+    if (l) l.textContent = P.tiedTo(out) ? `${out}: ${P.tiedTo(out)}, by itself` : `Use this preset whenever the sound goes to ${out.toLowerCase()}`;
+  };
+  body.addEventListener('click', e => {
+    const d = e.target.closest('[data-del]');
+    if (d) { e.stopPropagation(); if (P.remove(d.dataset.del)) { if (name === d.dataset.del) name = ''; show(); } return; }
+    if (e.target.closest('[data-save]')) {
+      const f = body.querySelector('[data-name]'), n = f.value.trim();
+      if (!n) { f.focus(); return; }
+      P.set(gains, preamp, name);
+      if (P.save(n)) { name = n; f.value = ''; player.setEQ(gains, name, preamp); toast('Saved as ' + n, 1500); show(); }
+      else toast('That is a built-in preset\'s name: give it one of its own');
+      return;
+    }
+    const b = e.target.closest('[data-p]'); if (!b) return;
+    const p = P.all()[b.dataset.p]; if (!p) return;
+    gains = p.eq.slice(); preamp = p.preamp || 0; name = b.dataset.p;
+    const pr = body.querySelector('[data-pre]'); if (pr) { pr.value = preamp; body.querySelector('#eq-vpre').textContent = (preamp > 0 ? '+' : '') + preamp + ' dB'; }
+    apply(); show();
+  });
+  body.addEventListener('change', e => {
+    if (!e.target.matches('[data-tie]')) return;
+    if (e.target.checked && !name) { e.target.checked = false; toast('Pick a preset, or save this curve as one, first'); return; }
+    P.tie(out, e.target.checked ? name : '');
+    show();
   });
   body.addEventListener('input', e => {
-    if (e.target.matches('[data-pre]')) { preamp = +e.target.value; body.querySelector('#eq-vpre').textContent = (preamp > 0 ? '+' : '') + preamp + ' dB'; player.setEQ(gains, player.eq().name, preamp); return; }
+    if (e.target.matches('[data-pre]')) { preamp = +e.target.value; body.querySelector('#eq-vpre').textContent = (preamp > 0 ? '+' : '') + preamp + ' dB'; apply(); return; }
     const r = e.target.closest('input[type=range][data-i]'); if (!r) return;
     const i = +r.dataset.i, g = gains.slice(); g[i] = +r.value;
+    gains = g; name = '';
     body.querySelector('#eq-v' + i).textContent = (g[i] > 0 ? '+' : '') + g[i];
-    for (const c of body.querySelectorAll('.chip')) c.classList.remove('on');
-    set(g, 'Custom');
+    apply(); curve.set(gains);
+    for (const c of body.querySelectorAll('.eq-presets .chip')) c.classList.toggle('on', c.dataset.p === name);
   });
-  sheet({ title: 'Equaliser', sub: 'Ten bands, from the deepest bass to the highest treble.', body, wide: true });
+  sheet({ title: 'Equaliser', sub: 'Fifteen bands, from the deepest bass to the highest treble. Drag a dot on the curve, or draw across it.', body, wide: true, onClose: () => curve.destroy() });
+  show(); curve.start();
 }
 
 // ── swipes ───────────────────────────────────────────────────────────

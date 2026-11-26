@@ -368,13 +368,16 @@ async function main() {
   // in-app engine. What mpv is given must be what 3.46.0 gave it, exactly,
   // for each of these settings (the strings below were taken from that
   // version's sound.js), so films sound as they did.
-  await step('sound chain: mpv gets the filters 3.46.0 gave it, and none when every effect is off', async () => {
+  // v3.59.0: the equalizer has fifteen bands, the same peaking filter in both
+  // players, and ten gains from before are spread over them, so its strings
+  // are the new ones; everything else is as 3.46.0 gave it.
+  await step('sound chain: mpv gets the filters 3.46.0 gave it (the equalizer as 3.59.0 makes it), and none when every effect is off', async () => {
     const { lavfi } = await load('src/js/sound-chain.js');
     const cases = [
       ["nothing", {"eq": [0, 0, 0, 0, 0, 0, 0, 0, 0, 0]}, ""],
-      ["one band", {"eq": [0, 6, 0, 0, 0, 0, 0, 0, 0, 0]}, "lavfi=[equalizer=f=62:width_type=o:width=2:g=6]"],
-      ["rock", {"eq": [5, 4, -2, -4, -2, 2, 5, 6, 6, 5]}, "lavfi=[equalizer=f=31:width_type=o:width=2:g=5,equalizer=f=62:width_type=o:width=2:g=4,equalizer=f=125:width_type=o:width=2:g=-2,equalizer=f=250:width_type=o:width=2:g=-4,equalizer=f=500:width_type=o:width=2:g=-2,equalizer=f=1000:width_type=o:width=2:g=2,equalizer=f=2000:width_type=o:width=2:g=5,equalizer=f=4000:width_type=o:width=2:g=6,equalizer=f=8000:width_type=o:width=2:g=6,equalizer=f=16000:width_type=o:width=2:g=5]"],
-      ["half dB", {"eq": [0, 0, 0, 0, 0, 0, 0, 0, 0, -3.5]}, "lavfi=[equalizer=f=16000:width_type=o:width=2:g=-3.5]"],
+      ["one band", {"eq": [0, 0, 6, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]}, "lavfi=[equalizer=f=63:width_type=q:width=1.8:g=6]"],
+      ["rock, ten gains from before, spread over fifteen", {"eq": [5, 4, -2, -4, -2, 2, 5, 6, 6, 5]}, "lavfi=[equalizer=f=25:width_type=q:width=1.8:g=5,equalizer=f=40:width_type=q:width=1.8:g=4.5,equalizer=f=63:width_type=q:width=1.8:g=4,equalizer=f=160:width_type=q:width=1.8:g=-2.5,equalizer=f=250:width_type=q:width=1.8:g=-4,equalizer=f=400:width_type=q:width=1.8:g=-2.5,equalizer=f=630:width_type=q:width=1.8:g=-0.5,equalizer=f=1000:width_type=q:width=1.8:g=2,equalizer=f=1600:width_type=q:width=1.8:g=4,equalizer=f=2500:width_type=q:width=1.8:g=5.5,equalizer=f=4000:width_type=q:width=1.8:g=6,equalizer=f=6300:width_type=q:width=1.8:g=6,equalizer=f=10000:width_type=q:width=1.8:g=5.5,equalizer=f=16000:width_type=q:width=1.8:g=5]"],
+      ["half dB", {"eq": [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -3.5]}, "lavfi=[equalizer=f=16000:width_type=q:width=1.8:g=-3.5]"],
       ["mono", {"eq": [0, 0, 0, 0, 0, 0, 0, 0, 0, 0], "channels": "mono"}, "lavfi=[aformat=channel_layouts=stereo,pan=stereo|c0=0.5*c0+0.5*c1|c1=0.5*c0+0.5*c1]"],
       ["left", {"eq": [0, 0, 0, 0, 0, 0, 0, 0, 0, 0], "channels": "left"}, "lavfi=[aformat=channel_layouts=stereo,pan=stereo|c0=c0|c1=c0]"],
       ["right", {"eq": [0, 0, 0, 0, 0, 0, 0, 0, 0, 0], "channels": "right"}, "lavfi=[aformat=channel_layouts=stereo,pan=stereo|c0=c1|c1=c1]"],
@@ -384,7 +387,7 @@ async function main() {
       ["boost 150", {"eq": [0, 0, 0, 0, 0, 0, 0, 0, 0, 0], "boost": 1.5}, "lavfi=[volume=1.5,alimiter=limit=0.95]"],
       ["boost 200", {"eq": [0, 0, 0, 0, 0, 0, 0, 0, 0, 0], "boost": 2.0}, "lavfi=[volume=2,alimiter=limit=0.95]"],
       ["boost 100", {"eq": [0, 0, 0, 0, 0, 0, 0, 0, 0, 0], "boost": 1.0}, ""],
-      ["all", {"eq": [3, 0, 0, 0, 0, 0, 0, 0, 0, 0], "channels": "mono", "night": true, "boost": 1.5}, "lavfi=[equalizer=f=31:width_type=o:width=2:g=3,aformat=channel_layouts=stereo,pan=stereo|c0=0.5*c0+0.5*c1|c1=0.5*c0+0.5*c1,acompressor=threshold=0.05:ratio=4:attack=8:release=250:makeup=2,volume=1.5,alimiter=limit=0.95]"],
+      ["all", {"eq": [3, 0, 0, 0, 0, 0, 0, 0, 0, 0], "channels": "mono", "night": true, "boost": 1.5}, "lavfi=[equalizer=f=25:width_type=q:width=1.8:g=3,equalizer=f=40:width_type=q:width=1.8:g=2,aformat=channel_layouts=stereo,pan=stereo|c0=0.5*c0+0.5*c1|c1=0.5*c0+0.5*c1,acompressor=threshold=0.05:ratio=4:attack=8:release=250:makeup=2,volume=1.5,alimiter=limit=0.95]"],
     ];
     for (const [name, s, want] of cases) { const got = lavfi(s); if (got !== want) throw new Error(`${name}: ${got}\n      expected ${want}`); }
   });
@@ -420,7 +423,7 @@ async function main() {
       ["lofi", {"mode": "lofi"}, "lavfi=[highpass=f=200,lowpass=f=3800,vibrato=f=0.5:d=0.6]"],
       ["wide", {"mode": "wide"}, "lavfi=[aformat=channel_layouts=stereo,pan=stereo|c0=1.3*c0-0.3*c1|c1=1.3*c1-0.3*c0,alimiter=limit=0.95]"],
       ["clear voice", {"voice": true}, "lavfi=[dialoguenhance,pan=stereo|c0=c0+0.4*c2|c1=c1+0.4*c2,alimiter=limit=0.95]"],
-      ["preamp", {"preamp": -3.5, "eq": [2]}, "lavfi=[volume=-3.5dB,equalizer=f=31:width_type=o:width=2:g=2]"],
+      ["preamp", {"preamp": -3.5, "eq": [2]}, "lavfi=[volume=-3.5dB,equalizer=f=25:width_type=q:width=1.8:g=2]"],
       ["preamp up", {"preamp": 3}, "lavfi=[volume=3dB,alimiter=limit=0.95]"],
     ];
     for (const [name, s, want] of cases) { const got = lavfi(s); if (got !== want) throw new Error(`${name}: ${got}\n      expected ${want}`); }
@@ -504,6 +507,173 @@ async function main() {
       const next = new L().detectPerfInfo();
       if (next.webglRenderer !== 'Test Card 9000' || made !== 1) throw new Error(`the next start asked again: ${made} contexts`);
     } finally { document.createElement = realCreate; localStorage.removeItem('bm_gl_renderer'); }
+  });
+
+  // ── v3.59.0: picture quality, where the sound goes, what each film keeps ──
+  const fakeMpv = () => { const said = []; return { said, cmd: (c, k, v) => { said.push([c, k, v]); return Promise.resolve(null); } }; };
+  await step('picture quality: auto is Fast in Lite and Balanced elsewhere, each preset says its scalers to mpv', async () => {
+    const { Quality, PRESETS } = await load('src/js/modules/quality.js');
+    localStorage.removeItem('bm_quality');
+    const m = fakeMpv(); let lite = true;
+    const q = new Quality({ mpv: () => m, lite: () => lite });
+    if (q.used !== 'fast') throw new Error('auto in Lite: ' + q.used);
+    lite = false; if (q.used !== 'balanced') throw new Error('auto elsewhere: ' + q.used);
+    q.setPreset('high');
+    const got = Object.fromEntries(m.said.filter(x => x[0] === 'set_property').map(x => [x[1], x[2]]));
+    for (const [k, v] of Object.entries(PRESETS.high)) if (got[k] !== v) throw new Error(`high: ${k} is ${got[k]}, not ${v}`);
+    if (got['video-sync'] !== 'audio' || got.interpolation !== 'no') throw new Error('smooth motion was on: ' + got['video-sync']);
+    q.setMotion(true); q.setHdr('natural');
+    const later = Object.fromEntries(m.said.map(x => [x[1], x[2]]));
+    if (later['video-sync'] !== 'display-resample' || later.interpolation !== 'yes' || later['tone-mapping'] !== 'bt.2390') throw new Error('motion and HDR: ' + JSON.stringify(later));
+    const kept = new Quality({ mpv: () => fakeMpv(), lite: () => false });
+    if (kept.preset !== 'high' || !kept.motion || kept.hdr !== 'natural') throw new Error('not kept: ' + JSON.stringify(kept));
+    q.setPreset('nonsense'); if (q.preset !== 'high') throw new Error('an unknown preset was taken');
+    localStorage.removeItem('bm_quality');
+  });
+  await step('where the sound goes: the browser device is found by the name mpv gives it, and asked for only when something is tied to an output', async () => {
+    const { matchDevice } = await load('src/js/modules/output.js');
+    const devs = [
+      { kind: 'audiooutput', deviceId: 'default', label: 'Default - Speakers (Realtek(R) Audio)' },
+      { kind: 'audiooutput', deviceId: 'a1', label: 'Speakers (Realtek(R) Audio)' },
+      { kind: 'audiooutput', deviceId: 'b2', label: 'Headphones (WH-1000XM4 Stereo)' },
+      { kind: 'audioinput', deviceId: 'c3', label: 'Microphone (Realtek(R) Audio)' },
+    ];
+    if (matchDevice('Speakers (Realtek(R) Audio)', devs)?.deviceId !== 'a1') throw new Error('the speakers');
+    if (matchDevice('Headphones (WH-1000XM4 Stereo)', devs)?.deviceId !== 'b2') throw new Error('the headphones');
+    if (matchDevice('HDMI (LG TV)', devs) !== null) throw new Error('a device that is not there was matched');
+    if (matchDevice('', devs) !== null) throw new Error('nothing matched something');
+    // v3.59.0, from the laptop's check: asking the system for its devices starts the audio service (200 MB more),
+    // so the output is followed only once a preset or a correction is tied to one
+    const { Output } = await load('src/js/modules/output.js');
+    const asked = [], listened = [];
+    const had = Object.getOwnPropertyDescriptor(globalThis, 'navigator');
+    Object.defineProperty(globalThis, 'navigator', { configurable: true, value: { mediaDevices: { enumerateDevices: async () => { asked.push(1); return devs; }, addEventListener: (k) => listened.push(k) } } });
+    try {
+      const out = new Output({ mpv: () => fakeMpv(), engine: () => null });
+      out.applyAll(); out.setDevice('auto');
+      await new Promise(z => setTimeout(z, 20));
+      if (asked.length || listened.length) throw new Error('the devices were asked for with nothing tied to an output: ' + JSON.stringify({ asked: asked.length, listened }));
+      const heard = []; out.onOutput = n => heard.push(n);
+      out.follow(); out.follow();
+      await new Promise(z => setTimeout(z, 20));
+      if (asked.length !== 1 || listened.join() !== 'devicechange') throw new Error('follow did not start following, once: ' + JSON.stringify({ asked: asked.length, listened }));
+      if (out._outNow !== 'Speakers (Realtek(R) Audio)' || heard.length) throw new Error('the output in use, without a change said: ' + JSON.stringify({ now: out._outNow, heard }));
+    } finally { if (had) Object.defineProperty(globalThis, 'navigator', had); else delete globalThis.navigator; }
+  });
+  await step('what each film keeps: the series from the name, its tracks matched by language, kept and given back', async () => {
+    const { FilmMemory, seriesOf, pickTrack } = await load('src/js/modules/film-memory.js');
+    const cases = [['D:/TV/Dark/Dark.S01E02.1080p.mkv', 'dark'], ['/m/The Office (US) - s03e07 - Branch Wars.mkv', 'the office (us)'], ['/m/show_name_2x05.avi', 'show name'], ['/m/Inception.2010.mkv', null], ['/m/Clip S1.mp4', null]];
+    for (const [p, want] of cases) if (seriesOf(p) !== want) throw new Error(`${p}: ${seriesOf(p)}`);
+    const tracks = [{ id: 1, type: 'video' }, { id: 1, type: 'audio', lang: 'jpn' }, { id: 2, type: 'audio', lang: 'eng', title: 'Commentary' }, { id: 3, type: 'audio', lang: 'eng' }, { id: 1, type: 'sub', lang: 'eng' }];
+    if (pickTrack(tracks, 'audio', { id: 2, lang: 'eng', title: '' }, false) !== 3) throw new Error('by language, not by number, in another episode');
+    if (pickTrack(tracks, 'audio', { id: 2, lang: 'eng', title: 'Commentary' }, true) !== 2) throw new Error('its own number in the same film');
+    if (pickTrack(tracks, 'sub', { off: true }) !== 'no') throw new Error('subtitles off');
+    localStorage.removeItem('bm_film_memory');
+    const m = fakeMpv(); const zoom = []; const said = [];
+    const fm = new FilmMemory({ mpv: () => m, picture: { setZoom: z => zoom.push(['z', z]), setPan: (x, y) => zoom.push(['p', x, y]) }, osd: t => said.push(t) });
+    fm.open('D:/TV/Dark/Dark.S01E01.mkv'); fm.tracks(tracks); fm._quietUntil = 0;
+    const chosen = tracks.map(t => ({ ...t, selected: (t.type === 'audio' && t.id === 1) || (t.type === 'video') }));
+    fm.tracks(chosen); fm.delay('sub', -0.5); fm.view(150, [20, 0]);
+    // the next episode, never opened: the series' choices, by language, and no zoom
+    m.said.length = 0; fm.open('E:/Other/Dark.S01E02.mkv');
+    const ep2 = [{ id: 1, type: 'video' }, { id: 1, type: 'audio', lang: 'eng' }, { id: 2, type: 'audio', lang: 'jpn' }, { id: 1, type: 'sub', lang: 'eng' }];
+    fm.tracks(ep2);
+    const got = Object.fromEntries(m.said.map(x => [x[1], x[2]]));
+    if (got.aid !== 2 || got.sid !== 'no' || got['sub-delay'] !== -0.5) throw new Error('the next episode: ' + JSON.stringify(got));
+    if (zoom.length) throw new Error('the zoom went to another episode');
+    if (!/last episode/.test(said.at(-1) || '')) throw new Error('not said: ' + said.at(-1));
+    // the first episode again: its own, with its zoom
+    m.said.length = 0; fm.open('D:/TV/Dark/Dark.S01E01.mkv'); fm.tracks(tracks);
+    if (!zoom.some(z => z[0] === 'z' && z[1] === 150)) throw new Error('its zoom: ' + JSON.stringify(zoom));
+    // a song mpv plays, with its cover as a video: nothing kept
+    const n = Object.keys(fm.files).length;
+    fm.open('/music/a.mp3'); fm._quietUntil = 0; fm.tracks([{ id: 1, type: 'video', albumart: true, selected: true }, { id: 1, type: 'audio', selected: true }]);
+    if (Object.keys(fm.files).length !== n) throw new Error('a song was kept as a film');
+    localStorage.removeItem('bm_film_memory');
+  });
+
+  // v3.59.0: songs made equally loud: where the level comes from, never past the peak, and BS.1770's gates
+  await step('even loudness: tags first, then what was measured, never past the peak, and the quiet parts gated out', async () => {
+    const { levelFor, integrate, TARGET } = await load('src/js/loudness.js');
+    const near = (a, b) => Math.abs(a - b) < 0.05;
+    if (levelFor('off', { rgTrack: -6 }).db !== 0) throw new Error('off still levelled');
+    let r = levelFor('track', { rgTrack: -6.5, rgAlbum: -4 });
+    if (!near(r.db, -6.5) || r.from !== 'tags') throw new Error('the song\'s tags: ' + JSON.stringify(r));
+    r = levelFor('album', { rgTrack: -6.5, rgAlbum: -4 });
+    if (!near(r.db, -4) || r.from !== 'album tags') throw new Error('album mode: ' + JSON.stringify(r));
+    r = levelFor('album', { rgTrack: -6.5 });
+    if (!near(r.db, -6.5)) throw new Error('album mode with no album tag: ' + JSON.stringify(r));
+    r = levelFor('track', {}, { lufs: -24, peak: 0.2 });
+    if (!near(r.db, TARGET + 24) || r.from !== 'measured') throw new Error('measured: ' + JSON.stringify(r));
+    // lifted 8 dB a peak of 0.5 would pass full: held at 5.5 (0.5 dB under it)
+    r = levelFor('track', { rgTrack: 8, rgTrackPeak: 0.5 });
+    if (!near(r.db, -20 * Math.log10(0.5) - 0.5)) throw new Error('past the peak: ' + JSON.stringify(r));
+    if (levelFor('track', {}, null).from !== null) throw new Error('nothing known, and a level');
+    // integrate: a steady -20 LUFS with silence and a quiet tail is -20
+    const p = l => Math.pow(10, (l + 0.691) / 10);
+    const blocks = [...Array(50).fill(p(-20)), ...Array(20).fill(0), ...Array(10).fill(p(-45))];
+    if (!near(integrate(blocks), -20)) throw new Error('gated: ' + integrate(blocks));
+    if (integrate([0, 0]) !== null) throw new Error('silence measured');
+  });
+
+  await step('play counts: half a song or four minutes heard is a play, a jump is not hearing, and the smart lists', async () => {
+    localStorage.removeItem('bm_music_plays');
+    const { Plays } = await load('src/js/modules/plays.js');
+    const pl = new Plays();
+    pl.start('/m/a.mp3');
+    for (let t = 0; t <= 60; t += 0.25) pl.time('/m/a.mp3', t, 200);     // a minute of a 200 s song
+    if (pl.count('/m/a.mp3')) throw new Error('counted after a minute of 200 s');
+    pl.time('/m/a.mp3', 150, 200);                                         // a seek ahead: not heard
+    for (let t = 150; t <= 160; t += 0.25) pl.time('/m/a.mp3', t, 200);
+    if (pl.count('/m/a.mp3')) throw new Error('a seek counted as hearing');
+    for (let t = 160; t <= 200; t += 0.25) pl.time('/m/a.mp3', t, 200);
+    if (pl.count('/m/a.mp3') !== 1) throw new Error('half heard and not counted: ' + pl.count('/m/a.mp3'));
+    for (let t = 0; t <= 200; t += 0.25) pl.time('/m/a.mp3', t, 200);
+    if (pl.count('/m/a.mp3') !== 1) throw new Error('counted twice in one play');
+    pl.start('/m/long.flac');
+    for (let t = 0; t <= 241; t += 0.25) pl.time('/m/long.flac', t, 1200);
+    if (pl.count('/m/long.flac') !== 1) throw new Error('four minutes of a long one not counted');
+    pl.add('/m/long.flac');
+    const tracks = [{ path: '/m/a.mp3', added: 3 }, { path: '/m/long.flac', added: 1 }, { path: '/m/new.mp3', added: 9 }];
+    const names = l => l.map(t => t.path.split('/').pop()).join(',');
+    if (names(pl.list('most', tracks)) !== 'long.flac,a.mp3') throw new Error('most played: ' + names(pl.list('most', tracks)));
+    if (names(pl.list('recent', tracks)) !== 'new.mp3,a.mp3,long.flac') throw new Error('recently added: ' + names(pl.list('recent', tracks)));
+    if (names(pl.list('never', tracks)) !== 'new.mp3') throw new Error('never played: ' + names(pl.list('never', tracks)));
+    if (new Plays().count('/m/long.flac') !== 2) throw new Error('not kept');
+    localStorage.removeItem('bm_music_plays');
+  });
+
+  await step('karaoke: word times kept from the lyrics, and guessed from each word\'s length where there are none', async () => {
+    const { parseLRC, wordsOf } = await load('src/js/modules/lyrics.js');
+    const L = parseLRC('[00:10.00]<00:10.00>Hello <00:10.60>there <00:11.30>world<00:12.00>\n[00:13.00]plain line here\n[00:20.00][00:30.00]<00:20.00>twice <00:20.50>sung');
+    if (L.length !== 4 || L[0].text !== 'Hello there world') throw new Error('lines: ' + JSON.stringify(L));
+    if (JSON.stringify(L[0].words.map(w => [w.t, w.w])) !== JSON.stringify([[10, 'Hello '], [10.6, 'there '], [11.3, 'world']])) throw new Error('words: ' + JSON.stringify(L[0].words));
+    if (L[1].words) throw new Error('a line without word times has words');
+    if (L[3].t !== 30 || L[3].words[1].t !== 30.5) throw new Error('a line sung again: its words at its own time: ' + JSON.stringify(L[3]));
+    const g = wordsOf(L[1], 16);
+    if (!g.est || g.words.length !== 3 || g.words[0].t !== 13 || !(g.words[1].t > 13 && g.words[2].t < 16)) throw new Error('guessed: ' + JSON.stringify(g));
+    if (g.words.map(w => w.w).join('') !== 'plain line here') throw new Error('the words do not make the line: ' + g.words.map(w => w.w).join('|'));
+    const real = wordsOf(L[0], 13);
+    if (real.est || real.words.length !== 3) throw new Error('real word times taken as guessed');
+  });
+
+  await step('hi-fi: headroom is the most everything lifts, a correction is checked, and both reach mpv', async () => {
+    const { settings, headroomOf, lavfi } = await load('src/js/sound-chain.js');
+    const z = Array(15).fill(0);
+    if (headroomOf(settings({ eq: z, headroom: true })) !== 0) throw new Error('headroom with nothing lifted');
+    const one = z.slice(); one[8] = 6;
+    const h = headroomOf(settings({ eq: one, headroom: true }));
+    if (h < 6 || h > 6.5) throw new Error('one band at +6: ' + h);
+    const two = z.slice(); two[7] = 6; two[8] = 6;   // two bands side by side add up past either
+    if (!(headroomOf(settings({ eq: two, headroom: true })) > 7)) throw new Error('two bands side by side: ' + headroomOf(settings({ eq: two, headroom: true })));
+    if (headroomOf(settings({ eq: one })) !== 0) throw new Error('headroom when it is off');
+    const s = settings({ hp: { name: 'x', gain: -3, bands: [['lowshelf', 105, 4, 0.7], ['peak', 3000, -2, 1.4], ['bandpass', 1000, 3, 1], ['peak', 5, 1, 1]] } });
+    if (s.hp.bands.length !== 2) throw new Error('bands it does not make were kept: ' + JSON.stringify(s.hp.bands));
+    const af = lavfi({ hp: s.hp, crossfeed: true, headroom: true });
+    for (const part of ['volume=-3dB', 'lowshelf=f=105:width_type=q:width=0.7:g=4', 'equalizer=f=3000:width_type=q:width=1.4:g=-2', 'crossfeed=strength=0.2:range=0.5:slope=0.5:level_in=0.9:level_out=1'])
+      if (!af.includes(part)) throw new Error('mpv lacks ' + part + ': ' + af);
+    if (!/^lavfi=\[volume=-[\d.]+dB,/.test(af)) throw new Error('the headroom does not come first: ' + af);
+    if (settings({ hp: { bands: 'x' } }).hp !== null || settings({}).crossfeed !== false) throw new Error('not off by default');
   });
 
   const bad = results.filter(r => !r).length;

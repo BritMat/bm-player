@@ -8,12 +8,14 @@
 import { setIcon } from '../icons.js';
 import { lavfi } from '../sound-chain.js';
 import { isFav, toggleFav } from '../favourites.js';
-import { el, fmtSec } from '../util.js';
-import { EQ_BANDS, EQ_PRESETS } from './eq-bands.js';
+import { el, fmtSec, escapeHtml as esc } from '../util.js';
+import { EQ_BANDS } from './eq-bands.js';
+import { EqPresets } from '../eq-presets.js';   // v3.59.0
+import { EqCurve } from '../eq-curve.js';       // v3.59.0
 
 export default class PanelsFeature {
   wirePanels(){document.querySelectorAll('.panel-close').forEach(b=>b.addEventListener('click',()=>el('panel-'+b.dataset.panel)?.classList.remove('open')));}
-  openPanel(name){document.querySelectorAll('.side-panel').forEach(p=>p.classList.remove('open'));const p=el('panel-'+name);if(!p)return;p.classList.add('open');if(name==='info')this.populateInfo();if(name==='playlist')this.renderPlaylistPanel();if(name==='fluid')this._refreshFluidPanel();if(name==='bookmarks')this._renderBookmarksPanel();if(name==='history')this._renderHistoryPanel();if(name==='settings')this._syncSettingsPanel();}
+  openPanel(name){document.querySelectorAll('.side-panel').forEach(p=>p.classList.remove('open'));const p=el('panel-'+name);if(!p)return;p.classList.add('open');if(name==='info')this.populateInfo();if(name==='playlist')this.renderPlaylistPanel();if(name==='fluid')this._refreshFluidPanel();if(name==='bookmarks')this._renderBookmarksPanel();if(name==='history')this._renderHistoryPanel();if(name==='settings')this._syncSettingsPanel();if(name==='eq'){this._eqShow();this.eqCurve?.start();this.hifi?.startPath();}}
   populateInfo(){
     const body=el('info-body');if(!body)return;
     this.api?.mpv.cmd('get_property','media-title').catch(()=>null).then(title=>{
@@ -21,25 +23,69 @@ export default class PanelsFeature {
       body.innerHTML='<div class="info-sec-title">Media Information</div>'+rows.map(([k,v])=>'<div class="info-row"><span>'+k+'</span><span>'+v+'</span></div>').join('');
     });
   }
+  // The equalizer (v3.59.0): fifteen bands, drawn as a curve over the music
+  // (eq-curve.js), presets built in and of your own, and a preset tied to an
+  // output that comes on by itself when the sound goes there (eq-presets.js).
+  // The curve in use is kept between runs now.
   wireEQ(){
     const bands=el('eq-bands');if(!bands)return;
-    bands.innerHTML=EQ_BANDS.map((b,i)=>'<div class="eq-band"><span class="eq-band-val" id="eq-val-'+i+'">0</span><input type="range" min="-12" max="12" value="0" step="0.5" id="eq-s-'+i+'"><span class="eq-band-label">'+b.label+'</span></div>').join('');
-    EQ_BANDS.forEach((_,i)=>{el('eq-s-'+i)?.addEventListener('input',e=>{this.eqValues[i]=+e.target.value;const v=el('eq-val-'+i);if(v)v.textContent=(+e.target.value>0?'+':'')+e.target.value;this._applyEQ();});});
-    // The equalizer's own presets only (v3.46.0). Every .eq-preset-btn was
-    // taken for one, so the Fluid panel's quality buttons, and now the sound's
-    // and the picture's, set the equalizer back to flat when pressed.
-    const presets=[...document.querySelectorAll('#eq-presets .eq-preset-btn')];
-    presets.forEach(btn=>{btn.addEventListener('click',()=>{presets.forEach(b=>b.classList.remove('active'));btn.classList.add('active');const vals=EQ_PRESETS[btn.dataset.p]||EQ_PRESETS.flat;this.eqValues=[...vals];EQ_BANDS.forEach((_,i)=>{const s=el('eq-s-'+i),v=el('eq-val-'+i);if(s)s.value=vals[i];if(v)v.textContent=(vals[i]>0?'+':'')+vals[i];});this._applyEQ();});});
-    el('btn-reset-eq')?.addEventListener('click',()=>{document.querySelector('#eq-presets .eq-preset-btn[data-p="flat"]')?.click();this._setPreamp(0);});
-    // The preamp (v3.49.0): the whole sound up or down before the bands. Kept between runs.
-    this.eqPreamp=Math.max(-12,Math.min(12,+localStorage.getItem('bm_eq_preamp')||0));
+    const eqp=this.eqp=new EqPresets();
+    // the preamp from before v3.59.0, kept on its own
+    if(localStorage.getItem('bm_eq')==null&&localStorage.getItem('bm_eq_preamp')!=null)eqp.set(eqp.eq,+localStorage.getItem('bm_eq_preamp')||0,eqp.name);
+    this.eqValues=eqp.eq.slice(); this.eqPreamp=eqp.preamp;
+    bands.innerHTML=EQ_BANDS.map((b,i)=>'<div class="eq-band"><span class="eq-band-val" id="eq-val-'+i+'">0</span><input type="range" min="-12" max="12" value="0" step="0.5" id="eq-s-'+i+'" aria-label="'+b.label+'Hz"><span class="eq-band-label">'+b.label+'</span></div>').join('');
+    EQ_BANDS.forEach((_,i)=>{el('eq-s-'+i)?.addEventListener('input',e=>{const g=this.eqValues.slice();g[i]=+e.target.value;this._eqSet(g,'slider');});});
+    const cv=el('eq-curve');
+    if(cv)this.eqCurve=new EqCurve(cv,{gains:this.eqValues,analyser:()=>window.bmMusic?.engineOwns?.()&&!window.bmMusic.engine.paused?window.bmMusic.engine.analyser:null,shown:()=>!!el('panel-eq')?.classList.contains('open'),onChange:g=>this._eqSet(g,'curve')});
+    el('eq-presets')?.addEventListener('click',e=>{
+      const del=e.target.closest('[data-eq-del]');
+      if(del){e.stopPropagation();const n=del.dataset.eqDel;if(eqp.remove(n)){this.showOSD('Preset '+n+' deleted');this._eqShow();}return;}
+      const b=e.target.closest('[data-p]');if(!b)return;
+      const name=eqp.names().find(n=>n.toLowerCase()===b.dataset.p.toLowerCase())||b.dataset.p;
+      if(eqp.use(name)){this.eqValues=eqp.eq.slice();this.eqPreamp=eqp.preamp;this._eqShow();this._applyEQ();}
+    });
+    const save=()=>{const f=el('eq-name');const n=(f?.value||'').trim();if(!n){f?.focus();return;}if(eqp.save(n)){this.showOSD('Saved as '+n);if(f)f.value='';this._eqShow();}else this.showOSD('That name is a built-in preset\'s: give it one of its own');};
+    el('eq-save')?.addEventListener('click',save);
+    el('eq-name')?.addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();save();}});
+    el('eq-tie')?.addEventListener('change',async e=>{
+      const out=await this.output?.current?.();
+      if(!out){e.target.checked=false;this.showOSD('The system does not say which output this is');return;}
+      if(e.target.checked&&!eqp.name){e.target.checked=false;this.showOSD('Pick a preset, or save this curve as one, first');return;}
+      eqp.tie(out,e.target.checked?eqp.name:'');
+      if(e.target.checked)this.output?.follow?.();
+      this.showOSD(e.target.checked?eqp.name+' comes on whenever the sound goes to '+out:out+' keeps whatever curve is on');
+      this._eqShow();
+    });
+    // v3.59.0: the output followed only when a preset or a correction is tied to one (output.js follow)
+    if(Object.keys(eqp.byOutput||{}).length||Object.keys(this.hifi?.byOutput||{}).length)this.output?.follow?.();
+    if(this.output)this.output.onOutput=name=>{this.hifi?.outputChanged(name);const used=eqp.outputChanged(name);if(used==null)return;this.eqValues=eqp.eq.slice();this.eqPreamp=eqp.preamp;this._eqShow();this._applyEQ();this.showOSD((name||'The system\'s own device')+': the '+used+' equalizer');};
+    el('btn-reset-eq')?.addEventListener('click',()=>{eqp.use('Flat');this.eqValues=eqp.eq.slice();this.eqPreamp=0;eqp.set(this.eqValues,0,'Flat');this._eqShow();this._applyEQ();});
+    // The preamp (v3.49.0): the whole sound up or down before the bands.
     const pre=el('eq-preamp');
-    if(pre){pre.value=this.eqPreamp;pre.addEventListener('input',e=>this._setPreamp(+e.target.value));pre.addEventListener('dblclick',()=>this._setPreamp(0));}
+    if(pre){pre.addEventListener('input',e=>this._setPreamp(+e.target.value));pre.addEventListener('dblclick',()=>this._setPreamp(0));}
+    this._eqShow();
+  }
+  /** The bands changed, by a slider or the curve. */
+  _eqSet(g,from){this.eqValues=g.slice();this.eqp?.set(this.eqValues,this.eqPreamp);this._eqShow(from);this._applyEQ();}
+  /** Everything the panel shows of the equalizer, from what is in use. */
+  async _eqShow(from){
+    const v=this.eqValues;
+    EQ_BANDS.forEach((_,i)=>{const s=el('eq-s-'+i),t=el('eq-val-'+i);if(s&&+s.value!==v[i])s.value=v[i];if(t)t.textContent=(v[i]>0?'+':'')+v[i];});
+    if(from!=='curve')this.eqCurve?.set(v); else this.eqCurve?.draw();
+    const pre=el('eq-preamp');if(pre&&+pre.value!==this.eqPreamp)pre.value=this.eqPreamp;
     this._showPreamp();
+    const eqp=this.eqp,box=el('eq-presets');if(!eqp||!box)return;
+    box.innerHTML=eqp.names().map(n=>'<button class="eq-preset-btn'+(n===eqp.name?' active':'')+'" data-p="'+esc(n)+'" aria-pressed="'+(n===eqp.name)+'">'+esc(n)+(eqp.isMine(n)?'<span class="eq-del" role="button" tabindex="-1" data-eq-del="'+esc(n)+'" aria-label="Delete the preset '+esc(n)+'" title="Delete this preset">×</span>':'')+'</button>').join('');
+    // which output this is, asked only with the panel open: asking starts the audio service (output.js follow)
+    if(!el('panel-eq')?.classList.contains('open'))return;
+    const out=await this.output?.current?.().catch?.(()=>'')??'';
+    const tie=el('eq-tie'),lbl=el('eq-tie-label');
+    if(tie){tie.disabled=!out;tie.checked=!!out&&!!eqp.name&&eqp.tiedTo(out)===eqp.name;}
+    if(lbl)lbl.textContent=out?(eqp.tiedTo(out)?'On '+out+': '+eqp.tiedTo(out)+', by itself':'Use this preset whenever the sound goes to '+out):'The system does not say which output is in use, so a preset cannot be tied to it here';
   }
   _setPreamp(db){
     this.eqPreamp=Math.max(-12,Math.min(12,+db||0));
-    try{localStorage.setItem('bm_eq_preamp',String(this.eqPreamp));}catch(_){}
+    this.eqp?.set(this.eqValues,this.eqPreamp,this.eqp.name);
     const pre=el('eq-preamp');if(pre&&+pre.value!==this.eqPreamp)pre.value=this.eqPreamp;
     this._showPreamp();this._applyEQ();
   }
@@ -52,10 +98,13 @@ export default class PanelsFeature {
     // Nightcore also change a song's speed: the engine does that itself, and
     // for a song mpv plays the music view sets mpv's speed (applyRate).
     const fx=this.sound?.fx||{};
-    const s={eq:this.eqValues,preamp:this.eqPreamp||0,night:!!fx.night,channels:fx.channels||'stereo',boost:(fx.boost||100)/100,mode:fx.mode||'off',voice:!!fx.voice};
+    // v3.59.0: and hi-fi's headroom, crossfeed and headphone correction (modules/hifi.js)
+    const s={eq:this.eqValues,preamp:this.eqPreamp||0,night:!!fx.night,channels:fx.channels||'stereo',boost:(fx.boost||100)/100,mode:fx.mode||'off',voice:!!fx.voice,key:fx.key||0,voicefx:fx.voicefx||'off',...(this.hifi?.fx||{})};
     window.bmMusic?.engine?.setSound?.(s);
     window.bmMusic?.applyRate?.();
-    this.api?.mpv.cmd('set_property','af',lavfi(s))?.catch?.(()=>{});}
+    // a bit-perfect song mpv plays has nothing in its way (v3.59.0)
+    const pure=window.bmMusic?._pureOn&&window.bmMusic?._mpvSong&&!this._hasVideo;
+    this.api?.mpv.cmd('set_property','af',pure?'':lavfi(s))?.catch?.(()=>{});}
   wirePlaylistPanel(){
     el('pl-add')?.addEventListener('click',()=>this.openDialog(true));
     el('pl-clear')?.addEventListener('click',()=>{this.api?.mpv.cmd('playlist-clear');this.renderPlaylistPanel();});
@@ -96,6 +145,19 @@ export default class PanelsFeature {
       else if(this._hasVideo&&this.sleep?.mode==='end'){ this._holdAtEnd=true; this.sleep.atEnd(); }
     });
     // Kept for keep-open=no, should that ever change.
+    // A film loaded: what it keeps comes back (v3.59.0, film-memory.js). Not a song the music gave mpv, nor a TV channel.
+    this.api?.mpv.onEvent?.(async ev=>{
+      if(ev?.event!=='file-loaded'||!this.filmMemory) return;
+      let path=null; try{path=await this.api.mpv.cmd('get_property','path');}catch(_){}
+      if(typeof path!=='string'||/^[a-z][a-z0-9+.-]*:\/\//i.test(path)||window.bmMusic?._mpvSong===path){this.filmMemory.open(null);return;}
+      this.filmMemory.open(path);this.filmMemory.tracks(this._lastTracks);
+    });
+    // Another file opened: subtitles from the audio for the one before stop (v3.59.0)
+    this.api?.mpv.onEvent?.(async ev=>{
+      if(ev?.event!=='file-loaded'||!this.fromAudio?.on) return;
+      let p=null; try{p=await this.api.mpv.cmd('get_property','path');}catch(_){}
+      this.fromAudio.opened(typeof p==='string'?p:(p&&p.data));
+    });
     this.api?.mpv.onEvent?.(ev=>{
       if(ev?.event!=='end-file') return;
       // A file mpv could not play. This was ignored, so a broken file, a

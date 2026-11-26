@@ -116,6 +116,17 @@
   <link rel="modulepreload" href="js/modules/lyrics-prefs.js">
   <link rel="modulepreload" href="js/modules/lyrics-saver.js">
   <link rel="modulepreload" href="js/modules/studio.js">
+  <!-- v3.59.0 -->
+  <link rel="modulepreload" href="js/modules/quality.js">
+  <link rel="modulepreload" href="js/modules/output.js">
+  <link rel="modulepreload" href="js/modules/film-memory.js">
+  <link rel="modulepreload" href="js/modules/music-flow.js">
+  <link rel="modulepreload" href="js/modules/plays.js">
+  <link rel="modulepreload" href="js/loudness.js">
+  <link rel="modulepreload" href="js/eq-presets.js">
+  <link rel="modulepreload" href="js/eq-curve.js">
+  <link rel="modulepreload" href="js/modules/hifi.js">
+  <link rel="modulepreload" href="js/modules/from-audio.js">
   <link rel="stylesheet" href="css/fonts.css">
   <link rel="stylesheet" href="css/style.css">
   <!-- Critical inline styles - MUST override external style.css -->
@@ -609,6 +620,7 @@
       <div class="mr" data-a="cycle-sub">Cycle Subtitles <kbd>V</kbd></div>
       <div class="mr" data-a="open-sub">Load Subtitle…</div>
       <div class="mr" data-a="search-subs">Search Online…</div>
+      <div class="mr" data-a="from-audio">From the Audio…</div>
       <div class="ms"></div>
       <div id="sub-track-sub"></div>
       <div id="sub2-track-sub" class="hidden"></div>
@@ -1086,21 +1098,57 @@
     <button class="panel-close" data-panel="eq" aria-label="Close equalizer and sound panel">✕</button>
   </div>
   <div class="panel-body">
-    <div class="eq-presets" id="eq-presets">
-      <button class="eq-preset-btn active" data-p="flat">Flat</button>
-      <button class="eq-preset-btn" data-p="bass">Bass</button>
-      <button class="eq-preset-btn" data-p="treble">Treble</button>
-      <button class="eq-preset-btn" data-p="rock">Rock</button>
-      <button class="eq-preset-btn" data-p="pop">Pop</button>
-      <button class="eq-preset-btn" data-p="jazz">Jazz</button>
-      <button class="eq-preset-btn" data-p="classical">Classical</button>
-    </div>
+    <!-- v3.59.0: presets built in and of your own (eq-presets.js), drawn by panels.js -->
+    <div class="eq-presets" id="eq-presets" role="group" aria-label="Equalizer presets"></div>
+    <!-- v3.59.0: the fifteen bands as a curve over the music (eq-curve.js): drag a dot, or draw across -->
+    <canvas class="eq-curve" id="eq-curve" aria-label="The equalizer's curve. Drag a band's dot, or draw across. The sliders below do the same."></canvas>
     <div class="eq-bands" id="eq-bands"></div>
     <!-- v3.49.0: the preamp, the whole sound up or down before the bands -->
     <label class="eq-preamp" for="eq-preamp"><span>Preamp</span><input type="range" id="eq-preamp" min="-12" max="12" step="0.5" value="0" aria-label="Preamp"><span class="eq-band-val" id="eq-preamp-val">0 dB</span></label>
+    <div class="eq-save-row"><input type="text" id="eq-name" maxlength="40" placeholder="A name for this curve" aria-label="A name for this curve"><button class="eq-preset-btn" id="eq-save">Save preset</button></div>
+    <label class="ctx-checkbox"><input type="checkbox" id="eq-tie"> <span id="eq-tie-label">Use this preset whenever the sound goes to this output</span></label>
     <button class="btn-reset-eq" id="btn-reset-eq">Reset EQ</button>
     <!-- v3.46.0: sound.js -->
     <div class="snd-section" id="snd-section">
+      <!-- v3.59.0: where the sound goes, and Dolby and DTS sent on -->
+      <div id="snd-output">
+        <div class="ctx-section-label">Where the sound goes</div>
+        <select class="snd-select" data-out-device aria-label="Where the sound goes"><option value="auto">The system's own</option></select>
+        <p class="snd-note" data-out-note></p>
+        <label class="ctx-checkbox"><input type="checkbox" data-out-pass> Send Dolby and DTS to an amplifier <span class="set-val">(as they are, for a receiver or soundbar that decodes them. The volume and effects do not reach them.)</span></label>
+      </div>
+      <!-- v3.59.0: hi-fi sound (modules/hifi.js) -->
+      <div id="snd-hifi">
+        <div class="ctx-section-label">Hi-fi</div>
+        <label class="ctx-checkbox"><input type="checkbox" data-hifi-headroom> No clipping <span class="set-val">(the whole sound lowered by as much as the equalizer and the correction lift it)</span></label>
+        <label class="ctx-checkbox"><input type="checkbox" data-hifi-guard> Peak limiter on songs <span class="set-val">(nothing past -1 dB, the peaks between samples included)</span></label>
+        <label class="ctx-checkbox"><input type="checkbox" data-hifi-crossfeed> Crossfeed <span class="set-val">(for headphones: the lows in both ears, as from speakers)</span></label>
+        <label class="ctx-checkbox"><input type="checkbox" data-hifi-pure> Bit-perfect songs <span class="set-val">(the library's songs by mpv with the device to itself, at their own rate and bits. The equalizer, effects, levelling and volume are off for them. Films keep everything.)</span></label>
+        <div class="ctx-section-label">Headphone correction</div>
+        <div class="hp-cur" data-hp-cur></div>
+        <div class="eq-save-row"><input type="search" data-hp-q placeholder="Your headphones, by name" aria-label="Your headphones, by name"><button class="eq-preset-btn" data-hp-off hidden>Off</button></div>
+        <div class="hp-list" data-hp-list></div>
+        <p class="snd-note hp-opra"><img src="vendor/opra/opra-logo.png" alt="OPRA" width="72"> EQ curves from OPRA, an open database of headphone EQ, CC BY-SA 4.0: github.com/opra-project/OPRA. Kept for the output it is chosen on.</p>
+        <div class="ctx-section-label">Signal path</div>
+        <div class="snd-path" data-hifi-path aria-live="off"></div>
+      </div>
+      <!-- v3.59.0: between songs, and songs made equally loud (modules/music-flow.js) -->
+      <div id="snd-flow">
+        <div class="ctx-section-label">Between songs</div>
+        <div class="eq-presets snd-chips" role="group" aria-label="Between songs">
+          <button class="eq-preset-btn" data-flow="off">Off</button>
+          <button class="eq-preset-btn" data-flow="gapless">Gapless</button>
+          <button class="eq-preset-btn" data-flow="crossfade">Crossfade</button>
+        </div>
+        <label class="eq-preamp"><span>Crossfade</span><input type="range" min="1" max="12" step="1" value="6" data-flow-secs aria-label="Crossfade, in seconds"><span class="eq-band-val" data-flow-secs-val>6 s</span></label>
+        <div class="ctx-section-label">Even loudness</div>
+        <p class="snd-note">Songs from the library at the same loudness, from their ReplayGain tags, or as this app measured them the last time they played.</p>
+        <div class="eq-presets snd-chips" role="group" aria-label="Even loudness">
+          <button class="eq-preset-btn" data-level="off">Off</button>
+          <button class="eq-preset-btn" data-level="track">Song by song</button>
+          <button class="eq-preset-btn" data-level="album">Album by album</button>
+        </div>
+      </div>
       <!-- v3.49.0, Sound lab: one tap for a whole sound -->
       <div class="ctx-section-label">Sound mode</div>
       <p class="snd-note">One tap for a whole sound, in films and songs. Slowed and Nightcore play songs slower or faster, lower or higher, as a record would. A film keeps its own speed.</p>
@@ -1114,6 +1162,24 @@
         <button class="eq-preset-btn" data-snd-mode="hall">Concert hall</button>
         <button class="eq-preset-btn" data-snd-mode="lofi">Lo-fi</button>
         <button class="eq-preset-btn" data-snd-mode="wide">Wider stereo</button>
+      </div>
+      <!-- v3.59.0: the key, the speed kept, and a voice changer (sound-chain.js) -->
+      <div class="ctx-section-label">Key</div>
+      <div class="snd-key" role="group" aria-label="Key">
+        <button class="eq-preset-btn" data-snd-key="-1" aria-label="A semitone lower">&minus;</button>
+        <span class="snd-key-val" data-snd-key-val aria-live="polite">0</span>
+        <button class="eq-preset-btn" data-snd-key="1" aria-label="A semitone higher">+</button>
+        <button class="eq-preset-btn" data-snd-key="0">As made</button>
+      </div>
+      <div class="ctx-section-label">Voice changer</div>
+      <div class="eq-presets snd-chips" role="group" aria-label="Voice changer">
+        <button class="eq-preset-btn" data-snd-vfx="off">Off</button>
+        <button class="eq-preset-btn" data-snd-vfx="chipmunk">Chipmunk</button>
+        <button class="eq-preset-btn" data-snd-vfx="deep">Deep</button>
+        <button class="eq-preset-btn" data-snd-vfx="robot">Robot</button>
+        <button class="eq-preset-btn" data-snd-vfx="alien">Alien</button>
+        <button class="eq-preset-btn" data-snd-vfx="echo">Echo</button>
+        <button class="eq-preset-btn" data-snd-vfx="radio">Old radio</button>
       </div>
       <div class="ctx-section-label">Clear voice</div>
       <p class="snd-note">Brings the words forward over the music and the bangs, for films.</p>
@@ -1154,6 +1220,22 @@
     <button class="panel-close" data-panel="picture" aria-label="Close picture panel">✕</button>
   </div>
   <div class="panel-body">
+    <div class="ctx-section-label">Quality</div>
+    <div class="eq-presets snd-chips" role="group" aria-label="Picture quality">
+      <button class="eq-preset-btn" data-q-preset="auto">Auto</button>
+      <button class="eq-preset-btn" data-q-preset="fast">Fast</button>
+      <button class="eq-preset-btn" data-q-preset="balanced">Balanced</button>
+      <button class="eq-preset-btn" data-q-preset="high">High</button>
+    </div>
+    <p class="snd-note"><span data-q-used></span> High is the sharpest, with debanding, and asks the graphics card for the most.</p>
+    <label class="ctx-checkbox"><input type="checkbox" data-q-motion> Smooth motion <span class="set-val">(frames matched to the screen, so pans stop juddering)</span></label>
+    <div class="ctx-section-label">HDR films</div>
+    <div class="eq-presets snd-chips" role="group" aria-label="HDR films on this screen">
+      <button class="eq-preset-btn" data-q-hdr="auto">Auto</button>
+      <button class="eq-preset-btn" data-q-hdr="natural">Natural</button>
+      <button class="eq-preset-btn" data-q-hdr="bright">Bright</button>
+    </div>
+    <p class="snd-note">How an HDR film is shown on an ordinary screen. Natural keeps dark films dark, Bright lifts the middle for a dim screen.</p>
     <div class="ctx-section-label">Colour</div>
     <div class="ctx-row pic-row"><span class="ctx-row-label">Brightness</span><input type="range" class="ctx-slider" data-pic="brightness" min="-100" max="100" step="1" value="0" aria-label="Brightness"><span class="ctx-val" data-pic-val="brightness">0</span></div>
     <div class="ctx-row pic-row"><span class="ctx-row-label">Contrast</span><input type="range" class="ctx-slider" data-pic="contrast" min="-100" max="100" step="1" value="0" aria-label="Contrast"><span class="ctx-val" data-pic-val="contrast">0</span></div>
@@ -1388,6 +1470,23 @@
     <button class="dash-action-btn" id="subs-search-btn" style="width:100%">Search opensubtitles.com</button>
     <button class="dash-action-btn subs-load" id="subs-load-btn" style="width:100%;margin-top:8px;">Load a subtitle file…</button>
     <div id="subs-results" style="margin-top:12px;"></div>
+  </div>
+</div>
+
+<!-- v3.59.0: subtitles from the audio, by whisper.cpp on this computer (modules/from-audio.js) -->
+<div class="side-panel" id="panel-fromaudio">
+  <div class="panel-hdr">
+    <span>Subtitles from the Audio</span>
+    <button class="panel-close" data-panel="fromaudio" aria-label="Close the subtitles from the audio panel">✕</button>
+  </div>
+  <div class="panel-body" id="fromaudio-body">
+    <p class="subs-note">The film's speech written out as subtitles on this computer, by whisper.cpp. Nothing is sent anywhere. The words are written ahead of the film and kept for it.</p>
+    <label class="fa-row"><span>Spoken in</span><select class="dlg-input" data-fa-lang aria-label="The language spoken"></select></label>
+    <label class="fa-row"><span>Model</span><select class="dlg-input" data-fa-model aria-label="Which model"></select></label>
+    <label class="ctx-checkbox"><input type="checkbox" data-fa-tr> Into English <span class="set-val">(whisper's own translation)</span></label>
+    <button class="dash-action-btn" data-fa-go style="width:100%;margin-top:10px">Start</button>
+    <p class="subs-note" data-fa-note aria-live="polite"></p>
+    <p class="subs-note">whisper.cpp is MIT licensed (github.com/ggml-org/whisper.cpp). Its models come from Hugging Face, where whisper.cpp keeps them, and are checked before they are kept.</p>
   </div>
 </div>
 

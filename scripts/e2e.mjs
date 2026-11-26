@@ -166,8 +166,15 @@ if (PART === 'c') {
 // the new program: part B's launch timed out at 25 seconds on a real
 // machine. --part=warmup just starts the app once, so the scan happens there.
 const t0 = Date.now();
+// v3.59.0: a stand-in for whisper-cli (there is no model here), for subtitles from the audio
+const FAKE_WHISPER = path.join(PROFILE, 'whisper-cli-stand-in');
+if (process.platform !== 'win32') fs.writeFileSync(FAKE_WHISPER, `#!/usr/bin/env node
+const fs = require('fs'), a = process.argv.slice(2), v = k => a[a.indexOf(k) + 1];
+fs.writeFileSync(v('-of') + '.srt', '1\\n00:00:01,000 --> 00:00:03,000\\nWords from the stand-in\\n');
+`, { mode: 0o755 });
 const app = await _electron.launch({
   executablePath: electronPath,
+  env: { ...process.env, ...(process.platform !== 'win32' ? { BM_WHISPER_CLI: FAKE_WHISPER, BM_WHISPER_MODEL: path.join(PROFILE, 'no-model.bin') } : {}) },
   // --mpv-ao=null (v3.29.0): mpv plays audio into nothing, so an audio-only
   // file plays on a machine without a sound device, and the run is silent.
   args: [ROOT, '--no-sandbox', '--mpv-ao=null', `--user-data-dir=${PROFILE}`, ...(PART === 'c' ? [] : ['--lite'])],
@@ -738,7 +745,9 @@ if (PART === 'a') {
       const { themeScene, SCENE_THEMES } = await import('./js/theme-scenes.js');
       const aurora = (await import('./js/scenes/aurora.js')).default;
       const jellyfish = (await import('./js/scenes/jellyfish.js')).default;   // v3.49.0
-      const defs = [aurora, jellyfish, ...SCENE_THEMES.map(themeScene)];
+      const garden = (await import('./js/scenes/garden.js')).default;   // v3.59.0
+      const koi = (await import('./js/scenes/koi.js')).default;         // v3.59.0
+      const defs = [aurora, jellyfish, garden, koi, ...SCENE_THEMES.map(themeScene)];
       const sizes = [[640, 360], [1280, 720], [1920, 1080]], out = [];
       for (const [W, H] of sizes) {
         for (const def of defs) {
@@ -752,6 +761,8 @@ if (PART === 'a') {
           while (!run.cost().frames && performance.now() - t0 < 5000) await new Promise(z => setTimeout(z, 5));
           const first = run.cost(), t1 = performance.now();
           await new Promise(z => setTimeout(z, 600));
+          // the page itself can be busy for a moment (seen once with the garden, which runs at 30 a second on its own): a second look before it counts as stopped
+          if (run.cost().frames === first.frames) await new Promise(z => setTimeout(z, 600));
           const c2 = run.cost(), secs = (performance.now() - t1) / 1000, n = c2.frames - first.frames;
           const cost = { frames: n, msPerFrame: n ? (c2.frames * c2.msPerFrame - first.frames * first.msPerFrame) / n : 0, errors: c2.errors };
           // something drawn: a pixel lit somewhere along the middle row
@@ -763,8 +774,8 @@ if (PART === 'a') {
       }
       return out;
     });
-    const bad = r.filter(x => x.errors || x.fps < 1 || ((x.id === 'aurora' || x.id === 'jellyfish') && !x.lit));
-    if (r.length !== 36 || bad.length) throw new Error(JSON.stringify(bad.length ? bad : r));
+    const bad = r.filter(x => x.errors || x.fps < 1 || (['aurora', 'jellyfish', 'garden', 'koi'].includes(x.id) && !x.lit));
+    if (r.length !== 42 || bad.length) throw new Error(JSON.stringify(bad.length ? bad : r));
     for (const size of ['640x360', '1280x720', '1920x1080']) {
       console.log(`      (${size}: ` + r.filter(x => x.size === size).map(x => `${x.id.replace('theme:', '')} ${x.fps}/s ${x.ms} ms` + (x.first > 20 ? ` (first ${x.first} ms)` : '')).join(', ') + ')');
     }
@@ -815,12 +826,15 @@ if (PART === 'a') {
         for (let k = 0; k < 6; k++) { ears.forEach((a, i) => { a.getFloatTimeDomainData(buf); let s = 0; for (const v of buf) s += v * v; sum[i] += Math.sqrt(s / buf.length); }); await new Promise(z => setTimeout(z, 40)); }
         return sum.map(x => +(x / 6).toFixed(4));
       };
-      const off = { eq: new Array(10).fill(0), channels: 'stereo', night: false, boost: 1, mode: 'off', voice: false, preamp: 0 };
+      // v3.59.0: the app's hi-fi settings go to the engine too (No clipping is on at first), so all off says them
+      const off = { eq: new Array(10).fill(0), channels: 'stereo', night: false, boost: 1, mode: 'off', voice: false, preamp: 0, key: 0, voicefx: 'off', hp: null, crossfeed: false, headroom: false };
       const out = {};
       eng.setVolume(100); eng.setMuted(false);
       eng.setSound(off); out.off = await level();
       for (const ch of ['swap', 'left', 'right', 'mono']) { eng.setSound({ ...off, channels: ch }); out[ch] = await level(); }
       eng.setSound({ ...off, eq: [0, 0, 0, 12, 12, 0, 0, 0, 0, 0] }); out.eq = await level();
+      // No clipping lowers the whole by what the bands lift, so the tone the bands lift is no louder than it was
+      eng.setSound({ ...off, eq: [0, 0, 0, 12, 12, 0, 0, 0, 0, 0], headroom: true }); out.headroom = await level();
       eng.setSound({ ...off, boost: 2 }); out.boost = await level();
       eng.setSound({ ...off, night: true }); out.night = await level();
       eng.setSound(off); await new Promise(z => setTimeout(z, 300)); out.again = await level(); out.live = eng.chain.live.join(',');
@@ -831,6 +845,17 @@ if (PART === 'a') {
       out.nightcore = { pace: +((eng.currentTime - t0) / ((performance.now() - w0) / 1000)).toFixed(3), pitchKept: eng.el.preservesPitch, speed: eng.speed };
       eng.setSound(off);
       out.paceAfter = eng.el.playbackRate;
+      // v3.59.0: seven semitones up, the speed kept: the pitch shifter's worklet loads from the app's own files
+      eng.setSound({ ...off, key: 7 });
+      out.worklet = await (eng.ctx.__bmPitch || Promise.reject(new Error('not asked for'))).then(() => true, e => String(e && e.message || e));
+      await eng.chain.ready(); await new Promise(z => setTimeout(z, 500));
+      const fa = c.createAnalyser(); fa.fftSize = 8192; eng.gain.connect(fa);
+      const fb = new Float32Array(fa.frequencyBinCount);
+      const kt0 = eng.currentTime, kw0 = performance.now();
+      await new Promise(z => setTimeout(z, 600)); fa.getFloatFrequencyData(fb);
+      let best = 1; for (let i = 2; i < fb.length; i++) if (fb[i] > fb[best]) best = i;
+      out.key = { hz: Math.round(best * c.sampleRate / fa.fftSize), pace: +((eng.currentTime - kt0) / ((performance.now() - kw0) / 1000)).toFixed(2) };
+      eng.gain.disconnect(fa); eng.setSound(off);
       eng.gain.disconnect(both);
       bmApp._applyEQ();
       return out;
@@ -846,6 +871,7 @@ if (PART === 'a') {
     if (!quiet(r.right[0]) || !quiet(r.right[1])) throw new Error('right only (silent here) was not silent: ' + JSON.stringify(r.right));
     if (!near(r.mono[0], L / 2) || !near(r.mono[1], L / 2)) throw new Error('mono is not half in each ear: ' + JSON.stringify(r.mono));
     if (!(r.eq[0] > L * 2.5)) throw new Error('the equalizer at +12 around the tone did not lift it: ' + JSON.stringify(r.eq));
+    if (!(r.headroom[0] <= L * 1.12 && r.headroom[0] > L * 0.4)) throw new Error('with No clipping the lifted tone is not back near where it was: ' + JSON.stringify({ off: r.off, headroom: r.headroom }));
     // A 200% boost doubles the sound. Until v3.49.0 it was a little over
     // double, and night mode lifted a quiet tone some 9 dB more than mpv's:
     // a Web Audio compressor adds a make-up gain of its own, which mpv's do
@@ -856,7 +882,10 @@ if (PART === 'a') {
     if (!near(r.again[0], L, 0.06) || !quiet(r.again[1]) || r.live !== '') throw new Error('with all off again the sound is not as it was: ' + JSON.stringify({ again: r.again, live: r.live }));
     const nc = r.nightcore;
     if (!(nc.pace > 1.15 && nc.pace < 1.35) || nc.pitchKept !== false || nc.speed !== 1 || r.paceAfter !== 1) throw new Error('Nightcore did not play a quarter faster with the pitch following, and the speed shown left as it was: ' + JSON.stringify({ nc, after: r.paceAfter }));
-    console.log(`      (left ear: off ${L}, equalizer ${r.eq[0]}, boost ${r.boost[0]}, night ${r.night[0]}, all off again ${r.again[0]}; Nightcore ran at ${nc.pace} times)`);
+    if (r.worklet !== true) throw new Error('the key\'s pitch shifter did not load: ' + r.worklet);
+    const want = 330 * Math.pow(2, 7 / 12);
+    if (Math.abs(r.key.hz - want) > 12 || Math.abs(r.key.pace - 1) > 0.1) throw new Error(`seven semitones up: ${r.key.hz} Hz (not about ${Math.round(want)}), at ${r.key.pace} times the speed`);
+    console.log(`      (left ear: off ${L}, equalizer ${r.eq[0]} or ${r.headroom[0]} with No clipping, boost ${r.boost[0]}, night ${r.night[0]}, all off again ${r.again[0]}; Nightcore ran at ${nc.pace} times; the key +7 put 330 Hz at ${r.key.hz})`);
   });
 }
 
@@ -2130,7 +2159,11 @@ if (PART === 'd') {
       f = await openGame('bricks');
       await f.locator('#c').click(); await page.waitForTimeout(500);
       const b = await f.evaluate(() => ({ state, y: ball.y, vy: ball.vy })); if (b.state !== 'play' || !(b.vy < 0) || !(b.y < 400)) throw new Error('Bricks: ' + JSON.stringify(b));
-      await page.keyboard.down('ArrowLeft'); await page.waitForTimeout(300); await page.keyboard.up('ArrowLeft');
+      // as with Trail, the key reaches the frame once it has the keyboard: held again if the first went nowhere (seen once)
+      for (let i = 0; i < 4 && !((await f.evaluate(() => bat.x)) < 320); i++) {
+        if (i) await f.evaluate(() => window.focus());
+        await page.keyboard.down('ArrowLeft'); await page.waitForTimeout(300); await page.keyboard.up('ArrowLeft');
+      }
       if (!((await f.evaluate(() => bat.x)) < 320)) throw new Error('the bat did not move');
       await page.click('#btn-games-close');
 
@@ -2422,6 +2455,77 @@ if (PART === 'd') {
     if (typeof r.saved !== 'number') throw new Error('the saved count did not come back: ' + r.saved);
   });
 
+  // v3.59.0: the timing editor through the real app and file system: tapped
+  // along to the song, saved over the .lrc beside it (kept as .lrc.bak), and
+  // each word lit as it is sung.
+  await step('the words timed by tapping along, saved over the .lrc beside the song with the old one kept, and lit word by word', async () => {
+    const lrc = GOOD[1].replace(/\.wav$/, '.lrc');
+    const r = await page.evaluate(async f => {
+      const L = window.bmLyrics, wait = async c => { for (let i = 0; i < 60 && !c(); i++) await new Promise(z => setTimeout(z, 100)); };
+      bmMusic.play(f, 0);
+      await wait(() => L.path === f && L.status === 'ready');
+      L.showTab('lyrics');
+      const btn = document.querySelector('#np-lyrics [data-lyr="time-words"]');
+      if (!btn) return { error: 'no Time again button' };
+      btn.click();
+      await wait(() => L.timing && bmMusic.engine.currentTime < 0.5 && !bmMusic.engine.paused);
+      await new Promise(z => setTimeout(z, 700));
+      document.dispatchEvent(new KeyboardEvent('keydown', { key: ' ', bubbles: true }));
+      await new Promise(z => setTimeout(z, 900));
+      document.querySelector('#np-lyrics [data-lyr="tm-now"]').click();
+      const stamps = L.timing.at.slice();
+      document.querySelector('#np-lyrics [data-lyr="tm-save"]').click();
+      await wait(() => L.timing?.replace);
+      const asked = L.timing?.said || '';
+      document.querySelector('#np-lyrics [data-lyr="tm-replace"]')?.click();
+      await wait(() => !L.timing);
+      // the words lit, guessed from their lengths
+      L.setWords('all');
+      const at = L.lines[0].t + 0.05; bmMusic.engine.seek(at); bmMusic.engine.pause();
+      await new Promise(z => setTimeout(z, 400)); L._cur = -2; L._tick(true);
+      const line = document.querySelector('#np-lyrics .lyr-line.on');
+      const lit = line ? [...line.querySelectorAll('.lyr-w')].map(w => w.classList.contains('lit')) : null;
+      L.setWords('timed');
+      return { stamps, asked, note: L.note, lines: L.lines.map(l => [l.t, l.text]), lit };
+    }, GOOD[1]);
+    if (r.error) throw new Error(r.error);
+    if (r.stamps.length !== 2 || !(r.stamps[0] > 0.3 && r.stamps[1] > r.stamps[0] + 0.5)) throw new Error('the taps: ' + JSON.stringify(r.stamps));
+    if (!/Replace it/.test(r.asked)) throw new Error('not asked before replacing: ' + r.asked);
+    const now = fs.readFileSync(lrc, 'utf8'), bak = fs.existsSync(lrc + '.bak') ? fs.readFileSync(lrc + '.bak', 'utf8') : '';
+    if (!/^\[00:0\d\.\d\d\]invented words to keep\n\[00:0\d\.\d\d\]and a second line\n$/.test(now)) throw new Error('the .lrc now: ' + JSON.stringify(now));
+    if (!/\[00:00\.50\]invented words to keep/.test(bak)) throw new Error('the old one was not kept as .lrc.bak: ' + JSON.stringify(bak));
+    if (!/Timed by you/.test(r.note)) throw new Error('said: ' + r.note);
+    if (!r.lit || !r.lit[0] || r.lit.every(Boolean)) throw new Error('the words lit at the line\'s start: ' + JSON.stringify(r.lit));
+    console.log(`      (tapped at ${r.stamps.map(t => t.toFixed(2)).join(' and ')} s; ${r.lit.filter(Boolean).length} of ${r.lit.length} words lit at the line's start)`);
+  });
+
+  // v3.59.0: bit-perfect songs, with the real mpv: the song is mpv's, with no
+  // filters, at 100%, the device to itself, and the signal path says so; off
+  // again, the engine plays it and the volume and sharing come back.
+  await step('bit-perfect songs: mpv plays the song with nothing in its way, and everything comes back after', async () => {
+    const r = await page.evaluate(async f => {
+      const wait = async c => { for (let i = 0; i < 60 && !(await c()); i++) await new Promise(z => setTimeout(z, 150)); };
+      const mpv = bmApp.api.mpv, get = async k => { const x = await mpv.cmd('get_property', k).catch(() => null); return x && typeof x === 'object' && 'data' in x ? x.data : x; };
+      const sl = document.getElementById('volume-slider'); if (sl) sl.value = 70; bmApp.setVolume(70);
+      bmApp.hifi.setPure(true);
+      bmMusic.play(f, 0);
+      await wait(async () => bmMusic._mpvSong === f && !!(await get('audio-params')));
+      await new Promise(z => setTimeout(z, 900));
+      const during = { owns: bmMusic.engineOwns(), excl: await get('audio-exclusive'), af: await get('af'), vol: await get('volume'), path: await bmApp.hifi.signal() };
+      bmApp.hifi.setPure(false);
+      await wait(async () => bmMusic.engineOwns());
+      await new Promise(z => setTimeout(z, 700));
+      const after = { owns: bmMusic.engineOwns(), excl: await get('audio-exclusive'), vol: await get('volume') };
+      bmApp.stop(); bmMusic.engine.stop();
+      return { during, after };
+    }, GOOD[0]);
+    const d = r.during, path = Object.fromEntries(d.path);
+    if (d.owns || d.excl !== true || (Array.isArray(d.af) ? d.af.length : !!d.af) || d.vol !== 100) throw new Error('while bit-perfect: ' + JSON.stringify(d));
+    if (!/mpv, with no filters/.test(path['Played by'] || '') || !/the device to itself/.test(path.Out || '')) throw new Error('the signal path: ' + JSON.stringify(d.path));
+    if (!r.after.owns || r.after.excl !== false || r.after.vol !== 70) throw new Error('after: ' + JSON.stringify(r.after));
+    console.log(`      (${path.File}; out ${path.Out}; bit-perfect: ${path['Bit-perfect']})`);
+  });
+
   if (VID) {
     await step('a film with a hard name plays', async () => {
       await page.evaluate(v => bmApp.playMedia([v]), VID);
@@ -2524,23 +2628,50 @@ if (PART === 'd') {
     const SUB_EN = VID.replace(/\.[^.]+$/, '.en.srt'), SUB_ML = VID.replace(/\.[^.]+$/, '.ml.srt');
     fs.writeFileSync(SUB_EN, '1\n00:00:00,000 --> 00:01:00,000\nThe first line of the test\n');
     fs.writeFileSync(SUB_ML, '1\n00:00:00,000 --> 00:01:00,000\nപരീക്ഷണത്തിന്റെ ആദ്യ വരി\n');
-    const startFilm = async () => {
-      await page.evaluate(v => { bmApp.playMedia([v]); }, VID);
+    // v3.59.0: another film beside it, for what each film keeps of its own (film-memory.js)
+    const VID2 = VID.replace(/(\.[^.]+)$/, ' (other)$1'); try { fs.copyFileSync(VID, VID2); } catch (_) {}
+    const startFilm = async (v = VID) => {
+      await page.evaluate(v => { bmApp.playMedia([v]); }, v);
       let t = 0; for (let k = 0; k < 30 && !(t > 0.5); k++) { await page.waitForTimeout(200); t = (await mpvGet('time-pos')) || 0; }
       if (!(t > 0.5)) throw new Error('the film did not start');
     };
 
-    await step('picture: colour, zoom and filling the screen reach the real mpv, and the next film is at its own size', async () => {
+    // v3.59.0: subtitles from the audio through the app and the real mpv,
+    // whisper.cpp played by a stand-in: Start in the panel, a track "From
+    // the audio" added and showing its words, Stop, and another film stops it.
+    if (process.platform !== 'win32') await step('subtitles from the audio: started in the panel, a track of their own in mpv with the words on screen', async () => {
+      await startFilm();
+      await page.evaluate(() => { document.querySelector('[data-a="from-audio"]')?.click(); });
+      await page.evaluate(() => document.querySelector('#fromaudio-body [data-fa-go]').click());
+      let tr = null, text = '', note = '', stopped = false;
+      try {
+      for (let k = 0; k < 60 && !tr; k++) { await page.waitForTimeout(250); tr = ((await mpvGet('track-list')) || []).find(x => x.type === 'sub' && /From the audio/.test(x.title || '')); }
+      if (!tr) throw new Error('no track From the audio: ' + JSON.stringify(await page.evaluate(() => ({ on: bmApp.fromAudio.on, sid: bmApp.fromAudio.sid, srt: String(bmApp.fromAudio.srt).slice(-30), subs: (bmApp._lastTracks || []).filter(x => x.type === 'sub').length }))) + ' ' + JSON.stringify(((await mpvGet('track-list')) || []).filter(x => x.type === 'sub').map(x => [x.id, String(x.title).slice(0, 16)])));
+      await page.evaluate(() => bmApp.api.mpv.cmd('seek', 2.2, 'absolute'));   // inside the stand-in's line whether the first piece began at 0 or 1 s
+      for (let k = 0; k < 20 && !text; k++) { await page.waitForTimeout(200); text = (await mpvGet('sub-text')) || ''; }
+      note = await page.evaluate(() => document.querySelector('#fromaudio-body [data-fa-note]').textContent);
+      await startFilm(VID2);
+      stopped = await page.evaluate(async () => { for (let k = 0; k < 20 && bmApp.fromAudio.on; k++) await new Promise(z => setTimeout(z, 150)); return !bmApp.fromAudio.on; });
+      } finally { await page.evaluate(() => { bmApp.fromAudio.stop(false); document.getElementById('panel-fromaudio').classList.remove('open'); }); await page.waitForTimeout(400); }
+      if (text !== 'Words from the stand-in') throw new Error('on screen at 2.2 s: ' + JSON.stringify(text) + ' (' + note + ')');
+      if (!stopped) throw new Error('another film did not stop it');
+      console.log(`      (${note})`);
+    });
+    await step('picture: colour, zoom and filling the screen reach the real mpv, another film is at its own size, and the first keeps its zoom', async () => {
       await startFilm();
       await page.evaluate(() => { const p = bmApp.picture; p.set('brightness', 20); p.set('contrast', -10); p.setZoom(200); p.setPan(50, 0); p.setFill(true); });
       await page.waitForTimeout(300);
       const got = {}; for (const k of ['brightness', 'contrast', 'video-zoom', 'video-pan-x', 'panscan']) got[k] = await mpvGet(k);
       if (got.brightness !== 20 || got.contrast !== -10 || Math.abs(got['video-zoom'] - 1) > 1e-3 || !(got['video-pan-x'] > 0) || got.panscan !== 1) throw new Error('mpv has ' + JSON.stringify(got));
-      await startFilm();
+      await startFilm(VID2);
       const z = await mpvGet('video-zoom'), b = await mpvGet('brightness');
-      await page.evaluate(() => bmApp.picture.reset());
-      if (z !== 0) throw new Error('the next film kept the zoom: ' + z);
+      // the first film again: its own zoom back (v3.59.0)
+      await startFilm(); await page.waitForTimeout(1800);
+      const z1 = await mpvGet('video-zoom');
+      await page.evaluate(() => { bmApp.picture.reset(); localStorage.removeItem('bm_film_memory'); bmApp.filmMemory.files = {}; bmApp.filmMemory.seriesRec = {}; });
+      if (z !== 0) throw new Error('another film took the zoom: ' + z);
       if (b !== 20) throw new Error('the next film lost the brightness: ' + b);
+      if (Math.abs(z1 - 1) > 1e-3) throw new Error('the first film again did not get its zoom back: ' + z1);
     });
 
     await step('sound: night mode, mono and a boost are one filter the real mpv takes, and the film plays on', async () => {

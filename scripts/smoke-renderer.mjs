@@ -536,7 +536,7 @@ async function main() {
     if (eng.el.playbackRate !== 1.25) throw new Error('the speed set before the graph was lost');
     await eng.load('file:///a/y.mp3', '/a/y.mp3', false);
     if (window.__audioContexts.n !== made + 1) throw new Error('a second song made a second AudioContext');
-    if (eng.filters.length !== 10) throw new Error('expected 10 EQ bands, got ' + eng.filters.length);
+    if (eng.filters.length !== 15) throw new Error('expected 15 EQ bands (v3.59.0), got ' + eng.filters.length);
     // source -> the equalizer -> heard -> gain -> destination, and the
     // analyser listening at heard, BEFORE the gain (v3.36.0): the visualiser
     // must not depend on the volume. Followed by the nodes themselves: since
@@ -545,7 +545,7 @@ async function main() {
     if (!eng.gain.outs.has(eng.ctx.destination)) throw new Error('the gain is not reaching the output: ' + chain.join(', '));
     if (!eng._heard.outs.has(eng.analyser) || eng._heard === eng.gain) throw new Error('the analyser is not fed from before the volume: ' + chain.join(', '));
     if (eng.gain.outs.has(eng.analyser)) throw new Error('the analyser listens after the volume again');
-    if (![...eng.filters[9].outs].includes(eng._heard)) throw new Error('the analyser does not hear the equalizer: it is not before the point it listens at');
+    if (![...eng.filters[eng.filters.length - 1].outs].includes(eng._heard)) throw new Error('the analyser does not hear the equalizer: it is not before the point it listens at');
     if (!eng.analyser.outs.has(eng.tap)) throw new Error('the analyser has no silent tap to keep it fed');
     // volume and mute are the gain's, and the audio element stays at full
     eng.setVolume(50);
@@ -611,8 +611,12 @@ async function main() {
     eng.setEQBand(1, -40);
     if (eng.filters[0].gain.value !== 12)  throw new Error('high gain not clamped: ' + eng.filters[0].gain.value);
     if (eng.filters[1].gain.value !== -12) throw new Error('low gain not clamped: ' + eng.filters[1].gain.value);
-    eng.setEQ([1,2,3,4,5,6,7,8,9,10]);
-    if (eng.getEQ().join(',') !== '1,2,3,4,5,6,7,8,9,10') throw new Error('setEQ did not apply: ' + eng.getEQ());
+    eng.setEQ([1,2,3,4,5,6,7,8,9,10,11,12,-1,-2,-3]);
+    if (eng.getEQ().join(',') !== '1,2,3,4,5,6,7,8,9,10,11,12,-1,-2,-3') throw new Error('setEQ did not apply: ' + eng.getEQ());
+    // ten gains from before v3.59.0 are spread over the fifteen bands (sound-chain.js eqFrom)
+    eng.setSound({ eq: [6, 0, 0, 0, 0, 0, 0, 0, 0, -6] });
+    const g = eng.getEQ();
+    if (g.length !== 15 || g[0] !== 6 || g[14] !== -6 || g[7] !== 0) throw new Error('ten gains were not spread over fifteen: ' + g);
     eng.resetEQ();
     if (eng.getEQ().some(g => g !== 0)) throw new Error('resetEQ left gain behind');
     eng.destroy();
@@ -630,15 +634,18 @@ async function main() {
     // what the chain counts is what is connected, from the song to the volume, and nothing besides
     const wired = when => {
       const L = c.links;
-      if (L[0][0] !== eng.source || L[L.length - 1][1] !== eng.gain) throw new Error(when + ': the chain does not run from the song to the volume');
+      if (L[0][0] !== eng._in || L[L.length - 1][1] !== eng.gain) throw new Error(when + ': the chain does not run from the songs to the volume');
       for (const [a, b] of L) if (!a.outs.has(b)) throw new Error(when + ': a link the chain counts is not connected');
-      if (eng.source.outs.size !== 1) throw new Error(when + ': the song feeds ' + eng.source.outs.size + ' nodes');
+      if (eng._in.outs.size !== 1) throw new Error(when + ': the songs feed ' + eng._in.outs.size + ' nodes');
+      // v3.59.0: the song reaches the chain through its deck, its level then its fade, and the meter's tap
+      const deck = eng._decks.get(eng.el);
+      if (!deck || deck.src !== eng.source || !eng.source.outs.has(deck.level) || !deck.level.outs.has(deck.fade) || !deck.fade.outs.has(eng._in) || !eng.source.outs.has(eng.tapIn)) throw new Error(when + ': the song does not reach the chain through its deck');
       if (eng._heard.outs.size !== 2 || !eng._heard.outs.has(eng.analyser)) throw new Error(when + ': the point the visualiser hears feeds ' + [...eng._heard.outs].map(n => n.kind));
       for (const [id, n] of c.made) if (!c.live.includes(id) && n.output.outs.size) throw new Error(when + ': ' + id + ' is out of the chain and still connected');
     };
     eng.ctx.state = 'suspended';
     if (live() !== '' || eng.filters !== null) throw new Error('with everything off there is something in the chain: ' + live());
-    if (!eng.source.outs.has(eng._heard) || !eng._heard.outs.has(eng.gain)) throw new Error('with everything off the song does not go straight to the volume');
+    if (!eng._in.outs.has(eng._heard) || !eng._heard.outs.has(eng.gain)) throw new Error('with everything off the song does not go straight to the volume');
     wired('everything off');
     eng.setEQBand(3, 4);
     if (live() !== 'eq' || eng.filters[3].gain.value !== 4) throw new Error('one band: ' + live()); wired('one band');
@@ -702,7 +709,7 @@ async function main() {
       eng.setSound({ mode: m, voice: true });
       if (live() !== 'voice,' + m + ',limit') throw new Error(m + ' with clear voice: ' + live());
       const L = c.links;
-      if (L[0][0] !== eng.source || L[L.length - 1][1] !== eng.gain) throw new Error(m + ': the chain does not run from the song to the volume');
+      if (L[0][0] !== eng._in || L[L.length - 1][1] !== eng.gain) throw new Error(m + ': the chain does not run from the songs to the volume');
       for (const [a, b] of L) if (!a.outs.has(b)) throw new Error(m + ': a link the chain counts is not connected');
     }
     eng.setSound({ mode: 'off', voice: false });
@@ -791,8 +798,10 @@ async function main() {
         await eng.load('file:///a/z.mp3', '/a/z.mp3', true);
         m = fakeMedia(eng.el); m.at(33); m.ready = 2; seen = [];
         eng._unwatch(); eng._watch();
-        await tick(700);
-        if (!eng._recovering && !seen.some(e => e[0] === 'recovered')) throw new Error('a song that stood still was not loaded again');
+        // looked at until it happens, three seconds at most: a fixed 700 ms failed once on the laptop's check (v3.59.0)
+        const t0 = Date.now();
+        while (!eng._recovering && !seen.some(e => e[0] === 'recovered') && Date.now() - t0 < 3000) await tick(20);
+        if (!eng._recovering && !seen.some(e => e[0] === 'recovered')) throw new Error('a song that stood still was not loaded again: ' + JSON.stringify({ wantPlay: eng._wantPlay, paused: eng.el.paused, active: eng.active, tries: eng._tries, at: eng._at, watching: !!eng._watchT, seen }));
       } finally { AudioEngine.STALL_MS = was; }
       eng.destroy();
     } finally { console.warn = warn; }
@@ -1522,13 +1531,13 @@ async function main() {
     // Every .eq-preset-btn was taken for an equalizer preset: the Fluid
     // panel's quality buttons set the equalizer back to flat (v3.46.0).
     await step('buttons that only look like the equalizer\'s presets leave the equalizer alone', async () => {
-      doc.querySelector('#eq-presets .eq-preset-btn[data-p="rock"]').click();
+      doc.querySelector('#eq-presets .eq-preset-btn[data-p="Rock"]').click();
       const before = JSON.stringify(app.eqValues);
       if (before === JSON.stringify(app.eqValues.map(() => 0))) throw new Error('the Rock preset set nothing');
       for (const sel of ['#fluid-presets .eq-preset-btn[data-tier="medium"]', '#snd-section [data-snd-night="off"]', '#panel-picture [data-pic-fill="off"]']) {
         doc.querySelector(sel)?.click();
         if (JSON.stringify(app.eqValues) !== before) throw new Error(sel + ' changed the equalizer to ' + JSON.stringify(app.eqValues));
-        if (!doc.querySelector('#eq-presets .eq-preset-btn[data-p="rock"]').classList.contains('active')) throw new Error(sel + ' took the mark off Rock');
+        if (!doc.querySelector('#eq-presets .eq-preset-btn[data-p="Rock"]').classList.contains('active')) throw new Error(sel + ' took the mark off Rock');
       }
       doc.getElementById('btn-reset-eq').click();
       if (app.eqValues.some(v => v)) throw new Error('Reset EQ left ' + JSON.stringify(app.eqValues));
@@ -1547,7 +1556,8 @@ async function main() {
       const fx = eng.getFx();
       if (!fx.night || fx.channels !== 'mono' || fx.boost !== 1.5) throw new Error('the engine has ' + JSON.stringify(fx));
       app.eqValues[1] = 4; app._applyEQ();
-      if (!last('af').startsWith('lavfi=[equalizer=f=62:')) throw new Error('the equalizer is not first: ' + last('af'));
+      // v3.59.0: No clipping is on to begin with, so the headroom (the band's +4 dB) comes before it
+      if (!last('af').startsWith('lavfi=[volume=-4dB,equalizer=f=40:')) throw new Error('the headroom and then the equalizer are not first: ' + last('af'));
       const kept = JSON.parse(window.localStorage.getItem('bm_sound') || '{}');
       if (kept.night !== true || kept.channels !== 'mono' || 'boost' in kept) throw new Error('kept: ' + JSON.stringify(kept));
       app.eqValues[1] = 0; app.sound.reset();
@@ -3545,6 +3555,75 @@ async function main() {
       r.stop();
       perf.setSessionTier('low');
       if (!r.run(jelly, {})) throw new Error('it did not start at low quality');
+      tick(6);
+      if (r.cost().errors) throw new Error('at low quality: ' + said);
+    } finally { perf.setSessionTier(keepSession || null); console.warn = warn; r.destroy(); }
+  });
+
+  // v3.59.0: the Butterfly Garden, on the same runner: it starts, draws, grows
+  // a flower where a tap lands, sends a gust in the other mode, takes the
+  // breeze off and on, a pointer held still, a new size and the beat, with
+  // nothing thrown. Low quality has fewer leaves and butterflies.
+  await step('the Butterfly Garden runs on the scene runner: a tap grows a flower or sends a gust, the breeze, a new size and the beat', async () => {
+    const { SceneRunner } = await import(pathToFileURL(path.join(ROOT, 'src/js/scenes/runner.js')).href);
+    const garden = (await import(pathToFileURL(path.join(ROOT, 'src/js/scenes/garden.js')).href)).default;
+    const { perf } = await import(pathToFileURL(path.join(ROOT, 'src/js/perf.js')).href);
+    let clock = 0, beat = 0; const queue = []; const opts = { raf: f => queue.push(f), caf: () => {}, now: () => clock, gap: () => 12 };
+    let box = { left: 0, top: 0, width: 200, height: 120 };
+    const cv = window.document.createElement('canvas'); cv.getBoundingClientRect = () => box;
+    const r = new SceneRunner(cv, { ...opts, level: () => beat });
+    const warn = console.warn; let said = ''; console.warn = (...a) => { said += a.join(' '); };
+    const tick = n => { for (let i = 0; i < n; i++) { clock += 16; queue.splice(0).forEach(f => f()); } };
+    const keepSession = perf._session;
+    try {
+      if (!r.run(garden, { tap: 'grow', breeze: true }) || garden.id !== 'garden' || garden.name !== 'Butterfly Garden') throw new Error('it did not start');
+      tick(10);
+      r.pointer('down', 100, 40); tick(6);
+      r.set('tap', 'gust'); r.set('tap', 'nonsense'); r.pointer('down', 60, 60); tick(4);
+      r.set('breeze', false); tick(4); r.set('breeze', true);
+      r.pointer('move', 90, 50); tick(20);
+      beat = 0.9; tick(4); beat = 0.1; tick(4); beat = 0.95; tick(4);
+      box = { left: 0, top: 0, width: 320, height: 180 }; r.resize(); tick(8);
+      r.pointer('leave', 0, 0);
+      const c = r.cost();
+      if (c.errors || c.frames < 20) throw new Error(`${JSON.stringify(c)} ${said}`);
+      if (cv.width !== Math.round(320 * r.dpr)) throw new Error('the canvas did not take the new size: ' + cv.width);
+      r.stop();
+      perf.setSessionTier('low');
+      if (!r.run(garden, {})) throw new Error('it did not start at low quality');
+      tick(6);
+      if (r.cost().errors) throw new Error('at low quality: ' + said);
+    } finally { perf.setSessionTier(keepSession || null); console.warn = warn; r.destroy(); }
+  });
+
+  // v3.59.0: the Koi Pond, on the same runner: a ripple, food, the petals
+  // off, a still pointer, the music's beat, a new size, nothing thrown.
+  await step('the Koi Pond runs on the scene runner: a ripple, food, the petals and the dance, a new size and the beat', async () => {
+    const { SceneRunner } = await import(pathToFileURL(path.join(ROOT, 'src/js/scenes/runner.js')).href);
+    const koi = (await import(pathToFileURL(path.join(ROOT, 'src/js/scenes/koi.js')).href)).default;
+    const { perf } = await import(pathToFileURL(path.join(ROOT, 'src/js/perf.js')).href);
+    let clock = 0, beat = 0; const queue = []; const opts = { raf: f => queue.push(f), caf: () => {}, now: () => clock, gap: () => 12 };
+    let box = { left: 0, top: 0, width: 200, height: 120 };
+    const cv = window.document.createElement('canvas'); cv.getBoundingClientRect = () => box;
+    const r = new SceneRunner(cv, { ...opts, level: () => beat });
+    const warn = console.warn; let said = ''; console.warn = (...a) => { said += a.join(' '); };
+    const tick = n => { for (let i = 0; i < n; i++) { clock += 16; queue.splice(0).forEach(f => f()); } };
+    const keepSession = perf._session;
+    try {
+      if (!r.run(koi, { tap: 'touch', petals: true, dance: true }) || koi.id !== 'koi' || koi.name !== 'Koi Pond') throw new Error('it did not start');
+      tick(10);
+      r.pointer('down', 100, 60); tick(6);
+      r.set('tap', 'feed'); r.set('tap', 'nonsense'); r.pointer('down', 60, 40); tick(6);
+      r.set('petals', false); r.set('dance', false); tick(4); r.set('dance', true);
+      r.pointer('move', 90, 50); tick(20);
+      beat = 0.9; tick(4); beat = 0.1; tick(4); beat = 0.95; tick(4);
+      box = { left: 0, top: 0, width: 320, height: 180 }; r.resize(); tick(8);
+      r.pointer('leave', 0, 0);
+      const c = r.cost();
+      if (c.errors || c.frames < 20) throw new Error(`${JSON.stringify(c)} ${said}`);
+      r.stop();
+      perf.setSessionTier('low');
+      if (!r.run(koi, {})) throw new Error('it did not start at low quality');
       tick(6);
       if (r.cost().errors) throw new Error('at low quality: ' + said);
     } finally { perf.setSessionTier(keepSession || null); console.warn = warn; r.destroy(); }

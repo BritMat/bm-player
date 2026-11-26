@@ -1325,6 +1325,84 @@ await step('PiP size button cycles three sizes, anchored and on screen', async (
     }
   });
 
+  // v3.59.0: lyrics timed by the person may replace the .lrc beside a song, the old one kept as .lrc.bak
+  await step('a .lrc beside a song: written once, refused over one there, and replaced only when asked, the old one kept', () => {
+    const { saveBeside } = require(path.join(ROOT, 'lyrics.js'));
+    const dir = path.join(TMP, 'lrc'); fs.mkdirSync(dir, { recursive: true });
+    const song = path.join(dir, 'A song.mp3'); fs.writeFileSync(song, 'x');
+    let r = saveBeside(song, '[00:01.00]first');
+    if (!r.ok) throw new Error('first save: ' + JSON.stringify(r));
+    r = saveBeside(song, '[00:02.00]second');
+    if (r.error !== 'exists') throw new Error('saved over one there: ' + JSON.stringify(r));
+    r = saveBeside(song, '[00:03.00]third', { replace: true });
+    const lrc = fs.readFileSync(path.join(dir, 'A song.lrc'), 'utf8'), bak = fs.readFileSync(path.join(dir, 'A song.lrc.bak'), 'utf8');
+    if (!r.ok || !r.replaced || !/third/.test(lrc) || !/first/.test(bak)) throw new Error('replace: ' + JSON.stringify({ r, lrc, bak }));
+    saveBeside(song, '[00:04.00]fourth', { replace: true });
+    if (!/first/.test(fs.readFileSync(path.join(dir, 'A song.lrc.bak'), 'utf8'))) throw new Error('the first .lrc.bak was written over');
+  });
+
+  // v3.59.0: OPRA's database read, searched by maker and name, and a curve made ready for sound-chain.js
+  await step('headphone correction: OPRA read, searched by maker and name, a curve given with who made it', () => {
+    const { parse, search, curve } = require(path.join(ROOT, 'main/opra.js'));
+    const lines = [
+      { type: 'vendor', id: 'acme', data: { name: 'Acme Audio' } },
+      { type: 'product', id: 'acme::one', data: { name: 'One Pro', type: 'headphones', subtype: 'over_the_ear', vendor_id: 'acme' } },
+      { type: 'product', id: 'acme::two', data: { name: 'Two', type: 'headphones', vendor_id: 'acme' } },
+      { type: 'product', id: 'acme::bare', data: { name: 'No Curves', vendor_id: 'acme' } },
+      { type: 'eq', id: 'acme:one::a', data: { author: 'Someone', details: 'Measured by a rig', type: 'parametric_eq', product_id: 'acme::one', parameters: { gain_db: -3.5, bands: [{ type: 'low_shelf', frequency: 105, gain_db: 4, q: 0.7 }, { type: 'peak_dip', frequency: 3000, gain_db: -2, q: 1.4 }, { type: 'low_pass', frequency: 18000, slope: 12 }] } } },
+      { type: 'eq', id: 'acme:two::a', data: { author: 'Other', details: 'x', type: 'parametric_eq', product_id: 'acme::two', parameters: { bands: [] } } },
+      'not json',
+    ].map(x => typeof x === 'string' ? x : JSON.stringify(x)).join('\n');
+    const d = parse(lines);
+    const r = search(d, 'acme pro');
+    if (r.length !== 1 || r[0].name !== 'One Pro' || r[0].vendor !== 'Acme Audio' || r[0].eqs[0].author !== 'Someone') throw new Error('search: ' + JSON.stringify(r));
+    if (search(d, 'curves').length) throw new Error('headphones with no curve were found');
+    if (search(d, 'ACME').length !== 2) throw new Error('the maker alone, in capitals');
+    const c = curve(d, 'acme:one::a');
+    if (c.name !== 'Acme Audio One Pro' || c.gain !== -3.5 || c.skipped !== 1 || JSON.stringify(c.bands) !== JSON.stringify([['lowshelf', 105, 4, 0.7], ['peak', 3000, -2, 1.4]])) throw new Error('curve: ' + JSON.stringify(c));
+    if (curve(d, 'nope') !== null) throw new Error('a curve that is not there');
+  });
+
+  // v3.59.0: subtitles from the audio: whisper's pieces read, moved and added up, and what to write next
+  await step('subtitles from the audio: pieces read, moved to their place, added up, the next piece chosen, and the release with the programs found', async () => {
+    const T = require(path.join(ROOT, 'main/transcribe.js'));
+    const piece = T.parseSrt('1\n00:00:00,000 --> 00:00:02,500\n Hello there.\n\n2\n00:00:03,000 --> 00:00:05,000\n[BLANK_AUDIO]\n\n3\n00:00:06,000 --> 00:00:31,000\n The end.\n');
+    if (piece.length !== 2 || piece[0].text !== 'Hello there.') throw new Error('read: ' + JSON.stringify(piece));
+    let cues = T.addPiece([], piece, 60, 90);
+    if (cues[0].a !== 60 || cues[1].a !== 66 || cues[1].b !== 90) throw new Error('moved: ' + JSON.stringify(cues));
+    cues = T.addPiece(cues, [{ a: 0, b: 1, text: 'Before.' }], 30, 60);
+    const srt = T.writeSrt(cues);
+    if (!/^1\n00:00:30,000 --> 00:00:31,000\nBefore\.\n\n2\n00:01:00,000 --> 00:01:02,500\nHello there\.\n/.test(srt)) throw new Error('written: ' + JSON.stringify(srt));
+    // what to write next: from where the film is, past what is written, not too far ahead, not past the end
+    const done = T.addRange(T.addRange([], 30, 60), 60, 90);
+    if (JSON.stringify(done) !== '[[30,90]]') throw new Error('ranges joined: ' + JSON.stringify(done));
+    if (T.nextPiece(done, 45, 600) !== 90) throw new Error('past what is written: ' + T.nextPiece(done, 45, 600));
+    if (T.nextPiece(done, 10, 600) !== 8) throw new Error('from where the film is: ' + T.nextPiece(done, 10, 600));
+    if (T.nextPiece([[0, 200]], 100, 600) !== null) throw new Error('far enough ahead, and still writing');
+    if (T.nextPiece([[0, 599.8]], 590, 600) !== null) throw new Error('past the end');
+    if (T.assetName('win32', 'x64') !== 'whisper-bin-x64.zip' || T.assetName('linux', 'x64') !== 'whisper-bin-ubuntu-x64.tar.gz' || T.assetName('darwin', 'arm64') !== null) throw new Error('the release file for each computer');
+    // v3.59.0, from the laptop's check: v1.9.6, the latest release, has no programs. They are on the nightly it names.
+    const file = n => ({ name: n, browser_download_url: 'https://x/' + n });
+    const api = answers => async url => { const k = url.replace(/^.*\/releases/, ''); asked.push(k); return k in answers ? answers[k] : null; };
+    let asked = [];
+    let got = await T.findAsset('whisper-bin-x64.zip', api({
+      '/latest': { tag_name: 'v1.9.6', body: '## Overview\n\nNew version has been released.\n\n**Nightly build:** [b4938](https://github.com/ggml-org/whisper.cpp/releases/tag/b4938)\n', assets: [] },
+      '/tags/b4938': { tag_name: 'b4938', prerelease: true, assets: [file('whisper-bin-ubuntu-x64.tar.gz'), file('whisper-bin-x64.zip')] },
+    }));
+    if (!got.asset || got.rel.tag_name !== 'b4938' || asked.join(' ') !== '/latest /tags/b4938') throw new Error('the nightly a release names: ' + JSON.stringify({ tag: got.rel && got.rel.tag_name, asked }));
+    asked = [];
+    got = await T.findAsset('whisper-bin-x64.zip', api({ '/latest': { tag_name: 'v1.8.2', assets: [file('whisper-bin-x64.zip')] } }));
+    if (got.rel.tag_name !== 'v1.8.2' || asked.length !== 1) throw new Error('a release that has the file is used as it is');
+    asked = [];
+    got = await T.findAsset('whisper-bin-ubuntu-x64.tar.gz', api({
+      '/latest': { tag_name: 'v1.9.7', body: 'no nightly named', assets: [] },
+      '?per_page=30': [{ tag_name: 'b5001', draft: true, assets: [file('whisper-bin-ubuntu-x64.tar.gz')] }, { tag_name: 'b5000', prerelease: true, assets: [file('whisper-bin-ubuntu-x64.tar.gz')] }],
+    }));
+    if (got.rel.tag_name !== 'b5000') throw new Error('the newest release with the file, drafts left out: ' + (got.rel && got.rel.tag_name));
+    got = await T.findAsset('whisper-bin-x64.zip', api({ '/latest': { tag_name: 'v2.0.0', assets: [] }, '?per_page=30': [] }));
+    if (got.asset !== null || got.rel.tag_name !== 'v2.0.0') throw new Error('none found: the latest is said');
+  });
+
   await step('every invoked preload channel has a handler', () => {
     const preload = fs.readFileSync(path.join(ROOT, 'preload.js'), 'utf8');
     const invoked = [...preload.matchAll(/inv\(\s*'([^']+)'/g)].map(m => m[1]);

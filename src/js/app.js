@@ -24,6 +24,12 @@ import bookmarks from './modules/bookmarks.js';
 import SpeedMenu from './modules/speed-menu.js';
 import VideoTransform from './modules/video-transform.js';
 import { Picture } from './modules/picture.js';
+import { Quality } from './modules/quality.js';
+import { Output } from './modules/output.js';
+import { FilmMemory } from './modules/film-memory.js';
+import { MusicFlowPanel } from './modules/music-flow.js';   // v3.59.0
+import { HiFi } from './modules/hifi.js';                     // v3.59.0
+import { FromAudio } from './modules/from-audio.js';         // v3.59.0
 import { Sound } from './modules/sound.js';
 import { SleepTimer } from './modules/sleep-timer.js';
 import { Lyrics } from './modules/lyrics.js';
@@ -153,6 +159,15 @@ class BMPlayer {
     this.transform = new VideoTransform({ mpv: () => this.api?.mpv, osd: m => this.showOSD(m), paused: () => !!this.isPaused });
     // The picture's colours and zoom, and the sound's effects (v3.46.0).
     this.picture = new Picture(this.api, { osd: m => this.showOSD(m) });
+    // How mpv draws the picture, tuned to the machine (v3.59.0)
+    this.quality = new Quality({ mpv: () => this.api?.mpv, lite: () => liteMode.isLiteMode(), osd: m => this.showOSD(m) });
+    // What each film keeps, and a series shares (v3.59.0)
+    this.filmMemory = new FilmMemory({ mpv: () => this.api?.mpv, picture: this.picture, osd: m => this.showOSD(m) });
+    this.picture.onView = (z, p) => this.filmMemory.view(z, p);
+    // Where the sound goes, for films and songs alike (v3.59.0)
+    this.output = new Output({ mpv: () => this.api?.mpv, engine: () => window.bmMusic?.engine, osd: m => this.showOSD(m) });
+    // v3.59.0: hi-fi sound, its settings going into the sound chain with the rest (panels.js _applyEQ)
+    this.hifi = new HiFi({ mpv: () => this.api?.mpv, music: () => window.bmMusic, sound: () => this.sound?.fx, output: () => this.output, osd: m => this.showOSD(m), apply: () => this._applyEQ() });
     this.sound = new Sound({ apply: () => this._applyEQ(), osd: m => this.showOSD(m) });
     this.sleep = new SleepTimer({
       playing: () => !!this.isPlaying, pause: () => this.togglePlay(),
@@ -168,7 +183,9 @@ class BMPlayer {
     this.wireTitlebar();this.wireThemes();this.wireSidebar();this.wireMenu();
     this.wireWelcome();this.wireTransport();this.wireSeek();this.wireVolume();
     this.wirePanels();this.wireEQ();this.wirePlaylistPanel();this.wireCtxPanel();
-    this.picture.wire(el('panel-picture'));this.sound.wire(el('snd-section'));this.wireSleep();
+    this.picture.wire(el('panel-picture'));this.quality.wire(el('panel-picture'));this.output.wire(el('snd-output'));this.hifi.wire(el('snd-hifi'));
+    // v3.59.0: subtitles from the audio
+    this.fromAudio=new FromAudio({ api: this.api, app: this, osd: m => this.showOSD(m) });this.fromAudio.wire(el('fromaudio-body'));this.sound.wire(el('snd-section'));this.wireSleep();
     this.wireDialogs();this.wireOverlayKeys();this.wireKeyboard();this.wireDragDrop();this.wireControlsHide();
     this.wirePiP();this.wireMiniPlayer();this.wireVizOverlay();this.wireCtxMenu();this.wireFluidPointer();this.wirePlayModes();this.wireScenes();this.wireDiagnostics();
     this.wireUpdate();this.wireDefaultPrompt();this.listenMpv();this.renderRecent();this.renderTrackMenus([]);
@@ -416,6 +433,10 @@ window.addEventListener('DOMContentLoaded',()=>{
   window.bmApp=new BMPlayer();
   window.bmMusic=new MusicDash(window.api);
   window.bmApp._applyEQ?.();   // the sound's kept effects for the engine as well (v3.46.0)
+  window.bmApp.hifi?.applyEngine();   // v3.59.0: the engine's peak limiter, as set
+  if (window.bmApp.hifi?.pure) window.bmMusic.pure = true;   // v3.59.0: bit-perfect songs, as set
+  // v3.59.0: between songs, and songs made equally loud
+  try { window.bmApp.musicFlow=new MusicFlowPanel({ music: window.bmMusic, osd: (m, ms) => window.bmApp.showOSD(m, ms) }); window.bmApp.musicFlow.wire(document.getElementById('snd-flow')); } catch (e) { console.warn('[BM Player] the music flow settings:', e); }
   // Lyrics (v3.38.0), for the music: the Now Playing tab and the visual mode.
   try { window.bmLyrics=new Lyrics({ api: window.api, music: window.bmMusic, app: window.bmApp }); } catch (e) { console.warn('[BM Player] lyrics unavailable:', e); }
   try { wireStudio(); } catch (e) { console.warn('[BM Player] studio layout:', e); }   // v3.51.0: the themes menu, the panel beside the songs

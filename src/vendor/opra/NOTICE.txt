@@ -1,0 +1,17 @@
+OPRA (Open Parametric headphone EQ data), https://github.com/opra-project/OPRA
+
+BM Player reads OPRA's database (database_v1.jsonl, from the mirror Roon Labs
+keeps at opra.roonlabs.net) for its headphone correction, and shows each EQ
+with the name of the person or project that made it, then OPRA's logo and a
+link to the repository, as OPRA asks.
+
+OPRA's manufacturer, product and EQ data is licensed under Creative Commons
+Attribution-ShareAlike 4.0 International (CC BY-SA 4.0):
+https://creativecommons.org/licenses/by-sa/4.0/legalcode.en
+
+OPRA's code is MIT licensed. Its database includes EQ data from the AutoEQ
+project (https://github.com/jaakkopasanen/AutoEq), MIT licensed,
+Copyright (c) 2018-2022 Jaakko Pasanen.
+
+opra-logo.png is OPRA's logo (images/opra_logo.png in its repository), made
+smaller, included for the attribution OPRA asks for.

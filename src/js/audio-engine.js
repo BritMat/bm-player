@@ -33,6 +33,21 @@
  * plays from the audio element alone, which the web engine sends out at the
  * song's own rate (`plain`), without the equalizer and the visualiser, until
  * the way out changes (renew()).
+ *
+ * Songs that flow (v3.59.0). The engine has two audio elements, two decks.
+ * While a song plays, the next one waits, loaded, on the other (queueNext).
+ * Gapless: the next starts as this one ends, with no silence between. A
+ * crossfade: the next comes in over the last seconds of this one, each at
+ * an equal-power curve, so the sum stays as loud. Each deck has its own
+ * level, for songs made equally loud (loudness.js), and its own fade:
+ *
+ *   element -> source -> level -> fade -+-> in -> [the chain, as below]
+ *   element -> source -> level -> fade -+
+ *
+ * The song that comes in becomes this.el, and the one going out is let go
+ * when its fade is done; its last events are not heard (_wireElement). When
+ * the next song is not ready in time, or the sound is plain, the song ends
+ * as before and the music view starts the next.
  */
 
 /* The equalizer's bands and the sound's effects are sound-chain.js's
@@ -56,6 +71,18 @@ const MIME = {
 /* Chromium has no decoder for these regardless of what canPlayType says. */
 const NEVER = new Set(['ape', 'wma', 'mka', 'dsf', 'dff', 'tta', 'wv', 'mpc']);
 
+/** A gain from one value to another over secs, on an equal-power curve (sine in, cosine out). */
+function fade (param, from, to, t, secs) {
+  try {
+    param.cancelScheduledValues(t);
+    if (typeof param.setValueCurveAtTime === 'function') {
+      const n = 64, c = new Float32Array(n);
+      for (let i = 0; i < n; i++) { const k = i / (n - 1), up = Math.sin(k * Math.PI / 2); c[i] = from < to ? from + (to - from) * up : to + (from - to) * Math.cos(k * Math.PI / 2); }
+      param.setValueCurveAtTime(c, t, secs);
+    } else param.value = to;
+  } catch (_) { param.value = to; }
+}
+
 export class AudioEngine {
   constructor() {
     this.available = false;
@@ -69,6 +96,16 @@ export class AudioEngine {
     // v3.55.1: on the phone, a song with no Web Audio when the sound runs at a call's rate (_graph)
     this._phone = typeof navigator !== 'undefined' && /BMPlayerAndroid/.test(navigator.userAgent || '');
     this.plain = false; this._probedAt = 0;
+    this.pure = false;            // v3.59.0: plain by choice (the phone's Pure), set with setPure
+    // v3.59.0: songs that flow, the next waiting on the other deck
+    this.flow = { mode: 'off', seconds: 6 };
+    this._decks = new Map();      // element -> { src, level, fade }
+    this._other = null;           // the other deck's element, made when a song waits on it
+    this._next = null;            // { url, path, levelDb, join, el }: the song that comes next
+    this._xf = null;              // { from }: a song going out, while the next comes in
+    this._flowT = 0; this._xfT = 0;
+    this._levelDb = 0;            // the playing song's level (loudness.js)
+    this._guardOn = false; this._guard = null;   // v3.59.0: the true-peak limiter after the volume (worklets/limiter.js)
 
     const Ctx = typeof window !== 'undefined' && (window.AudioContext || window.webkitAudioContext);
     if (!Ctx) return;             // no Web Audio: stay unavailable, caller uses mpv
@@ -91,6 +128,13 @@ export class AudioEngine {
   _graph() {
     if (this.ctx || this.plain) return true;
     if (!this.available) return false;
+    // Pure (v3.59.0, the phone): the song from the audio element alone, by choice, as when plain below
+    if (this.pure) {
+      this.plain = true;
+      this.el.volume = Math.min(1, this._muted ? 0 : this._vol);
+      this._emit('plain', { pure: true });
+      return true;
+    }
     try {
       // On the phone (v3.48.0) the sound is mixed in larger blocks: fewer
       // wake-ups for the processor, and no gap when the phone is busy for a
@@ -123,7 +167,10 @@ export class AudioEngine {
         this.ctx = new this._Ctx({ ...(opts || {}), sampleRate: 48000 });
         console.warn('[AudioEngine] the sound ran at ' + low + ' Hz (a call\'s rate): made again at 48000');
       }
-      this.source = this.ctx.createMediaElementSource(this.el);
+      if (this._sinkId) this._applySink().catch(() => {});   // the device chosen (v3.59.0)
+      // the songs meet here (v3.59.0): each deck's level and fade before it
+      this._in = this.ctx.createGain();
+      this.tapIn = this.ctx.createGain();   // the playing song alone, before its level, for loudness.js's meter
 
       this.gain = this.ctx.createGain();
       this.analyser = this.ctx.createAnalyser();
@@ -141,9 +188,13 @@ export class AudioEngine {
       // The effects in brackets are put in only while they are on (v3.47.0,
       // sound-chain.js): with none, the song goes straight to the volume.
       this._heard = this.ctx.createGain();
-      this.chain = new WebChain(this.ctx, { from: this.source, heard: this._heard, to: this.gain });
+      this.chain = new WebChain(this.ctx, { from: this._in, heard: this._heard, to: this.gain });
+      this._plug(this.el, 1);
+      this._setLevel(this.el, this._levelDb);
+      this._tap();
       this.chain.set(this._sound);
       this.gain.connect(this.ctx.destination);
+      if (this._guardOn) this._placeGuard();
       this.tap = this.ctx.createGain();
       this.tap.gain.value = 0;
       this._heard.connect(this.analyser);
@@ -151,6 +202,7 @@ export class AudioEngine {
       this.tap.connect(this.ctx.destination);
       this._applyGain();
       this._restSoon();             // made for a song that waits (the phone's queue at start-up): it rests
+      this._emit('graph', { ctx: this.ctx });
       return true;
     } catch (e) {
       // A failure here is expected on some configurations; it is not an error.
@@ -161,13 +213,219 @@ export class AudioEngine {
     }
   }
 
+  /**
+   * The device songs go to (v3.59.0, output.js): a browser device id, or ''
+   * for the system's own. The context is sent there where it can be
+   * (AudioContext.setSinkId), else the element (plain, or before Web Audio).
+   * Kept, and given again to a context or an element made after.
+   */
+  async setSink(id = '') {
+    this._sinkId = id || '';
+    return this._applySink();
+  }
+  async _applySink() {
+    const id = this._sinkId || '';
+    try {
+      if (this.ctx && typeof this.ctx.setSinkId === 'function') { if ((this.ctx.sinkId || '') !== id) await this.ctx.setSinkId(id); return true; }
+      if (this.el && typeof this.el.setSinkId === 'function') { if ((this.el.sinkId || '') !== id) await this.el.setSinkId(id); return true; }
+    } catch (e) { console.warn('[AudioEngine] the sound could not go to that device:', e && e.message); throw e; }
+    return !id;
+  }
+
   /** A new audio element, wired, at the speed chosen (the old one is let go by renew). */
-  _newElement() {
-    this.el = new Audio();
-    this.el.preload = 'auto';
-    this.el.crossOrigin = 'anonymous';
-    this._wireElement();
-    if (this._rate !== 1 || rateOf(this._sound) !== 1) this._applyRate();
+  _newElement() { this.el = this._makeEl(); }
+  _makeEl() {
+    const e = new Audio();
+    e.preload = 'auto';
+    e.crossOrigin = 'anonymous';
+    this._wireElement(e);
+    if (this._rate !== 1 || rateOf(this._sound) !== 1) this._rateOf(e);
+    return e;
+  }
+
+  /* ── songs that flow (v3.59.0) ───────────────────────────────── */
+  /** An element's way into the graph: its source, its level and its fade. Made once for an element. */
+  _plug(el, fade = 1) {
+    if (!this.ctx || !el) return null;
+    let d = this._decks.get(el);
+    if (d) return d;
+    const src = this.ctx.createMediaElementSource(el), level = this.ctx.createGain(), f = this.ctx.createGain();
+    f.gain.value = fade;
+    src.connect(level); level.connect(f); f.connect(this._in);
+    d = { src, level, fade: f };
+    this._decks.set(el, d);
+    if (el === this.el) this.source = src;
+    return d;
+  }
+  /** The meter's tap fed by the playing song only. */
+  _tap() {
+    if (!this.tapIn) return;
+    for (const [e, d] of this._decks) { try { d.src.disconnect(this.tapIn); } catch (_) {} if (e === this.el) d.src.connect(this.tapIn); }
+  }
+  _setLevel(el, db) {
+    const d = this._decks.get(el); if (!d) return;
+    const g = Math.pow(10, (Number(db) || 0) / 20), p = d.level.gain;
+    try { if (this.ctx.state === 'running') { p.cancelScheduledValues(this.ctx.currentTime); p.setTargetAtTime(g, this.ctx.currentTime, 0.05); } else p.value = g; } catch (_) { p.value = g; }
+  }
+  /**
+   * The true-peak limiter (v3.59.0, worklets/limiter.js), between the volume
+   * and the speakers: nothing past -1 dB, the peaks between samples
+   * included. Loaded the first time it is wanted; until then, and where
+   * there is no AudioWorklet, the sound goes straight out as before.
+   */
+  setGuard (on) { this._guardOn = !!on; if (this.ctx) this._placeGuard(); }
+  get guarded () { return !!(this._guard && this._guardIn); }
+  _placeGuard () {
+    const ctx = this.ctx, gain = this.gain; if (!ctx || !gain) return;
+    const want = this._guardOn;
+    if (!want) {
+      if (this._guardIn) { try { gain.disconnect(this._guard); this._guard.disconnect(); } catch (_) {} gain.connect(ctx.destination); this._guardIn = false; }
+      return;
+    }
+    if (this._guard && this._guard.context === ctx) {
+      if (!this._guardIn) { try { gain.disconnect(ctx.destination); } catch (_) {} gain.connect(this._guard); this._guard.connect(ctx.destination); this._guardIn = true; }
+      return;
+    }
+    if (!ctx.audioWorklet || typeof AudioWorkletNode !== 'function') return;
+    if (!ctx.__bmLimiter) ctx.__bmLimiter = ctx.audioWorklet.addModule(new URL('./worklets/limiter.js', import.meta.url).href);
+    ctx.__bmLimiter.then(() => {
+      if (this.ctx !== ctx || !this._guardOn) return;
+      this._guard = new AudioWorkletNode(ctx, 'bm-limiter', { numberOfInputs: 1, numberOfOutputs: 1, outputChannelCount: [2] });
+      this._guardIn = false; this._placeGuard();
+    }).catch(e => console.warn('[AudioEngine] the peak limiter could not be loaded:', e && e.message));
+  }
+
+  /**
+   * Pure (v3.59.0, the phone): the songs from the audio element alone, at
+   * their own rate, as Android's own player would send them: no Web Audio,
+   * so no equalizer, effects or visualiser. Made again at once (renew).
+   */
+  setPure (on) {
+    on = !!on; if (on === this.pure) return;
+    this.pure = on;
+    this.renew(on ? 'pure on' : 'pure off');
+  }
+
+  /** The playing song's level, in dB (loudness.js): 0 is as it is. */
+  setLevel(db) { this._levelDb = Math.max(-24, Math.min(12, Number(db) || 0)); this._setLevel(this.el, this._levelDb); }
+  get level() { return this._levelDb; }
+
+  /**
+   * How one song goes into the next: { mode: 'off' | 'gapless' | 'crossfade',
+   * seconds: 1 to 12 }. Off is as before: the next song starts when this one
+   * has ended.
+   */
+  setFlow(f = {}) {
+    const mode = ['off', 'gapless', 'crossfade'].includes(f.mode) ? f.mode : this.flow.mode;
+    const seconds = Math.max(1, Math.min(12, Number(f.seconds) || this.flow.seconds));
+    this.flow = { mode, seconds };
+    if (mode === 'off') this._unqueue();
+    else { clearTimeout(this._flowT); this._flowT = 0; this._prepare(); this._arm(); }
+  }
+  /**
+   * The song that comes after this one, or null for none (the music view
+   * says, as its queue, repeat and shuffle change). levelDb: its level.
+   * join 'gapless': no crossfade into it, whatever the mode (the next track
+   * of the same album, which runs on into it).
+   */
+  queueNext(url, path, { levelDb = 0, join = null } = {}) {
+    if (!url) { this._unqueue(); return; }
+    const was = this._next;
+    this._next = { url, path: path || url, levelDb: Number(levelDb) || 0, join, el: was?.url === url ? was.el : null };
+    clearTimeout(this._flowT); this._flowT = 0;
+    this._prepare(); this._arm();
+  }
+  get upNext() { return this._next ? this._next.path : null; }
+  _unqueue() {
+    clearTimeout(this._flowT); this._flowT = 0;
+    this._next = null;
+    const o = this._other;
+    if (o && !this._xf) { try { o.pause(); o.removeAttribute('src'); o.load(); } catch (_) {} }
+  }
+  /** The next song loaded on the other deck, silent, ready to start. */
+  _prepare() {
+    const n = this._next;
+    if (!n || this.flow.mode === 'off' || this.plain || !this.ctx || this._xf) return false;
+    if (!this._other) this._other = this._makeEl();
+    const e = this._other, d = this._plug(e, 0);
+    if (!d) return false;
+    if (n.el !== e || e.getAttribute('src') !== n.url) {
+      n.el = e;
+      try { d.fade.gain.cancelScheduledValues(0); } catch (_) {}
+      d.fade.gain.value = 0;
+      e.src = n.url;
+      try { e.load(); } catch (_) {}
+    }
+    this._setLevel(e, n.levelDb);
+    return true;
+  }
+  /** How long before the end the next song starts: the crossfade, or a moment for gapless. */
+  _lead() {
+    const n = this._next;
+    if (this.flow.mode !== 'crossfade' || n?.join === 'gapless') return AudioEngine.GAP_LEAD;
+    const d = this.el?.duration, nd = n?.el?.duration;
+    // never more than a third of either song: a short one is not all crossfade
+    return Math.max(AudioEngine.GAP_LEAD, Math.min(this.flow.seconds, isFinite(d) ? d / 3 : Infinity, isFinite(nd) && nd > 0 ? nd / 3 : Infinity));
+  }
+  /** Near the end, a timer for the moment the next song starts. */
+  _arm() {
+    if (this._xf || !this._next || this.flow.mode === 'off' || this.plain || !this.ctx || !this._wantPlay) return;
+    const el = this.el, d = el.duration;
+    if (!isFinite(d) || d <= 0 || el.paused || el.seeking || this._recovering) return;
+    const left = (d - (el.currentTime || 0)) / (el.playbackRate || 1), lead = this._lead();
+    if (left > lead + 0.6) { clearTimeout(this._flowT); this._flowT = 0; return; }
+    if (this._flowT) return;
+    this._prepare();
+    this._flowT = setTimeout(() => { this._flowT = 0; this._go(); }, Math.max(0, (left - lead) * 1000));
+  }
+  /** The next song starts: in at once (gapless) or over the crossfade, and the one playing goes out. */
+  _go() {
+    const n = this._next, old = this.el;
+    if (!n || !n.el || this._xf || !this._wantPlay || old.paused || !this.ctx) return false;
+    const d = old.duration, left = isFinite(d) ? (d - (old.currentTime || 0)) / (old.playbackRate || 1) : 0, lead = this._lead();
+    if (left > lead + 0.03) { this._arm(); return false; }              // early: a timer fired before its time
+    if (n.el.readyState < 2) return false;                               // not ready: this one ends, and the next starts as before
+    const A = this._decks.get(old), B = this._decks.get(n.el);
+    if (!A || !B) return false;
+    const xf = lead > AudioEngine.GAP_LEAD + 0.01 ? Math.max(0.05, left) : 0;
+    const t = this.ctx.currentTime;
+    this._setLevel(n.el, n.levelDb);
+    if (xf) { fade(B.fade.gain, 0, 1, t, xf); fade(A.fade.gain, 1, 0, t, xf); }
+    else {
+      // gapless: the next at full now, and the few milliseconds left of this one faded out under it, so the two never add up
+      try { B.fade.gain.cancelScheduledValues(0); } catch (_) {} B.fade.gain.value = 1;
+      fade(A.fade.gain, 1, 0, t, Math.max(0.004, Math.min(0.03, left)));
+    }
+    clearTimeout(this._recT); this._unwatch();
+    this._other = old; this.el = n.el; this.source = B.src;
+    this._src = n.url; this._path = n.path; this._at = 0; this._tries = 0; this._triedAt = 0; this._recovering = false;
+    this._levelDb = n.levelDb; this._next = null;
+    this._xf = { from: old };
+    this._tap();
+    try { if (n.el.currentTime) n.el.currentTime = 0; } catch (_) {}
+    const p = n.el.play(); if (p && p.catch) p.catch(() => {});
+    this._emit('advanced', { path: n.path, url: n.url, crossfade: xf });
+    this._emit('loaded', { duration: n.el.duration || 0 });
+    clearTimeout(this._xfT);
+    this._xfT = setTimeout(() => this._settle(), xf ? xf * 1000 + 80 : 400);
+    return true;
+  }
+  /** The song that went out let go, its fade back at nothing for the next time its deck is used. */
+  _settle() {
+    clearTimeout(this._xfT); this._xfT = 0;
+    const x = this._xf; if (!x) return;
+    this._xf = null;
+    const e = x.from, d = this._decks.get(e);
+    try { e.pause(); e.removeAttribute('src'); e.load(); } catch (_) {}
+    if (d) { try { d.fade.gain.cancelScheduledValues(0); } catch (_) {} d.fade.gain.value = 0; }
+    if (this._next) { this._prepare(); this._arm(); }
+  }
+  /** Anything flowing stopped: the song going out let go, the playing one at full. */
+  _cancelFlow() {
+    clearTimeout(this._flowT); this._flowT = 0;
+    if (this._xf) this._settle();
+    const d = this._decks.get(this.el);
+    if (d) { try { d.fade.gain.cancelScheduledValues(0); } catch (_) {} d.fade.gain.value = 1; }
   }
 
   /** The context and its graph let go. */
@@ -175,7 +433,14 @@ export class AudioEngine {
     clearTimeout(this._restT); this._restT = 0;
     try { this.chain?.destroy(); } catch (_) {}
     try { this.ctx && this.ctx.close().catch(() => {}); } catch (_) {}
-    this.ctx = this.source = this.gain = this.analyser = this._heard = this.tap = this.chain = null;
+    this.ctx = this.source = this.gain = this.analyser = this._heard = this.tap = this.chain = this._in = this.tapIn = null;
+    this._guard = null; this._guardIn = false;
+    // Each element fed this context, and can feed no other: the other deck goes too, the song waiting with it.
+    clearTimeout(this._flowT); clearTimeout(this._xfT); this._flowT = this._xfT = 0; this._xf = null;
+    this._decks.clear();
+    const o = this._other; this._other = null;
+    if (o) { try { o.pause(); o.removeAttribute('src'); o.load(); } catch (_) {} }
+    if (this._next) this._next.el = null;
   }
 
   /**
@@ -282,8 +547,7 @@ export class AudioEngine {
     }
   }
 
-  _wireElement() {
-    const e = this.el;
+  _wireElement(e = this.el) {
     // An element let go by renew() still tells of its last moments: not heard.
     const mine = () => e === this.el;
     e.addEventListener('loadedmetadata', () => { if (mine() && !this._recovering) this._emit('loaded', { duration: e.duration || 0 }); });
@@ -292,7 +556,10 @@ export class AudioEngine {
       this._at = e.currentTime || 0;
       if (this._tries && this._at > this._triedAt + 30) this._tries = 0;   // half a minute on since the last loss: tries anew
       this._emit('time', { time: this._at, duration: e.duration || 0 });
+      if (this._next) this._arm();
     });
+    // a seek near the end: the moment the next comes in is worked out again
+    e.addEventListener('seeking', () => { if (mine() && this._flowT) { clearTimeout(this._flowT); this._flowT = 0; } });
     e.addEventListener('play', () => {
       if (!mine()) return;
       clearTimeout(this._restT); this._restT = 0;
@@ -302,8 +569,15 @@ export class AudioEngine {
       if (this.ctx && this.ctx.state === 'suspended') this.ctx.resume().catch(() => {});
       this._watch();
       this._emit('play');
+      if (this._next) this._arm();
     });
-    e.addEventListener('pause', () => { if (!mine() || this._recovering) return; this._wantPlay = false; this._unwatch(); this._restSoon(); this._emit('pause'); });
+    e.addEventListener('pause', () => {
+      if (!mine() || this._recovering) return;
+      this._wantPlay = false; this._unwatch(); this._restSoon();
+      clearTimeout(this._flowT); this._flowT = 0;
+      if (this._xf) this._cancelFlow();   // paused while one song goes into the next: the next stays, at full
+      this._emit('pause');
+    });
     e.addEventListener('ended', () => { if (!mine()) return; this._wantPlay = false; this._unwatch(); this._restSoon(); this._emit('ended'); });
     e.addEventListener('error', () => {
       if (!mine()) return;
@@ -389,15 +663,17 @@ export class AudioEngine {
   _unwatch() { clearInterval(this._watchT); this._watchT = 0; }
 
   /* ── transport ───────────────────────────────────────────────── */
-  async load(url, path, autoplay = true) {
+  async load(url, path, autoplay = true, { levelDb = 0 } = {}) {
     // Playing plain (v3.55.1): a new song looks again whether Web Audio can
     // be used, a minute on. This element has fed no context, so it can.
-    if (this.plain && Date.now() - this._probedAt > AudioEngine.LOOK_AGAIN_MS) { this.plain = false; this.el.volume = 1; }
+    if (this.plain && !this.pure && Date.now() - this._probedAt > AudioEngine.LOOK_AGAIN_MS) { this.plain = false; this.el.volume = 1; }
     if (!this.available || !this._graph()) return false;
     this._path = path || url;
     this.active = true;
     clearTimeout(this._recT);
     this._src = url; this._at = 0; this._tries = 0; this._triedAt = 0; this._recovering = false;
+    this._cancelFlow(); this._next = null;
+    this.setLevel(levelDb);
     this.el.src = url;
     try { this.el.load(); } catch (_) {}
     if (autoplay) return this.play();
@@ -425,6 +701,7 @@ export class AudioEngine {
     if (!this.available) return;
     clearTimeout(this._recT); this._unwatch();
     this._wantPlay = false; this._recovering = false; this._src = null;
+    this._cancelFlow(); this._unqueue();
     this.el.pause();
     try { this.el.removeAttribute('src'); this.el.load(); } catch (_) {}
     this.active = false;
@@ -438,6 +715,7 @@ export class AudioEngine {
     const t = Math.max(0, isFinite(d) ? Math.min(seconds, d) : seconds);
     this._at = t;                                  // where a song being carried on goes back to, too
     if (this._recovering) return;
+    if (this._xf) this._cancelFlow();             // a seek while the next comes in: it stays, at full
     this.el.currentTime = t;
   }
   seekBy(delta) { this.seek((this.el.currentTime || 0) + delta); }
@@ -481,12 +759,15 @@ export class AudioEngine {
    */
   _applyRate() {
     if (!this.available) return;
+    for (const e of [this.el, this._other]) if (e) this._rateOf(e);
+  }
+  _rateOf(e) {
     const mode = rateOf(this._sound), r = Math.max(0.25, Math.min(4, this._rate * mode));
-    this.el.preservesPitch = mode === 1;
+    e.preservesPitch = mode === 1;
     // The default as well (v3.38.0): loading the next song sets an audio
     // element's speed back to its default, so the speed held for one song.
-    this.el.defaultPlaybackRate = r;
-    this.el.playbackRate = r;
+    e.defaultPlaybackRate = r;
+    e.playbackRate = r;
   }
   /** The speed chosen (what the speed menus show). */
   get speed() { return this.available ? this._rate : 1; }
@@ -529,5 +810,7 @@ export class AudioEngine {
 AudioEngine.REST_MS = 10000;
 /** How long a song may stand still, while it should play, before it is taken as lost (v3.48.0). */
 AudioEngine.STALL_MS = 12000;
+/** Gapless (v3.59.0): how long before this song's end the next is started, for the moment an element takes to begin. */
+AudioEngine.GAP_LEAD = 0.01;
 /** Playing plain, how long before a new song looks again whether Web Audio can be used (v3.55.1). */
 AudioEngine.LOOK_AGAIN_MS = 60000;

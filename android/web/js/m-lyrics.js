@@ -151,6 +151,8 @@ export const lyricsApi = {
     lyricsUnpin: (file, meta) => lyr.unpin(file, meta),
     // v3.50.0: the words to another app (Android's share sheet)
     lyricsShare: (text, subject) => call('share', text, subject || 'Lyrics'),
+    // v3.59.0: lyrics timed by the person (the timing editor), kept for the song as chosen ones
+    lyricsKeep: (file, meta, text) => lyr.loadText(file, meta, 'timed.lrc', text),
     async lyricsLoad (file, meta) {
       const f = await pickFile('.lrc,.srt,.vtt,.txt,text/plain');
       if (!f) return { canceled: true };

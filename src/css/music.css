@@ -405,3 +405,8 @@
 }
 /* Grouped by album: the album is in each group's head, not in every row. */
 #music-view .music-tracks.grouped .tr-album { visibility: hidden; }
+/* v3.59.0: the smart lists above the folders */
+#music-view .music-smart { display: flex; flex-direction: column; gap: 2px; padding-bottom: 6px; margin-bottom: 4px; border-bottom: 1px solid var(--border); }
+#music-view .music-smart .mf-icon { display: inline-flex; flex: 0 0 auto; }
+#music-view .music-smart .mf-icon svg { width: 16px; height: 16px; }
+#music-view .music-smart-item.active .mf-icon { color: var(--accent); }

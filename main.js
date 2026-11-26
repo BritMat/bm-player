@@ -51,6 +51,8 @@ const plugins = require('./main/plugins');
 const lyricsService = require('./main/lyrics-service');
 const tvService = require('./main/tv-service');
 const gamesService = require('./main/games-service');   // v3.52.0: playlists for the TV tab
+const opraService = require('./main/opra');              // v3.59.0: headphone correction's data
+const transcribeService = require('./main/transcribe');  // v3.59.0: subtitles from the audio
 const appinfo = require('./main/appinfo');
 const { pruneCache, pruneCaches } = require('./main/caches');
 
@@ -139,7 +141,7 @@ let _ipcRegistered = false;
 function registerIpc(){
   if (_ipcRegistered) return;
   _ipcRegistered = true;
-  const parts = { windows, dialogs, plugins, mpv, appinfo, library, lyrics: lyricsService, tv: tvService, games: gamesService };
+  const parts = { windows, dialogs, plugins, mpv, appinfo, library, lyrics: lyricsService, tv: tvService, games: gamesService, opra: opraService, transcribe: transcribeService };
   for (const [name, part] of Object.entries(parts)) {
     try { part.register(ipcMain); } catch (e) { logFatal('ipc, ' + name, e); }
   }

@@ -11,6 +11,8 @@
  *
  *   start      seconds from launching Electron to the app being ready
  *   page       milliseconds from the page starting to the app being ready
+ *              (and, shown but not judged, the start in parts: Electron to the
+ *              app's main script, that script to the page, the page, then seen)
  *   heap       the page's JavaScript memory, MB, once it has settled
  *   memory     every process of the app together, MB
  *   home CPU   all of the app's processes on the home screen, over 6 s
@@ -117,7 +119,18 @@ async function launch (dir, profile) {
   for (let i = 0; i < 600 && !page; i++) { page = app.windows().find(w => w.url().includes('index.html')); if (!page) await pause(50); }
   if (!page) { await app.close().catch(() => {}); throw new Error('the main window never appeared'); }
   await page.waitForFunction(() => window.bmApp && window.bmMusic, null, { timeout: 60000, polling: 20 });
-  return { app, page, ready: (Date.now() - t0) / 1000 };
+  const ready = (Date.now() - t0) / 1000;
+  // The start in parts (v3.59.0), shown and not judged: where a slower start
+  // went. Asked after it was taken, so it adds nothing to it. The main
+  // process's performance.timeOrigin is when that process began, the page's
+  // when its navigation did, both on the same clock as Date.now().
+  let parts = null;
+  try {
+    const mainAt = await app.evaluate(() => performance.timeOrigin);
+    const nav = await page.evaluate(() => ({ at: performance.timeOrigin, dcl: performance.getEntriesByType('navigation')[0]?.domContentLoadedEventEnd || 0 }));
+    parts = { boot: (mainAt - t0) / 1000, main: (nav.at - mainAt) / 1000, page: nav.dcl / 1000, seen: ready - (nav.at - t0) / 1000 - nav.dcl / 1000 };
+  } catch (_) {}
+  return { app, page, ready, parts };
 }
 
 // A profile that starts with the full visuals: one start to set the
@@ -175,7 +188,7 @@ async function measure (dir, mode) {
     const homeFps = await frames(page, 3000);
     await pause(Math.max(0, 6000 - (Date.now() - t0)));
     const m = await app.evaluate(({ app: a }) => a.getAppMetrics());
-    const r = { lite, ready: l.ready, page: pageMs, heap, memory: sumMem(m), homeCpu: sumCpu(m), homeFps, vizFps: null, vizCpu: null, tabs: {} };
+    const r = { lite, ready: l.ready, parts: l.parts, page: pageMs, heap, memory: sumMem(m), homeCpu: sumCpu(m), homeFps, vizFps: null, vizCpu: null, tabs: {} };
     // The visualiser, where the app has one (not in Lite).
     if (!lite) {
       const ok = await page.evaluate(async t => {
@@ -276,6 +289,10 @@ for (const mode of MODES) {
     rows.push({ k: rule.k, new: a, ref: b, worse: bad });
     say(`   ${rule.label.padEnd(15)} ${fmt(a, rule).padStart(9)}${b != null ? `   ${REFV}: ${fmt(b, rule).padStart(9)}` : ''}${bad ? '   WORSE' : ''}`);
   }
+  // The start in parts, to show where a slower one went (not judged).
+  const part = (list, k) => med(list.map(r => r.parts?.[k]));
+  const sec = v => v == null ? '-' : v.toFixed(2) + ' s';
+  if (n.some(r => r.parts)) say(`   start, in parts: ${[['boot', 'Electron to the app\'s main script'], ['main', 'main script to the page'], ['page', 'the page'], ['seen', 'then seen']].map(([k, label]) => `${label} ${sec(part(n, k))}${f.length ? ` (${sec(part(f, k))})` : ''}`).join(', ')}`);
   const tabsNew = {}, tabsRef = {};
   for (const d of ['pdf', 'images', 'tv', 'music']) { tabsNew[d] = tab(n, d); tabsRef[d] = f.length ? tab(f, d) : null; }
   say(`   tabs, first open: ${Object.entries(tabsNew).map(([d, v]) => `${d} ${v == null ? '-' : Math.round(v) + ' ms'}${tabsRef[d] != null ? ` (${Math.round(tabsRef[d])})` : ''}`).join(', ')}`);

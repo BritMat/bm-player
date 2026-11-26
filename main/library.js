@@ -134,6 +134,8 @@ function register(ipcMain) {
   // ── Audio tags ─────────────────────────────────────────────────
   // Track names came from filenames run through a regex. Real ID3/Vorbis/MP4
   // tags give title, artist, album, track number, duration and embedded art.
+  // A ReplayGain value from music-metadata: { dB, ratio } in its newer forms, a number in older ones.
+  const rg = (v, k) => { const n = v == null ? null : typeof v === 'number' ? v : v[k]; return Number.isFinite(n) ? Math.round(n * 1000) / 1000 : null; };
   ipcMain.handle('music:tags', async (_, filePaths) => {
     let mm;
     try { mm = require('music-metadata'); }
@@ -161,6 +163,11 @@ function register(ipcMain) {
           trackNo: (c.track && c.track.no) || null,
           duration: f.duration || null,
           bitrate:  f.bitrate ? Math.round(f.bitrate/1000) : null,
+          // v3.59.0: ReplayGain (loudness.js) and what the file is (the signal path)
+          rgTrack: rg(c.replaygain_track_gain, 'dB'), rgTrackPeak: rg(c.replaygain_track_peak, 'ratio'),
+          rgAlbum: rg(c.replaygain_album_gain, 'dB'), rgAlbumPeak: rg(c.replaygain_album_peak, 'ratio'),
+          sampleRate: f.sampleRate || null, bits: f.bitsPerSample || null, codec: f.codec || null,
+          lossless: typeof f.lossless === 'boolean' ? f.lossless : null, channels: f.numberOfChannels || null,
           cover
         });
       }catch(_){ out.push({ path: fp }); }
@@ -189,9 +196,10 @@ function register(ipcMain) {
           // size/mtime feed the new Size and Newest sort modes and the
           // lightbox info drawer. statSync per file is the cost of the scan
           // being useful; it's already bounded by MAX_FILES.
-          let size=0, mtime=0;
-          try{ const st=fs.statSync(full); size=st.size; mtime=st.mtimeMs; }catch(_){}
-          out.push({path:full,name:e.name,dir,size,mtime});
+          // added (v3.59.0): when the file came into its folder, where the disk keeps that (its birth time), else its date
+          let size=0, mtime=0, added=0;
+          try{ const st=fs.statSync(full); size=st.size; mtime=st.mtimeMs; added=st.birthtimeMs||st.mtimeMs; }catch(_){}
+          out.push({path:full,name:e.name,dir,size,mtime,added});
         }
       }
     };

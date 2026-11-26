@@ -98,12 +98,14 @@ const FROM_DESKTOP = [
   'js/modules/lyrics-saver.js',
   // v3.47.0: the equalizer and the sound effects, which audio-engine.js loads
   'js/sound-chain.js',
+  // v3.59.0: the key's pitch shifter, the peak limiter, the equaliser's presets and curve
+  'js/worklets/pitch.js', 'js/worklets/limiter.js', 'js/eq-presets.js', 'js/eq-curve.js',
   // v3.42.0: the home screen's fox, backgrounds and play, and the PDF reader
   'js/fox3d.js', 'js/fox3d-mesh.js', 'js/geofox.js', 'js/theme-fx.js', 'js/theme-scenes.js', 'js/flow-settings.js',
   // v3.47.0: the scene kit's helpers, which theme-scenes.js draws with
   'js/scenes/kit.js',
   // v3.48.0: the scene runner, and Aurora Lake for Home's scene picker (loaded when chosen)
-  'js/scenes/runner.js', 'js/scenes/aurora.js', 'js/scenes/jellyfish.js',
+  'js/scenes/runner.js', 'js/scenes/aurora.js', 'js/scenes/jellyfish.js', 'js/scenes/garden.js', 'js/scenes/koi.js',
   'js/play/sfx.js', 'js/play/fox-play.js', 'js/play/fox-voice.js', 'js/play/flow-toy.js', 'js/play/slice-game.js',
   'css/play.css', 'vendor/pdf.min.js', 'vendor/pdf.worker.min.js', 'vendor/pdfjs-LICENSE.txt',
   'vendor/milkdrop/butterchurn.min.js', 'vendor/milkdrop/presets.js', 'vendor/milkdrop/previews.js', 'vendor/milkdrop/previews.jpg',
@@ -167,8 +169,9 @@ function stage() {
   const missing = [];
   for (const f of walk(www).filter(p => p.endsWith('.js'))) {
     const src = fs.readFileSync(f, 'utf8');
-    for (const im of src.matchAll(/(?:^|\n)\s*import\s+(?:[^'"]*?\s+from\s+)?['"](\.{1,2}\/[^'"]+)['"]|import\(\s*['"](\.{1,2}\/[^'"]+)['"]\s*\)/g)) {
-      const rel = im[1] || im[2];
+    // Also new URL('./x.js', import.meta.url), how the audio worklets are loaded.
+    for (const im of src.matchAll(/(?:^|\n)\s*import\s+(?:[^'"]*?\s+from\s+)?['"](\.{1,2}\/[^'"]+)['"]|import\(\s*['"](\.{1,2}\/[^'"]+)['"]\s*\)|new URL\(\s*['"](\.{1,2}\/[^'"]+)['"]\s*,\s*import\.meta\.url\s*\)/g)) {
+      const rel = im[1] || im[2] || im[3];
       if (!exists(path.resolve(path.dirname(f), rel))) missing.push(`${path.relative(www, f)} imports ${rel}`);
     }
   }

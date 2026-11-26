@@ -23,13 +23,24 @@
  * the sound goes from the file to the volume and through nothing else.
  *
  * The settings, one object for both players (settings() fills it in):
- *   eq        a gain in dB for each of EQ_FREQUENCIES, -12 to 12
+ *   eq        a gain in dB for each of EQ_FREQUENCIES, -12 to 12 (15 bands
+ *             since v3.59.0; ten gains from before are spread over them)
  *   preamp    a gain in dB before the equalizer, -12 to 12 (v3.49.0)
  *   channels  stereo, mono, left, right or swap
  *   night     true or false
  *   boost     1 to 2 (100% to 200%)
  *   voice     clear voice, true or false (v3.49.0)
  *   mode      one of MODES, or 'off' (v3.49.0)
+ *   key       the key, in semitones, -12 to 12, the speed kept (v3.59.0)
+ *   voicefx   one of VOICES, or 'off': a voice changer (v3.59.0)
+ *   hp        headphone correction (v3.59.0): null, or { name, gain, bands },
+ *             each band [type, frequency, gain in dB, Q], type 'peak',
+ *             'lowshelf' or 'highshelf' (from OPRA, modules/headphones.js)
+ *   crossfeed true or false (v3.59.0): some of each ear's lows in the other,
+ *             as from speakers, for headphones (FFmpeg's crossfeed)
+ *   headroom  true or false (v3.59.0): the whole sound lowered by as much as
+ *             the equalizer, the preamp and the correction lift it at most,
+ *             so a boost cannot clip
  *
  * Sound modes (v3.49.0, Sound lab): one tap for a whole sound, one at a
  * time. Two of them, Slowed and Nightcore, also play songs slower or faster
@@ -48,26 +59,107 @@
  * picture instead, the same idea done simply.
  */
 
-export const EQ_FREQUENCIES = [31, 62, 125, 250, 500, 1000, 2000, 4000, 8000, 16000];
+/**
+ * The equalizer's bands (v3.59.0): fifteen, two thirds of an octave apart,
+ * the ISO centres. Each band is the same filter in both players, a peaking
+ * filter of Q 1.8 (FFmpeg's equalizer with width_type=q is the same
+ * cookbook filter as Web Audio's peaking), so a curve sounds the same in a
+ * film and a song. Before v3.59.0 there were ten, an octave apart (TEN).
+ */
+export const EQ_FREQUENCIES = [25, 40, 63, 100, 160, 250, 400, 630, 1000, 1600, 2500, 4000, 6300, 10000, 16000];
+export const EQ_Q = 1.8;
+export const TEN = [31, 62, 125, 250, 500, 1000, 2000, 4000, 8000, 16000];
+/** Gains for other bands spread over these, straight between them on a scale of octaves (ten from before, a drawn curve). */
+export function eqFrom (gains, from = TEN) {
+  const lf = from.map(Math.log2);
+  return EQ_FREQUENCIES.map(f => {
+    const x = Math.log2(f);
+    if (x <= lf[0]) return +gains[0] || 0;
+    if (x >= lf[lf.length - 1]) return +gains[gains.length - 1] || 0;
+    let i = 0; while (lf[i + 1] < x) i++;
+    const k = (x - lf[i]) / (lf[i + 1] - lf[i]), g = (+gains[i] || 0) * (1 - k) + (+gains[i + 1] || 0) * k;
+    return Math.round(g * 2) / 2;
+  });
+}
+/**
+ * What the equalizer does at a frequency, in dB: the bands' cookbook
+ * filters at the given rate, added. Drawn as the curve over the spectrum.
+ */
+export function eqResponse (gains, f, rate = 48000) {
+  let sum = 0;
+  EQ_FREQUENCIES.forEach((f0, i) => { const g = +gains[i] || 0; if (g && f0 < rate / 2) sum += magDb(rbj('peak', f0, g, EQ_Q, rate), f, rate); });
+  return sum;
+}
+/**
+ * The cookbook filters (Robert Bristow-Johnson's), as FFmpeg's biquads make
+ * them with width_type=q and as Web Audio's peaking filter is:
+ * [b0, b1, b2, a0, a1, a2]. type 'peak', 'lowshelf' or 'highshelf'.
+ */
+export function rbj (type, f0, db, q, rate) {
+  const A = Math.pow(10, db / 40), w0 = 2 * Math.PI * f0 / rate, c = Math.cos(w0), al = Math.sin(w0) / (2 * q), sA = 2 * Math.sqrt(A) * al;
+  if (type === 'lowshelf') return [A * ((A + 1) - (A - 1) * c + sA), 2 * A * ((A - 1) - (A + 1) * c), A * ((A + 1) - (A - 1) * c - sA), (A + 1) + (A - 1) * c + sA, -2 * ((A - 1) + (A + 1) * c), (A + 1) + (A - 1) * c - sA];
+  if (type === 'highshelf') return [A * ((A + 1) + (A - 1) * c + sA), -2 * A * ((A - 1) + (A + 1) * c), A * ((A + 1) + (A - 1) * c - sA), (A + 1) - (A - 1) * c + sA, 2 * ((A - 1) - (A + 1) * c), (A + 1) - (A - 1) * c - sA];
+  return [1 + al * A, -2 * c, 1 - al * A, 1 + al / A, -2 * c, 1 - al / A];
+}
+/** A biquad's gain at f, in dB. */
+export function magDb ([b0, b1, b2, a0, a1, a2], f, rate) {
+  const w = 2 * Math.PI * f / rate, cw = Math.cos(w), c2 = Math.cos(2 * w), sw = Math.sin(w), s2 = Math.sin(2 * w);
+  const nr = b0 + b1 * cw + b2 * c2, ni = -(b1 * sw + b2 * s2), dr = a0 + a1 * cw + a2 * c2, di = -(a1 * sw + a2 * s2);
+  return 10 * Math.log10((nr * nr + ni * ni) / (dr * dr + di * di));
+}
+/** The headphone correction's response at f, in dB (its gain included). */
+export function hpResponse (hp, f, rate = 48000) {
+  if (!hp) return 0;
+  let sum = hp.gain || 0;
+  for (const [type, f0, g, q] of hp.bands) if (g && f0 < rate / 2) sum += magDb(rbj(type, f0, g, q, rate), f, rate);
+  return sum;
+}
+/**
+ * How much the sound is lowered for headroom (v3.59.0): the most the
+ * preamp, the equalizer and the correction lift any frequency, in half
+ * decibels, rounded up. 0 when nothing lifts.
+ */
+export function headroomOf (s) {
+  if (!s.headroom) return 0;
+  let top = 0;
+  for (let i = 0; i <= 120; i++) { const f = 20 * Math.pow(1000, i / 120); top = Math.max(top, s.preamp + eqResponse(s.eq, f) + hpResponse(s.hp, f)); }
+  return Math.ceil(Math.max(0, top) * 2) / 2;
+}
 export const CHANNELS = [['stereo', 'Stereo'], ['mono', 'Mono'], ['left', 'Left only'], ['right', 'Right only'], ['swap', 'Swapped']];
 /** The sound modes (v3.49.0), in the order the screens show them. */
 export const MODES = [['off', 'Off'], ['slowed', 'Slowed + reverb'], ['nightcore', 'Nightcore'], ['8d', '8D'], ['bass', 'Bass boost'],
   ['karaoke', 'Vocal remover'], ['hall', 'Concert hall'], ['lofi', 'Lo-fi'], ['wide', 'Wider stereo']];
+/** The voice changer (v3.59.0), in the order the screens show it. */
+export const VOICES = [['off', 'Off'], ['chipmunk', 'Chipmunk'], ['deep', 'Deep'], ['robot', 'Robot'], ['alien', 'Alien'], ['echo', 'Echo'], ['radio', 'Old radio']];
 /** How much faster a mode plays songs, the pitch following. */
 export const RATES = { slowed: 0.85, nightcore: 1.25 };
 
 const num = (v, lo, hi, d) => { const n = Number(v); return Number.isFinite(n) ? Math.max(lo, Math.min(hi, n)) : d; };
 /** The settings, complete and in range, from any part of them. */
 export function settings (s = {}) {
+  // ten gains, from before v3.59.0 (kept, or the phone's), spread over the fifteen bands
+  const eq = Array.isArray(s.eq) && s.eq.length === TEN.length ? eqFrom(s.eq) : s.eq;
   return {
-    eq: EQ_FREQUENCIES.map((_, i) => num(s.eq?.[i], -12, 12, 0)),
+    eq: EQ_FREQUENCIES.map((_, i) => num(eq?.[i], -12, 12, 0)),
     preamp: num(s.preamp, -12, 12, 0),
     channels: CHANNELS.some(([k]) => k === s.channels) ? s.channels : 'stereo',
     night: !!s.night,
     boost: num(s.boost, 1, 2, 1),
     voice: !!s.voice,
     mode: MODES.some(([k]) => k === s.mode) ? s.mode : 'off',
+    key: Math.round(num(s.key, -12, 12, 0)),
+    voicefx: VOICES.some(([k]) => k === s.voicefx) ? s.voicefx : 'off',
+    hp: hpOf(s.hp),
+    crossfeed: !!s.crossfeed,
+    headroom: !!s.headroom,
   };
+}
+/** A headphone correction, checked: null, or { name, gain, bands } with at most 20 bands it knows. */
+function hpOf (h) {
+  if (!h || !Array.isArray(h.bands)) return null;
+  const bands = h.bands.filter(b => Array.isArray(b) && ['peak', 'lowshelf', 'highshelf'].includes(b[0]) && b[1] >= 10 && b[1] <= 22000 && Number.isFinite(+b[2]) && +b[3] > 0)
+    .slice(0, 20).map(b => [b[0], +b[1], Math.max(-24, Math.min(24, +b[2])), Math.max(0.1, Math.min(20, +b[3]))]);
+  return bands.length || +h.gain ? { name: String(h.name || ''), gain: num(h.gain, -24, 12, 0), bands } : null;
 }
 /** How much faster songs play in these settings' mode: 1 for most, 0.85 for Slowed, 1.25 for Nightcore. */
 export const rateOf = s => RATES[settings(s).mode] || 1;
@@ -213,10 +305,10 @@ function circleNode (ctx) {
 // slow wow, the pitch wavering as a worn tape's does (FFmpeg's vibrato: a
 // delay of up to 5 ms, swung by depth).
 const LOFI = { low: 200, high: 3800, hz: 0.5, depth: 0.6 };
-function wowNode (ctx) {
+function wowNode (ctx, hz = LOFI.hz, depth = LOFI.depth) {
   const dl = ctx.createDelay(0.02), lfo = ctx.createOscillator(), swing = ctx.createGain();
-  dl.delayTime.value = 0.005 - 0.0025 * LOFI.depth;
-  lfo.type = 'sine'; lfo.frequency.value = LOFI.hz; swing.gain.value = 0.0025 * LOFI.depth;
+  dl.delayTime.value = 0.005 - 0.0025 * depth;
+  lfo.type = 'sine'; lfo.frequency.value = hz; swing.gain.value = 0.0025 * depth;
   lfo.connect(swing); swing.connect(dl.delayTime);
   try { lfo.start(); } catch (_) {}
   return { input: dl, output: dl, stop: () => { try { lfo.stop(); } catch (_) {} } };
@@ -233,26 +325,119 @@ const WIDE = [[1.3, -0.3], [-0.3, 1.3]];
 // The modes that can make the sound louder than it came: the limiter goes after them.
 const LOUD = new Set(['slowed', '8d', 'bass', 'karaoke', 'hall', 'wide']);
 
+/**
+ * A key change without the speed (v3.59.0). mpv: the sound made faster by
+ * the ratio (asetrate, so the pitch rises with it), back to its rate, then
+ * slowed by as much again with its pitch kept (atempo). The engine: the
+ * pitch shifter in worklets/pitch.js, loaded the first time it is needed;
+ * until it is ready the sound goes through as it is.
+ */
+const PITCH_RATE = 48000, PITCH_MAKEUP = 1.07;
+// FFmpeg's crossfeed, at its own strength (the sides 6 dB lower in the lows) and range (from about 1 kHz down)
+const CROSSFEED = { strength: 0.2, range: 0.5, slope: 0.5, in: 0.9 };
+/** The low shelf FFmpeg's crossfeed puts on the sides, as it works it out: [b0, b1, b2, a0, a1, a2]. */
+export function crossfeedCoefs (rate) {
+  const A = Math.pow(10, CROSSFEED.strength * -30 / 40), w0 = 2 * Math.PI * (1 - CROSSFEED.range) * 2100 / rate, c = Math.cos(w0);
+  const al = Math.sin(w0) / 2 * Math.sqrt((A + 1 / A) * (1 / CROSSFEED.slope - 1) + 2), sA = 2 * Math.sqrt(A) * al;
+  return [A * ((A + 1) - (A - 1) * c + sA), 2 * A * ((A - 1) - (A + 1) * c), A * ((A + 1) - (A - 1) * c - sA), (A + 1) + (A - 1) * c + sA, -2 * ((A - 1) + (A + 1) * c), (A + 1) + (A - 1) * c - sA];
+}
+const semis = n => Math.pow(2, n / 12);
+function pitchMpv (ratio) {
+  const r = Math.round(PITCH_RATE * ratio);
+  return [`aresample=${PITCH_RATE}`, `asetrate=${r}`, `aresample=${PITCH_RATE}`, `atempo=${+(PITCH_RATE / r).toFixed(6)}`];
+}
+const worklet = ctx => {
+  if (!ctx.__bmPitch) ctx.__bmPitch = (ctx.audioWorklet && typeof AudioWorkletNode === 'function')
+    ? ctx.audioWorklet.addModule(new URL('./worklets/pitch.js', import.meta.url).href)
+    : Promise.reject(new Error('no AudioWorklet here'));
+  return ctx.__bmPitch;
+};
+function pitchNode (ctx, ratio = 1) {
+  const input = stereo(ctx), output = ctx.createGain();
+  let node = null, gone = false;
+  input.connect(output);
+  worklet(ctx).then(() => {
+    if (gone) return;
+    node = new AudioWorkletNode(ctx, 'bm-pitch', { numberOfInputs: 1, numberOfOutputs: 1, outputChannelCount: [2], parameterData: { ratio } });
+    input.disconnect(output); input.connect(node); node.connect(output);
+    // The two heads' Hann windows add up to full for a held note, and to three quarters of the
+    // power for sound that differs between them (most of a song): halfway between, +0.6 dB.
+    output.gain.value = PITCH_MAKEUP;
+  }).catch(e => { if (!pitchNode.said) { pitchNode.said = true; console.warn('[sound-chain] the key cannot be changed here:', e && e.message); } });
+  return {
+    input, output,
+    ratio: r => { ratio = r; if (node) node.parameters.get('ratio').value = r; },
+    stop: () => { gone = true; try { node?.disconnect(); } catch (_) {} },
+  };
+}
+
+// The voice changer (v3.59.0): each the same sum in both players.
+//   chipmunk, deep   seven semitones up, six down (the key change above)
+//   robot            the sound's level swung 50 times a second from nothing
+//                    to full (FFmpeg's tremolo at full depth), and a short
+//                    metallic echo
+//   alien            four semitones up and a fast warble (FFmpeg's vibrato)
+//   echo             echoes a quarter of a second apart, dying away
+//   radio            one speaker's worth: mono, no lows or highs
+const VOICE = {
+  chipmunk: { key: 7 }, deep: { key: -6 }, alien: { key: 4, wobble: [7, 0.5] },
+  robot: { am: 50, make: 1.6, echo: [0.8, 0.9, [6.3, 12.7], [0.4, 0.25]] },
+  // two stages, the second echoing the first, as the reverbs are made: repeats that die away
+  echo: { echoes: [[1, 0.85, [250], [0.45]], [1, 0.85, [500], [0.3]]] },
+  radio: { band: [400, 3400], make: 1.6 },
+};
+function voiceMpv (id) {
+  const v = VOICE[id]; if (!v) return [];
+  const f = [];
+  if (v.key) f.push(...pitchMpv(semis(v.key)));
+  if (v.wobble) f.push(`vibrato=f=${v.wobble[0]}:d=${v.wobble[1]}`);
+  if (v.am) f.push(`tremolo=f=${v.am}:d=1`);
+  if (v.band) f.push('aformat=channel_layouts=stereo', pan(ROUTES.mono), `highpass=f=${v.band[0]}`, `lowpass=f=${v.band[1]}`);
+  if (v.echo) f.push(aecho(v.echo));
+  if (v.echoes) f.push(...v.echoes.map(aecho));
+  if (v.make) f.push(`volume=${v.make}`);
+  return f;
+}
+function voiceNode (ctx, id) {
+  const v = VOICE[id], parts = [], stops = [];
+  if (v.key) { const p = pitchNode(ctx, semis(v.key)); parts.push(p); stops.push(p.stop); }
+  if (v.wobble) { const w = wowNode(ctx, v.wobble[0], v.wobble[1]); parts.push(w); stops.push(w.stop); }
+  if (v.am) {
+    // 0.5 + 0.5 of a sine: from nothing to full, as tremolo at depth 1
+    const g = ctx.createGain(), lfo = ctx.createOscillator(), half = ctx.createGain();
+    g.gain.value = 0.5; half.gain.value = 0.5; lfo.type = 'sine'; lfo.frequency.value = v.am;
+    lfo.connect(half); half.connect(g.gain);
+    try { lfo.start(); } catch (_) {}
+    parts.push(g); stops.push(() => { try { lfo.stop(); } catch (_) {} });
+  }
+  if (v.band) parts.push(mixNode(ctx, ROUTES.mono.map(r => r.slice())), biquad(ctx, 'highpass', v.band[0]), biquad(ctx, 'lowpass', v.band[1]));
+  if (v.echo) parts.push(echoNode(ctx, v.echo));
+  if (v.echoes) parts.push(...v.echoes.map(st => echoNode(ctx, st)));
+  if (v.make) { const g = ctx.createGain(); g.gain.value = v.make; parts.push(g); }
+  const all = series(stereo(ctx), ...parts);
+  return { ...all, stop: () => stops.forEach(f => f()) };
+}
+
 export const EFFECTS = [
   {
     // The equalizer's preamp (v3.49.0): the whole sound up or down before the
     // bands, so a curve that lifts every band need not crackle.
+    // v3.59.0: and the headroom, the sound lowered by as much as everything lifts it
     id: 'preamp', heard: true,
-    on: s => s.preamp !== 0,
-    mpv: s => [`volume=${s.preamp}dB`],
-    web: ctx => { const g = ctx.createGain(); return { input: g, output: g, set: (s, to) => to(g.gain, Math.pow(10, s.preamp / 20)) }; },
+    on: s => s.preamp - headroomOf(s) !== 0,
+    mpv: s => [`volume=${+(s.preamp - headroomOf(s)).toFixed(1)}dB`],
+    web: ctx => { const g = ctx.createGain(); return { input: g, output: g, set: (s, to) => to(g.gain, Math.pow(10, (s.preamp - headroomOf(s)) / 20)) }; },
   },
   {
-    // The equalizer: ten bands, an octave apart. mpv's bands are two octaves
-    // wide and the engine's about an octave and a quarter (Q 1.1), as they
-    // were before this file; the 15-band equalizer (3.49) settles one shape.
+    // The equalizer: fifteen bands (v3.59.0), each the same peaking filter
+    // in both players (EQ_Q). Before, ten bands of two different widths.
     id: 'eq', heard: true, fade: 0.2,
     on: s => s.eq.some(g => g !== 0),
-    mpv: s => s.eq.flatMap((g, i) => g ? [`equalizer=f=${EQ_FREQUENCIES[i]}:width_type=o:width=2:g=${g}`] : []),
+    mpv: s => s.eq.flatMap((g, i) => g ? [`equalizer=f=${EQ_FREQUENCIES[i]}:width_type=q:width=${EQ_Q}:g=${g}`] : []),
     web: ctx => {
       const bands = EQ_FREQUENCIES.map(f => {
         const b = ctx.createBiquadFilter();
-        b.type = 'peaking'; b.frequency.value = f; b.Q.value = 1.1; b.gain.value = 0;
+        b.type = 'peaking'; b.frequency.value = f; b.Q.value = EQ_Q; b.gain.value = 0;
         return b;
       });
       for (let i = 1; i < bands.length; i++) bands[i - 1].connect(bands[i]);
@@ -261,6 +446,63 @@ export const EFFECTS = [
         input: bands[0], output: bands[bands.length - 1], bands,
         set: (s, to) => bands.forEach((b, i) => { if (s.eq[i] !== last[i]) { last[i] = s.eq[i]; to(b.gain, s.eq[i]); } }),
       };
+    },
+  },
+  {
+    // The key (v3.59.0): up or down in semitones, the speed kept. Heard, so
+    // the visualiser shows the notes where they now are.
+    id: 'key', heard: true,
+    on: s => s.key !== 0,
+    mpv: s => pitchMpv(semis(s.key)),
+    web: ctx => { const p = pitchNode(ctx); return { ...p, set: s => p.ratio(semis(s.key || 0)) }; },
+  },
+  {
+    // Headphone correction (v3.59.0): a pair of headphones' measured curve
+    // turned into filters (OPRA), so they sound as a neutral pair would. Not
+    // heard: the visualiser shows the music, not the headphones. Peaks are
+    // the same filter in both players; a shelf is FFmpeg's with its Q in
+    // mpv and the same cookbook filter as an IIR filter in the engine.
+    id: 'hp',
+    on: s => !!s.hp,
+    mpv: s => [...(s.hp.gain ? [`volume=${s.hp.gain}dB`] : []), ...s.hp.bands.filter(b => b[2]).map(([t, f, g, q]) => `${t === 'peak' ? 'equalizer' : t}=f=${f}:width_type=q:width=${q}:g=${g}`)],
+    web: ctx => {
+      const input = ctx.createGain(), output = ctx.createGain(); let key = '', nodes = [];
+      return {
+        input, output,
+        set: s => {
+          const k = JSON.stringify(s.hp); if (!s.hp || k === key) return; key = k;
+          try { input.disconnect(); } catch (_) {} for (const n of nodes) { try { n.disconnect(); } catch (_) {} }
+          nodes = s.hp.bands.filter(b => b[2]).map(([t, f, g, q]) => {
+            if (t === 'peak') { const b = ctx.createBiquadFilter(); b.type = 'peaking'; b.frequency.value = f; b.Q.value = q; b.gain.value = g; return b; }
+            const c = rbj(t, f, g, q, ctx.sampleRate);
+            return ctx.createIIRFilter(c.slice(0, 3), c.slice(3));
+          });
+          const gain = ctx.createGain(); gain.gain.value = Math.pow(10, (s.hp.gain || 0) / 20); nodes.unshift(gain);
+          let at = input; for (const n of nodes) { at.connect(n); at = n; } at.connect(output);
+        },
+      };
+    },
+  },
+  {
+    // Crossfeed (v3.59.0), for headphones: the difference between the ears
+    // lowered below about 1 kHz, so the lows reach both, as from speakers.
+    // FFmpeg's crossfeed, and its sum written out for the engine: the middle
+    // as it is, the sides through the same low shelf, the ears made again.
+    id: 'crossfeed',
+    on: s => s.crossfeed,
+    mpv: () => [`crossfeed=strength=${CROSSFEED.strength}:range=${CROSSFEED.range}:slope=${CROSSFEED.slope}:level_in=${CROSSFEED.in}:level_out=1`],
+    web: ctx => {
+      const input = stereo(ctx), split = ctx.createChannelSplitter(2), merge = ctx.createChannelMerger(2);
+      input.connect(split);
+      const mid = ctx.createGain(), side = ctx.createGain(); mid.gain.value = 0.5 * CROSSFEED.in; side.gain.value = 0.5 * CROSSFEED.in;
+      const neg = ctx.createGain(); neg.gain.value = -1;
+      split.connect(mid, 0); split.connect(mid, 1); split.connect(side, 0); split.connect(neg, 1); neg.connect(side);
+      const c = crossfeedCoefs(ctx.sampleRate), shelf = ctx.createIIRFilter(c.slice(0, 3), c.slice(3));
+      side.connect(shelf);
+      const sideNeg = ctx.createGain(); sideNeg.gain.value = -1; shelf.connect(sideNeg);
+      mid.connect(merge, 0, 0); shelf.connect(merge, 0, 0);
+      mid.connect(merge, 0, 1); sideNeg.connect(merge, 0, 1);
+      return { input, output: merge };
     },
   },
   {
@@ -298,6 +540,25 @@ export const EFFECTS = [
       two.connect(split);
       const g = [0, 1].map(from => [0, 1].map(to => { const n = ctx.createGain(); split.connect(n, from); n.connect(merge, 0, to); return n; }));
       return { input: two, output: merge, set: s => { const r = ROUTES[s.channels]; if (r) for (const f of [0, 1]) for (const t of [0, 1]) g[f][t].gain.value = r[f][t]; } };
+    },
+  },
+  {
+    // The voice changer (v3.59.0): one at a time, before night mode.
+    id: 'voicefx',
+    on: s => s.voicefx !== 'off',
+    mpv: s => voiceMpv(s.voicefx),
+    web: ctx => {
+      // made again when the voice changes: each is a different set of nodes
+      const input = stereo(ctx), output = ctx.createGain(); let cur = null, id = null;
+      return {
+        input, output,
+        set: s => {
+          if (s.voicefx === id || s.voicefx === 'off') return;
+          if (cur) { try { input.disconnect(cur.input); cur.output.disconnect(output); } catch (_) {} cur.stop?.(); }
+          id = s.voicefx; cur = voiceNode(ctx, id); input.connect(cur.input); cur.output.connect(output);
+        },
+        stop: () => cur?.stop?.(),
+      };
     },
   },
   {
@@ -390,7 +651,7 @@ export const EFFECTS = [
     // The engine's has its own make-up gain taken off: it only holds the
     // peaks down, as mpv's does.
     id: 'limit',
-    on: s => s.night || s.boost > 1 || s.voice || s.preamp > 0 || LOUD.has(s.mode),
+    on: s => s.night || s.boost > 1 || s.voice || s.preamp > 0 || LOUD.has(s.mode) || s.voicefx !== 'off',
     mpv: () => ['alimiter=limit=0.95'],
     web: ctx => evenCompressor(ctx, { threshold: -1.5, knee: 0, ratio: 20, attack: 0.002, release: 0.1 }),
   },
@@ -469,6 +730,9 @@ export class WebChain {
     for (const l of links) if (!has(this.links, l)) l[0].connect(l[1]);
     this.links = links; this.live = ids;
   }
+
+  /** Resolves once the effects' worklets (the key's pitch shifter) are loaded and in place, or could not be. */
+  ready () { return (this.ctx.__bmPitch || Promise.resolve()).catch(() => {}).then(() => new Promise(r => setTimeout(r, 0))); }
 
   /** The timers stopped, for an engine being taken down, and the effects' own oscillators. */
   destroy () {

@@ -8,6 +8,17 @@ contextBridge.exposeInMainWorld('api',{
   video:{
     setRect: r=>ipcRenderer.send('video:rect', r ? { x:+r.x, y:+r.y, width:+r.width, height:+r.height } : null),
   },
+  // v3.59.0: subtitles from the audio, by whisper.cpp on this computer (main/transcribe.js)
+  transcribe:{
+    start: o=>inv('transcribe:start',{ file:String(o?.file||''), aid:o?.aid?String(o.aid):'', at:+o?.at||0, duration:+o?.duration||0, lang:String(o?.lang||'auto'), translate:!!o?.translate, model:String(o?.model||'base'), live:!!o?.live }),
+    stop: ()=>inv('transcribe:stop'),
+    at: t=>inv('transcribe:at',+t||0),
+    status: ()=>inv('transcribe:status'),
+    onProgress: cb=>on('transcribe:progress',cb),
+    onUpdate: cb=>on('transcribe:update',cb),
+    onLive: cb=>on('transcribe:live',cb),
+    onError: cb=>on('transcribe:error',cb),
+  },
   win:{
     minimize:  ()=>inv('win:minimize'),
     maximize:  ()=>inv('win:maximize'),
@@ -99,7 +110,11 @@ contextBridge.exposeInMainWorld('api',{
     lyricsYoutube: (file,meta)=>inv('lyrics:youtube',file,meta),
     lyricsSaved: ()=>inv('lyrics:saved'),                            // v3.50.0: saved lyrics
     lyricsClearSaved: ()=>inv('lyrics:clearSaved'),
-    lyricsSaveLrc: (file,text)=>inv('lyrics:saveLrc',file,text),
+    lyricsSaveLrc: (file,text,opts)=>inv('lyrics:saveLrc',file,text,opts?{replace:!!opts.replace}:undefined),
+    // v3.59.0: headphone correction, from OPRA's database (main/opra.js)
+    opraSearch: q=>inv('opra:search',String(q||'')),
+    opraEq: id=>inv('opra:eq',String(id||'')),
+    opraStatus: ()=>inv('opra:status'),
     ytdlp: ()=>inv('lyrics:ytdlp'),
   },
   // A dropped file's place on disk (v3.39.0). File.path is gone from Electron
