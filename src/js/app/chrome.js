@@ -204,6 +204,7 @@ export default class ChromeFeature {
       'export-m3u':()=>this.exportM3u(),
       // ── v1.7.0: Online subtitle search ──
       'search-subs':()=>{this.openPanel('subsearch');this._fillSubSearch();},
+      'from-audio':()=>{this.openPanel('fromaudio');this.fromAudio?.status();},   // v3.59.0
       'check-update':()=>{this.api?.app.checkUpdate();this.showOSD('Checking for updates...');},
       'preferences':()=>{this.openPanel('settings');this._syncSettingsPanel();},
       'about':()=>this.openAbout(),

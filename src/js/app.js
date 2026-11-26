@@ -29,6 +29,7 @@ import { Output } from './modules/output.js';
 import { FilmMemory } from './modules/film-memory.js';
 import { MusicFlowPanel } from './modules/music-flow.js';   // v3.59.0
 import { HiFi } from './modules/hifi.js';                     // v3.59.0
+import { FromAudio } from './modules/from-audio.js';         // v3.59.0
 import { Sound } from './modules/sound.js';
 import { SleepTimer } from './modules/sleep-timer.js';
 import { Lyrics } from './modules/lyrics.js';
@@ -182,7 +183,9 @@ class BMPlayer {
     this.wireTitlebar();this.wireThemes();this.wireSidebar();this.wireMenu();
     this.wireWelcome();this.wireTransport();this.wireSeek();this.wireVolume();
     this.wirePanels();this.wireEQ();this.wirePlaylistPanel();this.wireCtxPanel();
-    this.picture.wire(el('panel-picture'));this.quality.wire(el('panel-picture'));this.output.wire(el('snd-output'));this.hifi.wire(el('snd-hifi'));this.sound.wire(el('snd-section'));this.wireSleep();
+    this.picture.wire(el('panel-picture'));this.quality.wire(el('panel-picture'));this.output.wire(el('snd-output'));this.hifi.wire(el('snd-hifi'));
+    // v3.59.0: subtitles from the audio
+    this.fromAudio=new FromAudio({ api: this.api, app: this, osd: m => this.showOSD(m) });this.fromAudio.wire(el('fromaudio-body'));this.sound.wire(el('snd-section'));this.wireSleep();
     this.wireDialogs();this.wireOverlayKeys();this.wireKeyboard();this.wireDragDrop();this.wireControlsHide();
     this.wirePiP();this.wireMiniPlayer();this.wireVizOverlay();this.wireCtxMenu();this.wireFluidPointer();this.wirePlayModes();this.wireScenes();this.wireDiagnostics();
     this.wireUpdate();this.wireDefaultPrompt();this.listenMpv();this.renderRecent();this.renderTrackMenus([]);

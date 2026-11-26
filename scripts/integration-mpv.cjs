@@ -285,6 +285,45 @@ async function main() {
     pass(`bit-perfect: a 24-bit file through mpv with no filters at 100% comes out sample for sample (as ${pure.bits}-bit), and at 70% it does not`);
   } catch (e) { fail('bit-perfect through mpv', e); }
 
+  // v3.59.0: subtitles from the audio, with the real mpv cutting the film's
+  // sound and a stand-in for whisper-cli (no model here): each piece cut at
+  // 16 kHz mono from where the film is, the words moved to their place in
+  // the .srt, kept ahead of the film, and what was written kept for it.
+  if (!IS_WIN()) try {
+    const T = require(path.join(ROOT, 'main/transcribe.js'));
+    const film = path.join(TMP, 'film.wav'); wav(film, 100);
+    const fake = path.join(TMP, 'whisper-cli'), log = path.join(TMP, 'whisper-calls.json');
+    fs.writeFileSync(fake, `#!/usr/bin/env node
+const fs = require('fs'), a = process.argv.slice(2), v = k => a[a.indexOf(k) + 1];
+const w = fs.readFileSync(v('-f')), rate = w.readUInt32LE(24), ch = w.readUInt16LE(22), at = w.indexOf('data'), secs = w.readUInt32LE(at + 4) / (rate * ch * 2);   // mpv writes the longer header (WAVE_FORMAT_EXTENSIBLE), which whisper.cpp reads
+const calls = fs.existsSync(${JSON.stringify(log)}) ? JSON.parse(fs.readFileSync(${JSON.stringify(log)})) : [];
+calls.push({ args: a, rate, ch, secs }); fs.writeFileSync(${JSON.stringify(log)}, JSON.stringify(calls));
+fs.writeFileSync(v('-of') + '.srt', '1\\n00:00:01,000 --> 00:00:03,000\\nWords ' + calls.length + '\\n\\n2\\n00:00:05,000 --> 00:00:06,000\\n[BLANK_AUDIO]\\n');
+`, { mode: 0o755 });
+    const events = [];
+    const svc = T.makeService({ userData: TMP, mpvBin: () => 'mpv', send: (e, d) => events.push([e, d]), ua: 'test', env: { ...process.env, BM_WHISPER_CLI: fake, BM_WHISPER_MODEL: path.join(TMP, 'model.bin') } });
+    const r = await svc.start({ file: film, at: 20, duration: 100, lang: 'ml', translate: true, model: 'tiny' });
+    const until = async (c, ms) => { const t0 = Date.now(); while (!c() && Date.now() - t0 < ms) await new Promise(z => setTimeout(z, 100)); };
+    await until(() => events.filter(e => e[0] === 'transcribe:update').length >= 3, 30000);
+    svc.stop();
+    const ups = events.filter(e => e[0] === 'transcribe:update').map(e => e[1]), calls = JSON.parse(fs.readFileSync(log, 'utf8'));
+    const srt = fs.readFileSync(r.srt, 'utf8');
+    if (ups.length < 3) throw new Error('pieces written: ' + ups.length + ' ' + JSON.stringify(events.filter(e => e[0] === 'transcribe:error')));
+    if (calls[0].rate !== 16000 || calls[0].ch !== 1 || Math.abs(calls[0].secs - 30) > 0.2) throw new Error('the piece mpv cut: ' + JSON.stringify(calls[0]));
+    const a0 = calls[0].args; if (a0[a0.indexOf('-l') + 1] !== 'ml' || !a0.includes('-tr') || !a0.includes('-osrt')) throw new Error('whisper was asked: ' + a0.join(' '));
+    if (!/^1\n00:00:19,000 --> 00:00:21,000\nWords 1\n/.test(srt) || /BLANK/.test(srt)) throw new Error('the .srt: ' + JSON.stringify(srt.slice(0, 200)));
+    if (!/00:00:49,000 --> 00:00:51,000\nWords 2/.test(srt)) throw new Error('the second piece is not 30 s on: ' + JSON.stringify(srt));
+    // the same film again: what was written is kept, so it goes on from there
+    const before = calls.length; events.length = 0;
+    await svc.start({ file: film, at: 20, duration: 100, lang: 'ml', translate: true, model: 'tiny' });
+    await until(() => events.some(e => e[0] === 'transcribe:update'), 20000); svc.stop();
+    const again = JSON.parse(fs.readFileSync(log, 'utf8')).slice(before);
+    const kept = fs.readFileSync(r.srt, 'utf8');
+    const shown = events.find(e => e[0] === 'transcribe:update')?.[1];
+    if (again.length || !shown?.kept || shown.lines !== 3 || !/Words 1\n/.test(kept)) throw new Error('the film again: ' + again.length + ' pieces cut, ' + JSON.stringify(shown));
+    pass(`subtitles from the audio: mpv cuts 30 s pieces at 16 kHz mono from where the film is, the words land at their place in the .srt (${ups.length} pieces, up to ${ups[ups.length - 1].upTo} s), and the film again is shown at once from what was kept`);
+  } catch (e) { fail('subtitles from the audio', e); }
+
   try { fs.rmSync(TMP, { recursive: true, force: true }); } catch {}
   const bad = results.filter(r => !r).length;
   console.log(`\n${results.length - bad}/${results.length} checks passed.\n`);

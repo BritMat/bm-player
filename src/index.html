@@ -126,6 +126,7 @@
   <link rel="modulepreload" href="js/eq-presets.js">
   <link rel="modulepreload" href="js/eq-curve.js">
   <link rel="modulepreload" href="js/modules/hifi.js">
+  <link rel="modulepreload" href="js/modules/from-audio.js">
   <link rel="stylesheet" href="css/fonts.css">
   <link rel="stylesheet" href="css/style.css">
   <!-- Critical inline styles - MUST override external style.css -->
@@ -619,6 +620,7 @@
       <div class="mr" data-a="cycle-sub">Cycle Subtitles <kbd>V</kbd></div>
       <div class="mr" data-a="open-sub">Load Subtitle…</div>
       <div class="mr" data-a="search-subs">Search Online…</div>
+      <div class="mr" data-a="from-audio">From the Audio…</div>
       <div class="ms"></div>
       <div id="sub-track-sub"></div>
       <div id="sub2-track-sub" class="hidden"></div>
@@ -1468,6 +1470,23 @@
     <button class="dash-action-btn" id="subs-search-btn" style="width:100%">Search opensubtitles.com</button>
     <button class="dash-action-btn subs-load" id="subs-load-btn" style="width:100%;margin-top:8px;">Load a subtitle file…</button>
     <div id="subs-results" style="margin-top:12px;"></div>
+  </div>
+</div>
+
+<!-- v3.59.0: subtitles from the audio, by whisper.cpp on this computer (modules/from-audio.js) -->
+<div class="side-panel" id="panel-fromaudio">
+  <div class="panel-hdr">
+    <span>Subtitles from the Audio</span>
+    <button class="panel-close" data-panel="fromaudio" aria-label="Close the subtitles from the audio panel">✕</button>
+  </div>
+  <div class="panel-body" id="fromaudio-body">
+    <p class="subs-note">The film's speech written out as subtitles on this computer, by whisper.cpp. Nothing is sent anywhere. The words are written ahead of the film and kept for it.</p>
+    <label class="fa-row"><span>Spoken in</span><select class="dlg-input" data-fa-lang aria-label="The language spoken"></select></label>
+    <label class="fa-row"><span>Model</span><select class="dlg-input" data-fa-model aria-label="Which model"></select></label>
+    <label class="ctx-checkbox"><input type="checkbox" data-fa-tr> Into English <span class="set-val">(whisper's own translation)</span></label>
+    <button class="dash-action-btn" data-fa-go style="width:100%;margin-top:10px">Start</button>
+    <p class="subs-note" data-fa-note aria-live="polite"></p>
+    <p class="subs-note">whisper.cpp is MIT licensed (github.com/ggml-org/whisper.cpp). Its models come from Hugging Face, where whisper.cpp keeps them, and are checked before they are kept.</p>
   </div>
 </div>
 

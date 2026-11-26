@@ -147,6 +147,12 @@ export default class PanelsFeature {
       if(typeof path!=='string'||/^[a-z][a-z0-9+.-]*:\/\//i.test(path)||window.bmMusic?._mpvSong===path){this.filmMemory.open(null);return;}
       this.filmMemory.open(path);this.filmMemory.tracks(this._lastTracks);
     });
+    // Another file opened: subtitles from the audio for the one before stop (v3.59.0)
+    this.api?.mpv.onEvent?.(async ev=>{
+      if(ev?.event!=='file-loaded'||!this.fromAudio?.on) return;
+      let p=null; try{p=await this.api.mpv.cmd('get_property','path');}catch(_){}
+      this.fromAudio.opened(typeof p==='string'?p:(p&&p.data));
+    });
     this.api?.mpv.onEvent?.(ev=>{
       if(ev?.event!=='end-file') return;
       // A file mpv could not play. This was ignored, so a broken file, a

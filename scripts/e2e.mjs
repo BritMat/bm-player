@@ -166,8 +166,15 @@ if (PART === 'c') {
 // the new program: part B's launch timed out at 25 seconds on a real
 // machine. --part=warmup just starts the app once, so the scan happens there.
 const t0 = Date.now();
+// v3.59.0: a stand-in for whisper-cli (there is no model here), for subtitles from the audio
+const FAKE_WHISPER = path.join(PROFILE, 'whisper-cli-stand-in');
+if (process.platform !== 'win32') fs.writeFileSync(FAKE_WHISPER, `#!/usr/bin/env node
+const fs = require('fs'), a = process.argv.slice(2), v = k => a[a.indexOf(k) + 1];
+fs.writeFileSync(v('-of') + '.srt', '1\\n00:00:01,000 --> 00:00:03,000\\nWords from the stand-in\\n');
+`, { mode: 0o755 });
 const app = await _electron.launch({
   executablePath: electronPath,
+  env: { ...process.env, ...(process.platform !== 'win32' ? { BM_WHISPER_CLI: FAKE_WHISPER, BM_WHISPER_MODEL: path.join(PROFILE, 'no-model.bin') } : {}) },
   // --mpv-ao=null (v3.29.0): mpv plays audio into nothing, so an audio-only
   // file plays on a machine without a sound device, and the run is silent.
   args: [ROOT, '--no-sandbox', '--mpv-ao=null', `--user-data-dir=${PROFILE}`, ...(PART === 'c' ? [] : ['--lite'])],
@@ -2619,6 +2626,27 @@ if (PART === 'd') {
       if (!(t > 0.5)) throw new Error('the film did not start');
     };
 
+    // v3.59.0: subtitles from the audio through the app and the real mpv,
+    // whisper.cpp played by a stand-in: Start in the panel, a track "From
+    // the audio" added and showing its words, Stop, and another film stops it.
+    if (process.platform !== 'win32') await step('subtitles from the audio: started in the panel, a track of their own in mpv with the words on screen', async () => {
+      await startFilm();
+      await page.evaluate(() => { document.querySelector('[data-a="from-audio"]')?.click(); });
+      await page.evaluate(() => document.querySelector('#fromaudio-body [data-fa-go]').click());
+      let tr = null, text = '', note = '', stopped = false;
+      try {
+      for (let k = 0; k < 60 && !tr; k++) { await page.waitForTimeout(250); tr = ((await mpvGet('track-list')) || []).find(x => x.type === 'sub' && /From the audio/.test(x.title || '')); }
+      if (!tr) throw new Error('no track From the audio: ' + JSON.stringify(await page.evaluate(() => ({ on: bmApp.fromAudio.on, sid: bmApp.fromAudio.sid, srt: String(bmApp.fromAudio.srt).slice(-30), subs: (bmApp._lastTracks || []).filter(x => x.type === 'sub').length }))) + ' ' + JSON.stringify(((await mpvGet('track-list')) || []).filter(x => x.type === 'sub').map(x => [x.id, String(x.title).slice(0, 16)])));
+      await page.evaluate(() => bmApp.api.mpv.cmd('seek', 2.2, 'absolute'));   // inside the stand-in's line whether the first piece began at 0 or 1 s
+      for (let k = 0; k < 20 && !text; k++) { await page.waitForTimeout(200); text = (await mpvGet('sub-text')) || ''; }
+      note = await page.evaluate(() => document.querySelector('#fromaudio-body [data-fa-note]').textContent);
+      await startFilm(VID2);
+      stopped = await page.evaluate(async () => { for (let k = 0; k < 20 && bmApp.fromAudio.on; k++) await new Promise(z => setTimeout(z, 150)); return !bmApp.fromAudio.on; });
+      } finally { await page.evaluate(() => { bmApp.fromAudio.stop(false); document.getElementById('panel-fromaudio').classList.remove('open'); }); await page.waitForTimeout(400); }
+      if (text !== 'Words from the stand-in') throw new Error('on screen at 2.2 s: ' + JSON.stringify(text) + ' (' + note + ')');
+      if (!stopped) throw new Error('another film did not stop it');
+      console.log(`      (${note})`);
+    });
     await step('picture: colour, zoom and filling the screen reach the real mpv, another film is at its own size, and the first keeps its zoom', async () => {
       await startFilm();
       await page.evaluate(() => { const p = bmApp.picture; p.set('brightness', 20); p.set('contrast', -10); p.setZoom(200); p.setPan(50, 0); p.setFill(true); });

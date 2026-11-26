@@ -1077,3 +1077,7 @@ html.is-fs.lite-window body.playing:not(.pip-mode):has(#controls-bar.faded) #pla
 .snd-path { font-size: 11.5px; display: grid; gap: 4px; margin: 4px 0 10px; }
 .snd-path-row { display: grid; grid-template-columns: 78px 1fr; gap: 8px; }
 .snd-path-row > span:first-child { color: var(--text-muted); }
+
+/* v3.59.0: subtitles from the audio */
+.fa-row { display: grid; grid-template-columns: 80px 1fr; align-items: center; gap: 8px; margin: 6px 0; font-size: 12.5px; }
+.fa-row select { width: 100%; }

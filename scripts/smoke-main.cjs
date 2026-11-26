@@ -1363,6 +1363,26 @@ await step('PiP size button cycles three sizes, anchored and on screen', async (
     if (curve(d, 'nope') !== null) throw new Error('a curve that is not there');
   });
 
+  // v3.59.0: subtitles from the audio: whisper's pieces read, moved and added up, and what to write next
+  await step('subtitles from the audio: pieces read, moved to their place, added up, and the next piece chosen', () => {
+    const T = require(path.join(ROOT, 'main/transcribe.js'));
+    const piece = T.parseSrt('1\n00:00:00,000 --> 00:00:02,500\n Hello there.\n\n2\n00:00:03,000 --> 00:00:05,000\n[BLANK_AUDIO]\n\n3\n00:00:06,000 --> 00:00:31,000\n The end.\n');
+    if (piece.length !== 2 || piece[0].text !== 'Hello there.') throw new Error('read: ' + JSON.stringify(piece));
+    let cues = T.addPiece([], piece, 60, 90);
+    if (cues[0].a !== 60 || cues[1].a !== 66 || cues[1].b !== 90) throw new Error('moved: ' + JSON.stringify(cues));
+    cues = T.addPiece(cues, [{ a: 0, b: 1, text: 'Before.' }], 30, 60);
+    const srt = T.writeSrt(cues);
+    if (!/^1\n00:00:30,000 --> 00:00:31,000\nBefore\.\n\n2\n00:01:00,000 --> 00:01:02,500\nHello there\.\n/.test(srt)) throw new Error('written: ' + JSON.stringify(srt));
+    // what to write next: from where the film is, past what is written, not too far ahead, not past the end
+    const done = T.addRange(T.addRange([], 30, 60), 60, 90);
+    if (JSON.stringify(done) !== '[[30,90]]') throw new Error('ranges joined: ' + JSON.stringify(done));
+    if (T.nextPiece(done, 45, 600) !== 90) throw new Error('past what is written: ' + T.nextPiece(done, 45, 600));
+    if (T.nextPiece(done, 10, 600) !== 8) throw new Error('from where the film is: ' + T.nextPiece(done, 10, 600));
+    if (T.nextPiece([[0, 200]], 100, 600) !== null) throw new Error('far enough ahead, and still writing');
+    if (T.nextPiece([[0, 599.8]], 590, 600) !== null) throw new Error('past the end');
+    if (T.assetName('win32', 'x64') !== 'whisper-bin-x64.zip' || T.assetName('linux', 'x64') !== 'whisper-bin-ubuntu-x64.tar.gz' || T.assetName('darwin', 'arm64') !== null) throw new Error('the release file for each computer');
+  });
+
   await step('every invoked preload channel has a handler', () => {
     const preload = fs.readFileSync(path.join(ROOT, 'preload.js'), 'utf8');
     const invoked = [...preload.matchAll(/inv\(\s*'([^']+)'/g)].map(m => m[1]);

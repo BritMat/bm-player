@@ -142,6 +142,42 @@ read by BM Player's built-in updater. You don't need to download them.
   songs play without the equaliser and the visualiser, at their own rate,
   until that changes. Each change is written to the app's log, and the log
   is shared newest first, so a share that gets cut short keeps today's lines.
+- Better pictures, songs that flow, hi-fi sound and subtitles from the
+  audio (3.59.0, which takes in the plan's 3.56, 3.57 and 3.58).
+  - Picture quality in Video, Picture: Fast, Balanced or High scaling,
+    smooth motion, and how HDR is shown. Where the sound goes, in the sound
+    panel, for films and songs alike. Each film keeps its audio and
+    subtitle tracks, their delays and its zoom, and the next episode of a
+    series takes the same tracks.
+  - Songs play gapless (a check measures no silence between them) or
+    crossfade over 1 to 12 seconds. The next track of the same album runs
+    on without a crossfade. Even loudness levels songs from their
+    ReplayGain tags, or from what the app measured the last time they
+    played.
+  - Smart lists at the top of the library: Most played, Recently added and
+    Never played. A song counts as played once half of it is heard.
+  - The equalizer has fifteen bands, drawn as a curve over the music as it
+    plays: drag a dot, or draw across it. Curves can be saved under a name
+    and tied to an output, so plugging in headphones brings their curve.
+    The key moves up or down a semitone at a time with the speed kept, and
+    a voice changer has Chipmunk, Deep, Robot, Alien, Echo and Old radio.
+  - Lyrics light each word as it is sung, from the lyrics' own word times
+    or guessed from the length of each word. A song's lyrics can be timed
+    by tapping along, and saved beside it as a .lrc.
+  - Hi-fi: no clipping (the sound lowered by as much as the equalizer lifts
+    it, and a limiter that catches peaks between samples too), crossfeed
+    for headphones, headphone correction from the OPRA database, and
+    bit-perfect songs played by mpv with the device to itself. The sound
+    panel shows the signal path from the file to the device.
+  - Subtitles from the audio (Subtitle, From the Audio): a film's speech
+    written out by whisper.cpp on this computer, ahead of where the film
+    is, and kept for the film. It can translate into English. whisper.cpp
+    and a model (75 to 466 MB) are fetched the first time. On a Mac it
+    needs Homebrew's whisper-cpp.
+  - Two new scenes for Home: Butterfly Garden and Koi Pond.
+  - On the phone: gapless and crossfade, the fifteen bands with the curve
+    and saved presets, the key and the voices, Pure (songs straight to
+    Android at their own rate), no clipping, crossfeed and both new scenes.
 - Lyrics for songs saved from video sites, and a Visualiser button (3.54.0).
   A song named as a video is ("Song | Singers | Cover") is looked up by the
   song's own name, and the search box does the same when all the words find
@@ -448,6 +484,14 @@ shows the same in Settings, About, Licences.
 The MilkDrop style uses [butterchurn](https://github.com/jberg/butterchurn) and
 [butterchurn-presets](https://github.com/jberg/butterchurn-presets), both MIT
 licensed (src/vendor/milkdrop/LICENSE.txt).
+
+Headphone correction uses EQ curves from [OPRA](https://github.com/opra-project/OPRA),
+an open database of headphone EQ, under CC BY-SA 4.0. Each curve is shown
+with the name of the person or project that made it. Many come from
+[AutoEQ](https://github.com/jaakkopasanen/AutoEq) (MIT). OPRA's logo is in
+src/vendor/opra with a notice. Subtitles from the audio use
+[whisper.cpp](https://github.com/ggml-org/whisper.cpp) (MIT) and its models,
+fetched when first used and not part of BM Player.
 
 Online lyrics come from [LRCLIB](https://lrclib.net), a free and open
 collection of lyrics. YouTube captions, when turned on, are fetched with
