@@ -309,7 +309,7 @@ function moreMenu () {
     title: s.title, sub: [s.artist, s.album].filter(Boolean).join(' · '), art: songArt(s),
     items: [
       { icon: 'speed', label: 'Speed', note: player.speed === 1 ? 'Normal' : player.speed + '×', action: speedMenu },
-      { icon: 'eq', label: 'Equaliser', note: !player.engine?.available ? 'Not on this phone' : player.engine.plain ? 'Off for now' : (eq.name || 'Custom'), action: eqSheet },
+      { icon: 'eq', label: 'Equaliser', note: !player.engine?.available ? 'Not on this phone' : player.engine.pure ? 'Off with Pure' : player.engine.plain ? 'Off for now' : (eq.name || 'Custom'), action: eqSheet },
       ...(player.engine?.available ? [{ icon: 'wave', label: 'Sound mode', note: soundNote(), action: () => soundSheet() }] : []),
       ...(player.engine?.available ? [{ icon: 'queueNext', label: 'Between songs', note: flowNote(), action: flowSheet }] : []),
       { icon: 'lyrics', label: 'Lyrics', action: () => { lyrics.showTab('lyrics'); setDrawer(true); } },
@@ -348,7 +348,7 @@ function speedMenu () {
 function eqSheet () {
   if (!player.engine?.available) { toast('The equaliser needs Web Audio, which this phone\'s web engine does not have.'); return; }
   // v3.55.1: the songs play plain while the sound runs at a call's rate (audio-engine.js)
-  if (player.engine.plain) { toast('The equaliser is off for now: through Web Audio, songs would sound like a phone call on this headset. It comes back when the headset changes.', 5000); return; }
+  if (player.engine.plain) { toast(player.engine.pure ? 'The equaliser is off while Pure is on (Sound mode, Pure).' : 'The equaliser is off for now: through Web Audio, songs would sound like a phone call on this headset. It comes back when the headset changes.', 5000); return; }
   // v3.59.0: fifteen bands, the curve over the music, presets of your own and by output (eq-presets.js)
   const P = player.presets, cur = player.eq();
   let gains = cur.gains.slice(), preamp = Math.max(-12, Math.min(12, +cur.preamp || 0)), name = cur.name || '';

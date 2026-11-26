@@ -125,6 +125,7 @@
   <link rel="modulepreload" href="js/loudness.js">
   <link rel="modulepreload" href="js/eq-presets.js">
   <link rel="modulepreload" href="js/eq-curve.js">
+  <link rel="modulepreload" href="js/modules/hifi.js">
   <link rel="stylesheet" href="css/fonts.css">
   <link rel="stylesheet" href="css/style.css">
   <!-- Critical inline styles - MUST override external style.css -->
@@ -1113,6 +1114,21 @@
         <select class="snd-select" data-out-device aria-label="Where the sound goes"><option value="auto">The system's own</option></select>
         <p class="snd-note" data-out-note></p>
         <label class="ctx-checkbox"><input type="checkbox" data-out-pass> Send Dolby and DTS to an amplifier <span class="set-val">(as they are, for a receiver or soundbar that decodes them. The volume and effects do not reach them.)</span></label>
+      </div>
+      <!-- v3.59.0: hi-fi sound (modules/hifi.js) -->
+      <div id="snd-hifi">
+        <div class="ctx-section-label">Hi-fi</div>
+        <label class="ctx-checkbox"><input type="checkbox" data-hifi-headroom> No clipping <span class="set-val">(the whole sound lowered by as much as the equalizer and the correction lift it)</span></label>
+        <label class="ctx-checkbox"><input type="checkbox" data-hifi-guard> Peak limiter on songs <span class="set-val">(nothing past -1 dB, the peaks between samples included)</span></label>
+        <label class="ctx-checkbox"><input type="checkbox" data-hifi-crossfeed> Crossfeed <span class="set-val">(for headphones: the lows in both ears, as from speakers)</span></label>
+        <label class="ctx-checkbox"><input type="checkbox" data-hifi-pure> Bit-perfect songs <span class="set-val">(the library's songs by mpv with the device to itself, at their own rate and bits. The equalizer, effects, levelling and volume are off for them. Films keep everything.)</span></label>
+        <div class="ctx-section-label">Headphone correction</div>
+        <div class="hp-cur" data-hp-cur></div>
+        <div class="eq-save-row"><input type="search" data-hp-q placeholder="Your headphones, by name" aria-label="Your headphones, by name"><button class="eq-preset-btn" data-hp-off hidden>Off</button></div>
+        <div class="hp-list" data-hp-list></div>
+        <p class="snd-note hp-opra"><img src="vendor/opra/opra-logo.png" alt="OPRA" width="72"> EQ curves from OPRA, an open database of headphone EQ, CC BY-SA 4.0: github.com/opra-project/OPRA. Kept for the output it is chosen on.</p>
+        <div class="ctx-section-label">Signal path</div>
+        <div class="snd-path" data-hifi-path aria-live="off"></div>
       </div>
       <!-- v3.59.0: between songs, and songs made equally loud (modules/music-flow.js) -->
       <div id="snd-flow">

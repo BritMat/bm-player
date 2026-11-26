@@ -23,7 +23,7 @@ export default class MpvEventsFeature {
       if(s.state==='ready'){
         settings.applyToMpv(this.api?.mpv); applySubStyle(this.api); this._mpvReadyHook?.();   // the subtitle look from the start too (v3.39.0)
         if(st)st.textContent='';   // "restarting" stayed in the title bar for good
-        this.picture?.applyAll(); this.quality?.applyAll(); this.output?.refresh().then(() => this.output?.applyAll()); this._applyEQ();   // the picture, its quality (v3.59.0) and the sound as set (v3.46.0)
+        this.picture?.applyAll(); this.quality?.applyAll(); this.hifi?.applyMpv(); this.output?.refresh().then(() => this.output?.applyAll()); this._applyEQ();   // the picture, its quality (v3.59.0) and the sound as set (v3.46.0)
         this._carryOn();
       }
     });
@@ -103,7 +103,7 @@ export default class MpvEventsFeature {
     // the song, so a broken one stopped the music instead of being passed over.
     this.api?.mpv.onOpened?.(files=>{
       const m=window.bmMusic;
-      if(m?._mpvSong&&Array.isArray(files)&&files[0]===m._mpvSong) return;
+      if(m?._mpvSong&&Array.isArray(files)&&(files[0]===m._mpvSong||m._mpvGiven?.includes(files[0]))) return;
       m?.yieldToPlayer?.();
     });
     this.api?.mpv.onMediaProps?.(props=>{this._mProps=props;});

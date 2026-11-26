@@ -20,7 +20,7 @@ import { call, on } from './m-android.js';
 import { lib } from './m-library.js';
 import { toast, fmtTime } from './m-ui.js';
 
-const KEEP = 'bm_m_queue', SPEED = 'bm_m_speed', EQ = 'bm_m_eq', KEEPQ = 'bm_m_keepq', SOUND = 'bm_m_sound', FLOW = 'bm_m_flow';
+const KEEP = 'bm_m_queue', SPEED = 'bm_m_speed', EQ = 'bm_m_eq', KEEPQ = 'bm_m_keepq', SOUND = 'bm_m_sound', FLOW = 'bm_m_flow', HIFI = 'bm_m_hifi';
 const listeners = new Map();
 
 /** Whether the queue is kept for the next time the app opens (Settings, v3.43.0). */
@@ -72,6 +72,10 @@ export const player = {
     try { const s = +localStorage.getItem(SPEED); if (s > 0 && s !== 1) e.setSpeed(s); } catch (_) {}
     try { const g = this.eq(); e.setEQ(g.gains); if (isFinite(g.preamp)) e.setSound({ preamp: g.preamp }); } catch (_) {}
     this.presets = new EqPresets();
+    // v3.59.0: hi-fi: no clipping (headroom and the peak limiter), crossfeed, and Pure
+    this.hifi = this.hifiGet();
+    e.setGuard(this.hifi.headroom);
+    if (this.hifi.pure) e.pure = true;
     e.setSound(this.sound());
     e.setVolume(100);
     on('remote', d => this.remote(d));
@@ -301,9 +305,29 @@ export const player = {
    * or faster too (the engine does that from the mode), and the speed menu goes
    * on showing the speed chosen.
    */
+  /** Hi-fi (v3.59.0): { headroom, crossfeed, pure }, kept. headroom also turns the peak limiter on. */
+  hifiGet () { let h = {}; try { h = JSON.parse(localStorage.getItem(HIFI) || '{}') || {}; } catch (_) {} return { headroom: h.headroom !== false, crossfeed: !!h.crossfeed, pure: !!h.pure }; },
+  setHifi (next) {
+    this.hifi = { ...this.hifiGet(), ...next };
+    try { localStorage.setItem(HIFI, JSON.stringify(this.hifi)); } catch (_) {}
+    const e = this.engine; if (!e) return;
+    e.setGuard(this.hifi.headroom);
+    if ('pure' in next) e.setPure(this.hifi.pure);
+    this.setSound({});
+  },
+  /** What the sound goes through, in a line or two (the sound sheet). */
+  signal () {
+    const e = this.engine, w = this.way || {}, out = this.outName(w) || 'the phone';
+    if (!e?.available) return 'From the song to ' + out.toLowerCase() + ' by Android, as it is.';
+    if (e.plain) return (e.pure ? 'Pure: ' : 'For now: ') + 'the song goes to Android at its own rate, with nothing in the way, then to ' + out.toLowerCase() + (w.musicRate ? ', which Android runs at ' + (w.musicRate / 1000) + ' kHz' : '') + '.';
+    const r = e.ctx?.sampleRate;
+    return 'The app\'s engine at ' + (r ? r / 1000 + ' kHz' : 'its own rate') + (e.chain?.live?.length ? ', through ' + e.chain.live.join(', ') : ', with no effects') + (e.guarded ? ' and the peak limiter' : '') + ', then Android to ' + out.toLowerCase() + (w.musicRate ? ' at ' + (w.musicRate / 1000) + ' kHz' : '') + '. Not bit-perfect: Android mixes all sound together.';
+  },
+
   // v3.59.0: the key (semitones, the speed kept) and the voice changer, not kept between runs
   sound () {
-    const now = { key: this._key || 0, voicefx: this._vfx || 'off' };
+    const hf = this.hifi || this.hifiGet();
+    const now = { key: this._key || 0, voicefx: this._vfx || 'off', headroom: hf.headroom, crossfeed: hf.crossfeed };
     try { const o = JSON.parse(localStorage.getItem(SOUND) || '{}'); return { mode: typeof o.mode === 'string' ? o.mode : 'off', voice: o.voice === true, night: o.night === true, ...now }; }
     catch (_) { return { mode: 'off', voice: false, night: false, ...now }; }
   },
@@ -370,7 +394,7 @@ export const player = {
   // The web engine's sound runs at a call's rate: the songs play from the
   // audio element (audio-engine.js, plain), said once while the app is open.
   plainSound (d = {}) {
-    if (this._toldPlain) return;
+    if (d.pure || this._toldPlain) return;
     this._toldPlain = true;
     toast('Songs play without the equaliser and the visualiser for now, so they keep their full sound' + (this.way?.bluetooth ? ' on this headset.' : '.'), 5000);
   },

@@ -15,7 +15,7 @@ import { EqCurve } from '../eq-curve.js';       // v3.59.0
 
 export default class PanelsFeature {
   wirePanels(){document.querySelectorAll('.panel-close').forEach(b=>b.addEventListener('click',()=>el('panel-'+b.dataset.panel)?.classList.remove('open')));}
-  openPanel(name){document.querySelectorAll('.side-panel').forEach(p=>p.classList.remove('open'));const p=el('panel-'+name);if(!p)return;p.classList.add('open');if(name==='info')this.populateInfo();if(name==='playlist')this.renderPlaylistPanel();if(name==='fluid')this._refreshFluidPanel();if(name==='bookmarks')this._renderBookmarksPanel();if(name==='history')this._renderHistoryPanel();if(name==='settings')this._syncSettingsPanel();if(name==='eq'){this._eqShow();this.eqCurve?.start();}}
+  openPanel(name){document.querySelectorAll('.side-panel').forEach(p=>p.classList.remove('open'));const p=el('panel-'+name);if(!p)return;p.classList.add('open');if(name==='info')this.populateInfo();if(name==='playlist')this.renderPlaylistPanel();if(name==='fluid')this._refreshFluidPanel();if(name==='bookmarks')this._renderBookmarksPanel();if(name==='history')this._renderHistoryPanel();if(name==='settings')this._syncSettingsPanel();if(name==='eq'){this._eqShow();this.eqCurve?.start();this.hifi?.startPath();}}
   populateInfo(){
     const body=el('info-body');if(!body)return;
     this.api?.mpv.cmd('get_property','media-title').catch(()=>null).then(title=>{
@@ -55,7 +55,7 @@ export default class PanelsFeature {
       this.showOSD(e.target.checked?eqp.name+' comes on whenever the sound goes to '+out:out+' keeps whatever curve is on');
       this._eqShow();
     });
-    if(this.output)this.output.onOutput=name=>{const used=eqp.outputChanged(name);if(used==null)return;this.eqValues=eqp.eq.slice();this.eqPreamp=eqp.preamp;this._eqShow();this._applyEQ();this.showOSD((name||'The system\'s own device')+': the '+used+' equalizer');};
+    if(this.output)this.output.onOutput=name=>{this.hifi?.outputChanged(name);const used=eqp.outputChanged(name);if(used==null)return;this.eqValues=eqp.eq.slice();this.eqPreamp=eqp.preamp;this._eqShow();this._applyEQ();this.showOSD((name||'The system\'s own device')+': the '+used+' equalizer');};
     el('btn-reset-eq')?.addEventListener('click',()=>{eqp.use('Flat');this.eqValues=eqp.eq.slice();this.eqPreamp=0;eqp.set(this.eqValues,0,'Flat');this._eqShow();this._applyEQ();});
     // The preamp (v3.49.0): the whole sound up or down before the bands.
     const pre=el('eq-preamp');
@@ -93,10 +93,13 @@ export default class PanelsFeature {
     // Nightcore also change a song's speed: the engine does that itself, and
     // for a song mpv plays the music view sets mpv's speed (applyRate).
     const fx=this.sound?.fx||{};
-    const s={eq:this.eqValues,preamp:this.eqPreamp||0,night:!!fx.night,channels:fx.channels||'stereo',boost:(fx.boost||100)/100,mode:fx.mode||'off',voice:!!fx.voice,key:fx.key||0,voicefx:fx.voicefx||'off'};
+    // v3.59.0: and hi-fi's headroom, crossfeed and headphone correction (modules/hifi.js)
+    const s={eq:this.eqValues,preamp:this.eqPreamp||0,night:!!fx.night,channels:fx.channels||'stereo',boost:(fx.boost||100)/100,mode:fx.mode||'off',voice:!!fx.voice,key:fx.key||0,voicefx:fx.voicefx||'off',...(this.hifi?.fx||{})};
     window.bmMusic?.engine?.setSound?.(s);
     window.bmMusic?.applyRate?.();
-    this.api?.mpv.cmd('set_property','af',lavfi(s))?.catch?.(()=>{});}
+    // a bit-perfect song mpv plays has nothing in its way (v3.59.0)
+    const pure=window.bmMusic?._pureOn&&window.bmMusic?._mpvSong&&!this._hasVideo;
+    this.api?.mpv.cmd('set_property','af',pure?'':lavfi(s))?.catch?.(()=>{});}
   wirePlaylistPanel(){
     el('pl-add')?.addEventListener('click',()=>this.openDialog(true));
     el('pl-clear')?.addEventListener('click',()=>{this.api?.mpv.cmd('playlist-clear');this.renderPlaylistPanel();});

@@ -234,6 +234,57 @@ async function main() {
     pass(`mpv takes every sound mode's filters, clear voice and the preamp (${asks.length} filter chains), and plays on`);
   } catch (e) { fail('mpv takes every sound mode\'s filters', e); }
 
+  // v3.59.0: the new filters (the key, the voices, headphone correction,
+  // crossfeed, headroom) as the real mpv takes them, with the longer
+  // resampler; and bit-perfect songs (modules/hifi.js): with no filters, the
+  // volume at 100% and the device to itself, a 24-bit file comes out sample
+  // for sample. The same file at 70% does not, which shows the check can fail.
+  try {
+    const { lavfi } = await import(require('url').pathToFileURL(path.join(ROOT, 'src/js/sound-chain.js')).href);
+    const hp = { name: 'test', gain: -3, bands: [['lowshelf', 105, 4, 0.35], ['peak', 3000, -2, 1.4], ['highshelf', 10000, 2, 0.7]] };
+    const asks = [['the key', lavfi({ key: 3 })], ['chipmunk', lavfi({ voicefx: 'chipmunk' })], ['robot', lavfi({ voicefx: 'robot' })], ['alien', lavfi({ voicefx: 'alien' })],
+      ['echo', lavfi({ voicefx: 'echo' })], ['old radio', lavfi({ voicefx: 'radio' })], ['headphone correction', lavfi({ hp })], ['crossfeed', lavfi({ crossfeed: true })],
+      ['headroom', lavfi({ headroom: true, eq: [0, 0, 6, 6, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0] })]];
+    const { SWR } = await import(require('url').pathToFileURL(path.join(ROOT, 'src/js/modules/hifi.js')).href).catch(() => ({ SWR: 'filter_size=32,phase_shift=10,cutoff=0.97' }));
+    const gap = 300, end = 600 + asks.length * gap;
+    const r = await session({
+      start: send => {
+        send(['set_property', 'audio-swresample-o', SWR], 880);
+        send(['loadfile', LONG, 'replace']); send(['set_property', 'pause', false]);
+        asks.forEach(([, af], i) => setTimeout(() => send(['set_property', 'af', af], 900 + i), 600 + i * gap));
+        setTimeout(() => send(['get_property', 'time-pos'], 993), end + 300);
+      },
+      stopAfter: end + 700,
+    }, end + 3000);
+    const refused = asks.map(([n], i) => [n, r.replies[900 + i]]).filter(([, e]) => e !== 'success');
+    if (r.replies[880] !== 'success') throw new Error('the resampler options: ' + r.replies[880]);
+    if (refused.length) throw new Error('mpv refused: ' + refused.map(x => x.join(' ')).join(', '));
+    if (!(r.data[993] > 1)) throw new Error('the file stopped playing: time-pos ' + r.data[993]);
+    pass(`mpv takes the key, the voices, headphone correction, crossfeed and headroom (${asks.length} filter chains) and the longer resampler, and plays on`);
+  } catch (e) { fail('mpv takes the new filters', e); }
+
+  try {
+    const n = 22050, vals = new Int32Array(n * 2), raw = Buffer.alloc(n * 6);
+    let seed = 7; const rnd = () => { seed = (seed * 1103515245 + 12345) >>> 0; return seed; };
+    for (let i = 0; i < n * 2; i++) { const v = (rnd() >>> 8) - 8388608; vals[i] = v; raw.writeIntLE(v, i * 3, 3); }
+    const h = Buffer.alloc(44);
+    h.write('RIFF', 0); h.writeUInt32LE(36 + raw.length, 4); h.write('WAVE', 8); h.write('fmt ', 12); h.writeUInt32LE(16, 16); h.writeUInt16LE(1, 20); h.writeUInt16LE(2, 22);
+    h.writeUInt32LE(44100, 24); h.writeUInt32LE(44100 * 6, 28); h.writeUInt16LE(6, 32); h.writeUInt16LE(24, 34); h.write('data', 36); h.writeUInt32LE(raw.length, 40);
+    const src = path.join(TMP, 'bit24.wav'); fs.writeFileSync(src, Buffer.concat([h, raw]));
+    const through = vol => {
+      const out = path.join(TMP, 'out-' + vol + '.wav');
+      execFileSync(IS_WIN() ? 'mpv.exe' : 'mpv', ['--no-config', '--vo=null', '--ao=pcm', '--ao-pcm-file=' + out, '--ao-pcm-waveheader=yes', '--audio-exclusive=yes', '--volume=' + vol, '--af=', '--replaygain=no', '--audio-swresample-o=filter_size=32,phase_shift=10,cutoff=0.97', src], { stdio: 'ignore', timeout: 20000 });
+      const d = fs.readFileSync(out), at = d.indexOf('data'), bits = d.readUInt16LE(d.indexOf('fmt ') + 22);
+      const body = d.subarray(at + 8), w = bits / 8, got = [];
+      for (let i = 0; i + w <= body.length && got.length < vals.length; i += w) got.push(w === 4 ? body.readInt32LE(i) / 256 : w === 3 ? body.readIntLE(i, 3) : NaN);
+      return { bits, same: got.length === vals.length && got.every((v, i) => v === vals[i]) };
+    };
+    const pure = through(100), quieter = through(70);
+    if (!pure.same) throw new Error(`at 100% with no filters the samples changed (out as ${pure.bits}-bit)`);
+    if (quieter.same) throw new Error('at 70% the samples were the same, so this check cannot tell');
+    pass(`bit-perfect: a 24-bit file through mpv with no filters at 100% comes out sample for sample (as ${pure.bits}-bit), and at 70% it does not`);
+  } catch (e) { fail('bit-perfect through mpv', e); }
+
   try { fs.rmSync(TMP, { recursive: true, force: true }); } catch {}
   const bad = results.filter(r => !r).length;
   console.log(`\n${results.length - bad}/${results.length} checks passed.\n`);

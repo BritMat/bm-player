@@ -1341,6 +1341,28 @@ await step('PiP size button cycles three sizes, anchored and on screen', async (
     if (!/first/.test(fs.readFileSync(path.join(dir, 'A song.lrc.bak'), 'utf8'))) throw new Error('the first .lrc.bak was written over');
   });
 
+  // v3.59.0: OPRA's database read, searched by maker and name, and a curve made ready for sound-chain.js
+  await step('headphone correction: OPRA read, searched by maker and name, a curve given with who made it', () => {
+    const { parse, search, curve } = require(path.join(ROOT, 'main/opra.js'));
+    const lines = [
+      { type: 'vendor', id: 'acme', data: { name: 'Acme Audio' } },
+      { type: 'product', id: 'acme::one', data: { name: 'One Pro', type: 'headphones', subtype: 'over_the_ear', vendor_id: 'acme' } },
+      { type: 'product', id: 'acme::two', data: { name: 'Two', type: 'headphones', vendor_id: 'acme' } },
+      { type: 'product', id: 'acme::bare', data: { name: 'No Curves', vendor_id: 'acme' } },
+      { type: 'eq', id: 'acme:one::a', data: { author: 'Someone', details: 'Measured by a rig', type: 'parametric_eq', product_id: 'acme::one', parameters: { gain_db: -3.5, bands: [{ type: 'low_shelf', frequency: 105, gain_db: 4, q: 0.7 }, { type: 'peak_dip', frequency: 3000, gain_db: -2, q: 1.4 }, { type: 'low_pass', frequency: 18000, slope: 12 }] } } },
+      { type: 'eq', id: 'acme:two::a', data: { author: 'Other', details: 'x', type: 'parametric_eq', product_id: 'acme::two', parameters: { bands: [] } } },
+      'not json',
+    ].map(x => typeof x === 'string' ? x : JSON.stringify(x)).join('\n');
+    const d = parse(lines);
+    const r = search(d, 'acme pro');
+    if (r.length !== 1 || r[0].name !== 'One Pro' || r[0].vendor !== 'Acme Audio' || r[0].eqs[0].author !== 'Someone') throw new Error('search: ' + JSON.stringify(r));
+    if (search(d, 'curves').length) throw new Error('headphones with no curve were found');
+    if (search(d, 'ACME').length !== 2) throw new Error('the maker alone, in capitals');
+    const c = curve(d, 'acme:one::a');
+    if (c.name !== 'Acme Audio One Pro' || c.gain !== -3.5 || c.skipped !== 1 || JSON.stringify(c.bands) !== JSON.stringify([['lowshelf', 105, 4, 0.7], ['peak', 3000, -2, 1.4]])) throw new Error('curve: ' + JSON.stringify(c));
+    if (curve(d, 'nope') !== null) throw new Error('a curve that is not there');
+  });
+
   await step('every invoked preload channel has a handler', () => {
     const preload = fs.readFileSync(path.join(ROOT, 'preload.js'), 'utf8');
     const invoked = [...preload.matchAll(/inv\(\s*'([^']+)'/g)].map(m => m[1]);

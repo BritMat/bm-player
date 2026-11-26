@@ -1554,7 +1554,8 @@ async function main() {
       const fx = eng.getFx();
       if (!fx.night || fx.channels !== 'mono' || fx.boost !== 1.5) throw new Error('the engine has ' + JSON.stringify(fx));
       app.eqValues[1] = 4; app._applyEQ();
-      if (!last('af').startsWith('lavfi=[equalizer=f=40:')) throw new Error('the equalizer is not first: ' + last('af'));
+      // v3.59.0: No clipping is on to begin with, so the headroom (the band's +4 dB) comes before it
+      if (!last('af').startsWith('lavfi=[volume=-4dB,equalizer=f=40:')) throw new Error('the headroom and then the equalizer are not first: ' + last('af'));
       const kept = JSON.parse(window.localStorage.getItem('bm_sound') || '{}');
       if (kept.night !== true || kept.channels !== 'mono' || 'boost' in kept) throw new Error('kept: ' + JSON.stringify(kept));
       app.eqValues[1] = 0; app.sound.reset();

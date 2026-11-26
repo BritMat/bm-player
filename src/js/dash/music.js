@@ -668,11 +668,14 @@ skipBroken(){
  *  up played at the film's (v3.46.0). */
 _mpvOpen(fp){
   this._mpvSong=fp;
+  // the songs given to mpv lately (v3.59.0): the news that one opened can come after the next was given
+  this._mpvGiven=[fp,...(this._mpvGiven||[]).filter(x=>x!==fp)].slice(0,6);
   if(this._filmSpeed==null)this._filmSpeed=window.bmApp?.speedMenu?._current||1;
-  // v3.59.0: songs made equally loud, by mpv's own ReplayGain from the song's tags
-  this.api?.mpv?.cmd('set_property','replaygain',this.level?.mode==='album'?'album':this.level?.mode==='track'?'track':'no')?.catch?.(()=>{});
+  // v3.59.0: songs made equally loud, by mpv's own ReplayGain from the song's tags; none for a bit-perfect song
+  this.api?.mpv?.cmd('set_property','replaygain',this.pure?'no':this.level?.mode==='album'?'album':this.level?.mode==='track'?'track':'no')?.catch?.(()=>{});
+  this._pureMpv(!!this.pure);
   this.api?.mpv?.open([fp]);
-  this._mpvRate();
+  if(!this.pure) this._mpvRate();
 }
 /** mpv's speed for a song it plays: the music's, times a sound mode's
  *  (v3.49.0: Slowed 0.85, Nightcore 1.25), with the pitch following when a
@@ -681,6 +684,34 @@ _mpvRate(){
   const f=rateOf(this.engine?.sound);
   this.api?.mpv?.cmd('set_property','audio-pitch-correction',f===1)?.catch?.(()=>{});
   this.api?.mpv?.cmd('set_property','speed',Math.max(0.25,Math.min(4,this.speed*f)));
+}
+/**
+ * Bit-perfect songs (v3.59.0, modules/hifi.js): mpv plays the library's
+ * songs with the device to itself, at their own rate and bits, with no
+ * filters, levelling, speed or volume in the way (the volume before is put
+ * back after). A song playing now is played again that way, from where it was.
+ */
+setPure(on){
+  this.pure=!!on;
+  if(this.currentPath&&(this.engineOwns()||this._mpvSong)&&!window.bmApp?._hasVideo){
+    const app=window.bmApp, t=this.engineOwns()?this.engine.currentTime:(app?.currentTime||0);
+    if(t>1&&app) app._crashSeek={t,paused:!app.isPlaying};
+    this.play(this.currentPath,this.queueIdx);
+  } else if(!on) this._pureMpv(false);
+}
+_pureMpv(on){
+  const mpv=this.api?.mpv; if(!mpv) return;
+  const set=(k,v)=>mpv.cmd('set_property',k,v)?.catch?.(()=>{});
+  if(on){
+    if(!this._pureOn){ const sl=document.getElementById('volume-slider'); this._volBefore=sl?+sl.value:null; }
+    set('audio-exclusive',true); set('af',''); set('volume',100); set('speed',1); set('audio-pitch-correction',false);
+  } else if(this._pureOn){
+    set('audio-exclusive',false); set('audio-pitch-correction',true);
+    if(this._volBefore!=null) window.bmApp?.setVolume?.(this._volBefore);
+    this._volBefore=null;
+  }
+  this._pureOn=!!on;
+  if(!on) window.bmApp?._applyEQ?.();
 }
 /** The sound mode changed (app/panels.js _applyEQ): a song mpv plays gets its speed. The engine sees to its own. */
 applyRate(){
@@ -957,6 +988,7 @@ _markPlaying(){
     // and its pitch kept, whatever a sound mode did to the song's (v3.49.0)
     this.api?.mpv?.cmd('set_property','audio-pitch-correction',true)?.catch?.(()=>{});
     this.api?.mpv?.cmd('set_property','replaygain','no')?.catch?.(()=>{});   // a film plays as it is (v3.59.0)
+    this._pureMpv(false);   // and shares the device, with its effects (v3.59.0)
     if(!this.engineOwns?.()) return false;
     this._yielding=true;
     this.engine.stop();
@@ -1014,9 +1046,11 @@ play(fp,idx){
     // the list on screen, which is not the queue's when shuffled or searched.
     const qi=this.queue.findIndex(q=>q.path===fp);
     this.queueIdx=qi>=0?qi:(idx||0);
-    const useEngine=this.engineEnabled&&this.engine.available&&this.engine.canPlay(fp);
+    // v3.59.0: bit-perfect songs are mpv's, with the device to itself
+    const useEngine=this.engineEnabled&&this.engine.available&&this.engine.canPlay(fp)&&!this.pure;
     if(useEngine){
       this._mpvSong=null;
+      if(this._pureOn) this._pureMpv(false);   // mpv shares the device again, at the volume before (v3.59.0)
       // Stop mpv first or both would play at once.
       this.api?.mpv?.cmd('stop');
       this.engine.load(fileURL(fp),fp,true,{levelDb:this.level.level(fp).db});

@@ -96,6 +96,7 @@ export class AudioEngine {
     // v3.55.1: on the phone, a song with no Web Audio when the sound runs at a call's rate (_graph)
     this._phone = typeof navigator !== 'undefined' && /BMPlayerAndroid/.test(navigator.userAgent || '');
     this.plain = false; this._probedAt = 0;
+    this.pure = false;            // v3.59.0: plain by choice (the phone's Pure), set with setPure
     // v3.59.0: songs that flow, the next waiting on the other deck
     this.flow = { mode: 'off', seconds: 6 };
     this._decks = new Map();      // element -> { src, level, fade }
@@ -104,6 +105,7 @@ export class AudioEngine {
     this._xf = null;              // { from }: a song going out, while the next comes in
     this._flowT = 0; this._xfT = 0;
     this._levelDb = 0;            // the playing song's level (loudness.js)
+    this._guardOn = false; this._guard = null;   // v3.59.0: the true-peak limiter after the volume (worklets/limiter.js)
 
     const Ctx = typeof window !== 'undefined' && (window.AudioContext || window.webkitAudioContext);
     if (!Ctx) return;             // no Web Audio: stay unavailable, caller uses mpv
@@ -126,6 +128,13 @@ export class AudioEngine {
   _graph() {
     if (this.ctx || this.plain) return true;
     if (!this.available) return false;
+    // Pure (v3.59.0, the phone): the song from the audio element alone, by choice, as when plain below
+    if (this.pure) {
+      this.plain = true;
+      this.el.volume = Math.min(1, this._muted ? 0 : this._vol);
+      this._emit('plain', { pure: true });
+      return true;
+    }
     try {
       // On the phone (v3.48.0) the sound is mixed in larger blocks: fewer
       // wake-ups for the processor, and no gap when the phone is busy for a
@@ -185,6 +194,7 @@ export class AudioEngine {
       this._tap();
       this.chain.set(this._sound);
       this.gain.connect(this.ctx.destination);
+      if (this._guardOn) this._placeGuard();
       this.tap = this.ctx.createGain();
       this.tap.gain.value = 0;
       this._heard.connect(this.analyser);
@@ -257,6 +267,45 @@ export class AudioEngine {
     const g = Math.pow(10, (Number(db) || 0) / 20), p = d.level.gain;
     try { if (this.ctx.state === 'running') { p.cancelScheduledValues(this.ctx.currentTime); p.setTargetAtTime(g, this.ctx.currentTime, 0.05); } else p.value = g; } catch (_) { p.value = g; }
   }
+  /**
+   * The true-peak limiter (v3.59.0, worklets/limiter.js), between the volume
+   * and the speakers: nothing past -1 dB, the peaks between samples
+   * included. Loaded the first time it is wanted; until then, and where
+   * there is no AudioWorklet, the sound goes straight out as before.
+   */
+  setGuard (on) { this._guardOn = !!on; if (this.ctx) this._placeGuard(); }
+  get guarded () { return !!(this._guard && this._guardIn); }
+  _placeGuard () {
+    const ctx = this.ctx, gain = this.gain; if (!ctx || !gain) return;
+    const want = this._guardOn;
+    if (!want) {
+      if (this._guardIn) { try { gain.disconnect(this._guard); this._guard.disconnect(); } catch (_) {} gain.connect(ctx.destination); this._guardIn = false; }
+      return;
+    }
+    if (this._guard && this._guard.context === ctx) {
+      if (!this._guardIn) { try { gain.disconnect(ctx.destination); } catch (_) {} gain.connect(this._guard); this._guard.connect(ctx.destination); this._guardIn = true; }
+      return;
+    }
+    if (!ctx.audioWorklet || typeof AudioWorkletNode !== 'function') return;
+    if (!ctx.__bmLimiter) ctx.__bmLimiter = ctx.audioWorklet.addModule(new URL('./worklets/limiter.js', import.meta.url).href);
+    ctx.__bmLimiter.then(() => {
+      if (this.ctx !== ctx || !this._guardOn) return;
+      this._guard = new AudioWorkletNode(ctx, 'bm-limiter', { numberOfInputs: 1, numberOfOutputs: 1, outputChannelCount: [2] });
+      this._guardIn = false; this._placeGuard();
+    }).catch(e => console.warn('[AudioEngine] the peak limiter could not be loaded:', e && e.message));
+  }
+
+  /**
+   * Pure (v3.59.0, the phone): the songs from the audio element alone, at
+   * their own rate, as Android's own player would send them: no Web Audio,
+   * so no equalizer, effects or visualiser. Made again at once (renew).
+   */
+  setPure (on) {
+    on = !!on; if (on === this.pure) return;
+    this.pure = on;
+    this.renew(on ? 'pure on' : 'pure off');
+  }
+
   /** The playing song's level, in dB (loudness.js): 0 is as it is. */
   setLevel(db) { this._levelDb = Math.max(-24, Math.min(12, Number(db) || 0)); this._setLevel(this.el, this._levelDb); }
   get level() { return this._levelDb; }
@@ -385,6 +434,7 @@ export class AudioEngine {
     try { this.chain?.destroy(); } catch (_) {}
     try { this.ctx && this.ctx.close().catch(() => {}); } catch (_) {}
     this.ctx = this.source = this.gain = this.analyser = this._heard = this.tap = this.chain = this._in = this.tapIn = null;
+    this._guard = null; this._guardIn = false;
     // Each element fed this context, and can feed no other: the other deck goes too, the song waiting with it.
     clearTimeout(this._flowT); clearTimeout(this._xfT); this._flowT = this._xfT = 0; this._xf = null;
     this._decks.clear();
@@ -616,7 +666,7 @@ export class AudioEngine {
   async load(url, path, autoplay = true, { levelDb = 0 } = {}) {
     // Playing plain (v3.55.1): a new song looks again whether Web Audio can
     // be used, a minute on. This element has fed no context, so it can.
-    if (this.plain && Date.now() - this._probedAt > AudioEngine.LOOK_AGAIN_MS) { this.plain = false; this.el.volume = 1; }
+    if (this.plain && !this.pure && Date.now() - this._probedAt > AudioEngine.LOOK_AGAIN_MS) { this.plain = false; this.el.volume = 1; }
     if (!this.available || !this._graph()) return false;
     this._path = path || url;
     this.active = true;

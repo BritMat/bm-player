@@ -450,8 +450,8 @@ try {
   ok(await until(() => { const e = window.bmLyrics.music.engine; return Math.abs(e.el.playbackRate - e.speed * 1.25) < 1e-6 && e.el.preservesPitch === false && !e.chain.live.includes('hall'); }), 'Nightcore: a quarter faster, the pitch following, the hall gone');
   await page.tap('#sheet .snd [data-voice="on"]');
   ok(await until(() => window.bmLyrics.music.engine.chain.live.includes('voice')), 'clear voice goes in');
-  // v3.59.0: and the voice changer, off
-  ok(await until(() => ['mode="nightcore"', 'voice="on"', 'night="off"', 'vfx="off"'].every(a => document.querySelector(`#sheet .snd [data-${a}]`)?.classList.contains('on')) && document.querySelectorAll('#sheet .snd .chip.on').length === 4), 'the sheet shows what is on');
+  // v3.59.0: and the voice changer off, no clipping on, crossfeed and Pure off
+  ok(await until(() => ['mode="nightcore"', 'voice="on"', 'night="off"', 'vfx="off"', 'headroom="on"', 'crossfeed="off"', 'pure="off"'].every(a => document.querySelector(`#sheet .snd [data-${a}]`)?.classList.contains('on')) && document.querySelectorAll('#sheet .snd .chip.on').length === 7), 'the sheet shows what is on');
   await shot('03b-sound-modes');
   ok(await ev(() => { const k = JSON.parse(localStorage.getItem('bm_m_sound') || '{}'); return k.mode === 'nightcore' && k.voice === true; }), 'and they are kept for next time');
   await ev(() => window.BMNative.back());
@@ -461,6 +461,13 @@ try {
   await page.tap('#sheet .snd [data-mode="off"]');
   await page.tap('#sheet .snd [data-voice="off"]');
   ok(await until(() => { const e = window.bmLyrics.music.engine; return e.chain.live.join(',') === '' && e.el.preservesPitch === true && Math.abs(e.el.playbackRate - e.speed) < 1e-6; }), 'all off again: nothing in the way, the speed and the pitch as chosen');
+  // v3.59.0: Pure: the song from the audio element alone, at its own rate, and back to the engine after
+  await page.tap('#sheet .snd [data-pure="on"]');
+  ok(await until(() => { const e = window.bmLyrics.music.engine; return e.pure && e.plain && !e.ctx; }), 'Pure: the song plays without Web Audio');
+  ok(await until(() => /^Pure: the song goes to Android at its own rate/.test(document.querySelector('#sheet .snd [data-path]')?.textContent || '')), 'Pure: the sheet says what the sound goes through');
+  await page.tap('#sheet .snd [data-pure="off"]');
+  ok(await until(() => { const e = window.bmLyrics.music.engine; return !e.pure && !e.plain && !!e.ctx; }), 'Pure off: the engine again');
+  ok(await ev(() => JSON.parse(localStorage.getItem('bm_m_hifi') || '{}').pure === false), 'Pure off is kept');
   await ev(() => window.BMNative.back());
 
   step = 'lyrics';

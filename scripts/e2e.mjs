@@ -2482,6 +2482,33 @@ if (PART === 'd') {
     console.log(`      (tapped at ${r.stamps.map(t => t.toFixed(2)).join(' and ')} s; ${r.lit.filter(Boolean).length} of ${r.lit.length} words lit at the line's start)`);
   });
 
+  // v3.59.0: bit-perfect songs, with the real mpv: the song is mpv's, with no
+  // filters, at 100%, the device to itself, and the signal path says so; off
+  // again, the engine plays it and the volume and sharing come back.
+  await step('bit-perfect songs: mpv plays the song with nothing in its way, and everything comes back after', async () => {
+    const r = await page.evaluate(async f => {
+      const wait = async c => { for (let i = 0; i < 60 && !(await c()); i++) await new Promise(z => setTimeout(z, 150)); };
+      const mpv = bmApp.api.mpv, get = async k => { const x = await mpv.cmd('get_property', k).catch(() => null); return x && typeof x === 'object' && 'data' in x ? x.data : x; };
+      const sl = document.getElementById('volume-slider'); if (sl) sl.value = 70; bmApp.setVolume(70);
+      bmApp.hifi.setPure(true);
+      bmMusic.play(f, 0);
+      await wait(async () => bmMusic._mpvSong === f && !!(await get('audio-params')));
+      await new Promise(z => setTimeout(z, 900));
+      const during = { owns: bmMusic.engineOwns(), excl: await get('audio-exclusive'), af: await get('af'), vol: await get('volume'), path: await bmApp.hifi.signal() };
+      bmApp.hifi.setPure(false);
+      await wait(async () => bmMusic.engineOwns());
+      await new Promise(z => setTimeout(z, 700));
+      const after = { owns: bmMusic.engineOwns(), excl: await get('audio-exclusive'), vol: await get('volume') };
+      bmApp.stop(); bmMusic.engine.stop();
+      return { during, after };
+    }, GOOD[0]);
+    const d = r.during, path = Object.fromEntries(d.path);
+    if (d.owns || d.excl !== true || (Array.isArray(d.af) ? d.af.length : !!d.af) || d.vol !== 100) throw new Error('while bit-perfect: ' + JSON.stringify(d));
+    if (!/mpv, with no filters/.test(path['Played by'] || '') || !/the device to itself/.test(path.Out || '')) throw new Error('the signal path: ' + JSON.stringify(d.path));
+    if (!r.after.owns || r.after.excl !== false || r.after.vol !== 70) throw new Error('after: ' + JSON.stringify(r.after));
+    console.log(`      (${path.File}; out ${path.Out}; bit-perfect: ${path['Bit-perfect']})`);
+  });
+
   if (VID) {
     await step('a film with a hard name plays', async () => {
       await page.evaluate(v => bmApp.playMedia([v]), VID);

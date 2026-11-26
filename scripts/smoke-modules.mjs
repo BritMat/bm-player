@@ -640,6 +640,25 @@ async function main() {
     if (real.est || real.words.length !== 3) throw new Error('real word times taken as guessed');
   });
 
+  await step('hi-fi: headroom is the most everything lifts, a correction is checked, and both reach mpv', async () => {
+    const { settings, headroomOf, lavfi } = await load('src/js/sound-chain.js');
+    const z = Array(15).fill(0);
+    if (headroomOf(settings({ eq: z, headroom: true })) !== 0) throw new Error('headroom with nothing lifted');
+    const one = z.slice(); one[8] = 6;
+    const h = headroomOf(settings({ eq: one, headroom: true }));
+    if (h < 6 || h > 6.5) throw new Error('one band at +6: ' + h);
+    const two = z.slice(); two[7] = 6; two[8] = 6;   // two bands side by side add up past either
+    if (!(headroomOf(settings({ eq: two, headroom: true })) > 7)) throw new Error('two bands side by side: ' + headroomOf(settings({ eq: two, headroom: true })));
+    if (headroomOf(settings({ eq: one })) !== 0) throw new Error('headroom when it is off');
+    const s = settings({ hp: { name: 'x', gain: -3, bands: [['lowshelf', 105, 4, 0.7], ['peak', 3000, -2, 1.4], ['bandpass', 1000, 3, 1], ['peak', 5, 1, 1]] } });
+    if (s.hp.bands.length !== 2) throw new Error('bands it does not make were kept: ' + JSON.stringify(s.hp.bands));
+    const af = lavfi({ hp: s.hp, crossfeed: true, headroom: true });
+    for (const part of ['volume=-3dB', 'lowshelf=f=105:width_type=q:width=0.7:g=4', 'equalizer=f=3000:width_type=q:width=1.4:g=-2', 'crossfeed=strength=0.2:range=0.5:slope=0.5:level_in=0.9:level_out=1'])
+      if (!af.includes(part)) throw new Error('mpv lacks ' + part + ': ' + af);
+    if (!/^lavfi=\[volume=-[\d.]+dB,/.test(af)) throw new Error('the headroom does not come first: ' + af);
+    if (settings({ hp: { bands: 'x' } }).hp !== null || settings({}).crossfeed !== false) throw new Error('not off by default');
+  });
+
   const bad = results.filter(r => !r).length;
   console.log(`\n${results.length - bad}/${results.length} checks passed.\n`);
   process.exit(bad ? 1 : 0);

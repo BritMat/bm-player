@@ -28,6 +28,7 @@ import { Quality } from './modules/quality.js';
 import { Output } from './modules/output.js';
 import { FilmMemory } from './modules/film-memory.js';
 import { MusicFlowPanel } from './modules/music-flow.js';   // v3.59.0
+import { HiFi } from './modules/hifi.js';                     // v3.59.0
 import { Sound } from './modules/sound.js';
 import { SleepTimer } from './modules/sleep-timer.js';
 import { Lyrics } from './modules/lyrics.js';
@@ -164,6 +165,8 @@ class BMPlayer {
     this.picture.onView = (z, p) => this.filmMemory.view(z, p);
     // Where the sound goes, for films and songs alike (v3.59.0)
     this.output = new Output({ mpv: () => this.api?.mpv, engine: () => window.bmMusic?.engine, osd: m => this.showOSD(m) });
+    // v3.59.0: hi-fi sound, its settings going into the sound chain with the rest (panels.js _applyEQ)
+    this.hifi = new HiFi({ mpv: () => this.api?.mpv, music: () => window.bmMusic, sound: () => this.sound?.fx, output: () => this.output, osd: m => this.showOSD(m), apply: () => this._applyEQ() });
     this.sound = new Sound({ apply: () => this._applyEQ(), osd: m => this.showOSD(m) });
     this.sleep = new SleepTimer({
       playing: () => !!this.isPlaying, pause: () => this.togglePlay(),
@@ -179,7 +182,7 @@ class BMPlayer {
     this.wireTitlebar();this.wireThemes();this.wireSidebar();this.wireMenu();
     this.wireWelcome();this.wireTransport();this.wireSeek();this.wireVolume();
     this.wirePanels();this.wireEQ();this.wirePlaylistPanel();this.wireCtxPanel();
-    this.picture.wire(el('panel-picture'));this.quality.wire(el('panel-picture'));this.output.wire(el('snd-output'));this.sound.wire(el('snd-section'));this.wireSleep();
+    this.picture.wire(el('panel-picture'));this.quality.wire(el('panel-picture'));this.output.wire(el('snd-output'));this.hifi.wire(el('snd-hifi'));this.sound.wire(el('snd-section'));this.wireSleep();
     this.wireDialogs();this.wireOverlayKeys();this.wireKeyboard();this.wireDragDrop();this.wireControlsHide();
     this.wirePiP();this.wireMiniPlayer();this.wireVizOverlay();this.wireCtxMenu();this.wireFluidPointer();this.wirePlayModes();this.wireScenes();this.wireDiagnostics();
     this.wireUpdate();this.wireDefaultPrompt();this.listenMpv();this.renderRecent();this.renderTrackMenus([]);
@@ -427,6 +430,8 @@ window.addEventListener('DOMContentLoaded',()=>{
   window.bmApp=new BMPlayer();
   window.bmMusic=new MusicDash(window.api);
   window.bmApp._applyEQ?.();   // the sound's kept effects for the engine as well (v3.46.0)
+  window.bmApp.hifi?.applyEngine();   // v3.59.0: the engine's peak limiter, as set
+  if (window.bmApp.hifi?.pure) window.bmMusic.pure = true;   // v3.59.0: bit-perfect songs, as set
   // v3.59.0: between songs, and songs made equally loud
   try { window.bmApp.musicFlow=new MusicFlowPanel({ music: window.bmMusic, osd: (m, ms) => window.bmApp.showOSD(m, ms) }); window.bmApp.musicFlow.wire(document.getElementById('snd-flow')); } catch (e) { console.warn('[BM Player] the music flow settings:', e); }
   // Lyrics (v3.38.0), for the music: the Now Playing tab and the visual mode.

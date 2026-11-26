@@ -33,6 +33,14 @@
  *   mode      one of MODES, or 'off' (v3.49.0)
  *   key       the key, in semitones, -12 to 12, the speed kept (v3.59.0)
  *   voicefx   one of VOICES, or 'off': a voice changer (v3.59.0)
+ *   hp        headphone correction (v3.59.0): null, or { name, gain, bands },
+ *             each band [type, frequency, gain in dB, Q], type 'peak',
+ *             'lowshelf' or 'highshelf' (from OPRA, modules/headphones.js)
+ *   crossfeed true or false (v3.59.0): some of each ear's lows in the other,
+ *             as from speakers, for headphones (FFmpeg's crossfeed)
+ *   headroom  true or false (v3.59.0): the whole sound lowered by as much as
+ *             the equalizer, the preamp and the correction lift it at most,
+ *             so a boost cannot clip
  *
  * Sound modes (v3.49.0, Sound lab): one tap for a whole sound, one at a
  * time. Two of them, Slowed and Nightcore, also play songs slower or faster
@@ -79,15 +87,43 @@ export function eqFrom (gains, from = TEN) {
  */
 export function eqResponse (gains, f, rate = 48000) {
   let sum = 0;
-  EQ_FREQUENCIES.forEach((f0, i) => {
-    const g = +gains[i] || 0; if (!g || f0 >= rate / 2) return;
-    const A = Math.pow(10, g / 40), w0 = 2 * Math.PI * f0 / rate, al = Math.sin(w0) / (2 * EQ_Q), c = Math.cos(w0);
-    const b0 = 1 + al * A, b1 = -2 * c, b2 = 1 - al * A, a0 = 1 + al / A, a1 = -2 * c, a2 = 1 - al / A;
-    const w = 2 * Math.PI * f / rate, cw = Math.cos(w), c2 = Math.cos(2 * w), sw = Math.sin(w), s2 = Math.sin(2 * w);
-    const nr = b0 + b1 * cw + b2 * c2, ni = -(b1 * sw + b2 * s2), dr = a0 + a1 * cw + a2 * c2, di = -(a1 * sw + a2 * s2);
-    sum += 10 * Math.log10((nr * nr + ni * ni) / (dr * dr + di * di));
-  });
+  EQ_FREQUENCIES.forEach((f0, i) => { const g = +gains[i] || 0; if (g && f0 < rate / 2) sum += magDb(rbj('peak', f0, g, EQ_Q, rate), f, rate); });
   return sum;
+}
+/**
+ * The cookbook filters (Robert Bristow-Johnson's), as FFmpeg's biquads make
+ * them with width_type=q and as Web Audio's peaking filter is:
+ * [b0, b1, b2, a0, a1, a2]. type 'peak', 'lowshelf' or 'highshelf'.
+ */
+export function rbj (type, f0, db, q, rate) {
+  const A = Math.pow(10, db / 40), w0 = 2 * Math.PI * f0 / rate, c = Math.cos(w0), al = Math.sin(w0) / (2 * q), sA = 2 * Math.sqrt(A) * al;
+  if (type === 'lowshelf') return [A * ((A + 1) - (A - 1) * c + sA), 2 * A * ((A - 1) - (A + 1) * c), A * ((A + 1) - (A - 1) * c - sA), (A + 1) + (A - 1) * c + sA, -2 * ((A - 1) + (A + 1) * c), (A + 1) + (A - 1) * c - sA];
+  if (type === 'highshelf') return [A * ((A + 1) + (A - 1) * c + sA), -2 * A * ((A - 1) + (A + 1) * c), A * ((A + 1) + (A - 1) * c - sA), (A + 1) - (A - 1) * c + sA, 2 * ((A - 1) - (A + 1) * c), (A + 1) - (A - 1) * c - sA];
+  return [1 + al * A, -2 * c, 1 - al * A, 1 + al / A, -2 * c, 1 - al / A];
+}
+/** A biquad's gain at f, in dB. */
+export function magDb ([b0, b1, b2, a0, a1, a2], f, rate) {
+  const w = 2 * Math.PI * f / rate, cw = Math.cos(w), c2 = Math.cos(2 * w), sw = Math.sin(w), s2 = Math.sin(2 * w);
+  const nr = b0 + b1 * cw + b2 * c2, ni = -(b1 * sw + b2 * s2), dr = a0 + a1 * cw + a2 * c2, di = -(a1 * sw + a2 * s2);
+  return 10 * Math.log10((nr * nr + ni * ni) / (dr * dr + di * di));
+}
+/** The headphone correction's response at f, in dB (its gain included). */
+export function hpResponse (hp, f, rate = 48000) {
+  if (!hp) return 0;
+  let sum = hp.gain || 0;
+  for (const [type, f0, g, q] of hp.bands) if (g && f0 < rate / 2) sum += magDb(rbj(type, f0, g, q, rate), f, rate);
+  return sum;
+}
+/**
+ * How much the sound is lowered for headroom (v3.59.0): the most the
+ * preamp, the equalizer and the correction lift any frequency, in half
+ * decibels, rounded up. 0 when nothing lifts.
+ */
+export function headroomOf (s) {
+  if (!s.headroom) return 0;
+  let top = 0;
+  for (let i = 0; i <= 120; i++) { const f = 20 * Math.pow(1000, i / 120); top = Math.max(top, s.preamp + eqResponse(s.eq, f) + hpResponse(s.hp, f)); }
+  return Math.ceil(Math.max(0, top) * 2) / 2;
 }
 export const CHANNELS = [['stereo', 'Stereo'], ['mono', 'Mono'], ['left', 'Left only'], ['right', 'Right only'], ['swap', 'Swapped']];
 /** The sound modes (v3.49.0), in the order the screens show them. */
@@ -113,7 +149,17 @@ export function settings (s = {}) {
     mode: MODES.some(([k]) => k === s.mode) ? s.mode : 'off',
     key: Math.round(num(s.key, -12, 12, 0)),
     voicefx: VOICES.some(([k]) => k === s.voicefx) ? s.voicefx : 'off',
+    hp: hpOf(s.hp),
+    crossfeed: !!s.crossfeed,
+    headroom: !!s.headroom,
   };
+}
+/** A headphone correction, checked: null, or { name, gain, bands } with at most 20 bands it knows. */
+function hpOf (h) {
+  if (!h || !Array.isArray(h.bands)) return null;
+  const bands = h.bands.filter(b => Array.isArray(b) && ['peak', 'lowshelf', 'highshelf'].includes(b[0]) && b[1] >= 10 && b[1] <= 22000 && Number.isFinite(+b[2]) && +b[3] > 0)
+    .slice(0, 20).map(b => [b[0], +b[1], Math.max(-24, Math.min(24, +b[2])), Math.max(0.1, Math.min(20, +b[3]))]);
+  return bands.length || +h.gain ? { name: String(h.name || ''), gain: num(h.gain, -24, 12, 0), bands } : null;
 }
 /** How much faster songs play in these settings' mode: 1 for most, 0.85 for Slowed, 1.25 for Nightcore. */
 export const rateOf = s => RATES[settings(s).mode] || 1;
@@ -287,6 +333,14 @@ const LOUD = new Set(['slowed', '8d', 'bass', 'karaoke', 'hall', 'wide']);
  * until it is ready the sound goes through as it is.
  */
 const PITCH_RATE = 48000, PITCH_MAKEUP = 1.07;
+// FFmpeg's crossfeed, at its own strength (the sides 6 dB lower in the lows) and range (from about 1 kHz down)
+const CROSSFEED = { strength: 0.2, range: 0.5, slope: 0.5, in: 0.9 };
+/** The low shelf FFmpeg's crossfeed puts on the sides, as it works it out: [b0, b1, b2, a0, a1, a2]. */
+export function crossfeedCoefs (rate) {
+  const A = Math.pow(10, CROSSFEED.strength * -30 / 40), w0 = 2 * Math.PI * (1 - CROSSFEED.range) * 2100 / rate, c = Math.cos(w0);
+  const al = Math.sin(w0) / 2 * Math.sqrt((A + 1 / A) * (1 / CROSSFEED.slope - 1) + 2), sA = 2 * Math.sqrt(A) * al;
+  return [A * ((A + 1) - (A - 1) * c + sA), 2 * A * ((A - 1) - (A + 1) * c), A * ((A + 1) - (A - 1) * c - sA), (A + 1) + (A - 1) * c + sA, -2 * ((A - 1) + (A + 1) * c), (A + 1) + (A - 1) * c - sA];
+}
 const semis = n => Math.pow(2, n / 12);
 function pitchMpv (ratio) {
   const r = Math.round(PITCH_RATE * ratio);
@@ -368,10 +422,11 @@ export const EFFECTS = [
   {
     // The equalizer's preamp (v3.49.0): the whole sound up or down before the
     // bands, so a curve that lifts every band need not crackle.
+    // v3.59.0: and the headroom, the sound lowered by as much as everything lifts it
     id: 'preamp', heard: true,
-    on: s => s.preamp !== 0,
-    mpv: s => [`volume=${s.preamp}dB`],
-    web: ctx => { const g = ctx.createGain(); return { input: g, output: g, set: (s, to) => to(g.gain, Math.pow(10, s.preamp / 20)) }; },
+    on: s => s.preamp - headroomOf(s) !== 0,
+    mpv: s => [`volume=${+(s.preamp - headroomOf(s)).toFixed(1)}dB`],
+    web: ctx => { const g = ctx.createGain(); return { input: g, output: g, set: (s, to) => to(g.gain, Math.pow(10, (s.preamp - headroomOf(s)) / 20)) }; },
   },
   {
     // The equalizer: fifteen bands (v3.59.0), each the same peaking filter
@@ -400,6 +455,55 @@ export const EFFECTS = [
     on: s => s.key !== 0,
     mpv: s => pitchMpv(semis(s.key)),
     web: ctx => { const p = pitchNode(ctx); return { ...p, set: s => p.ratio(semis(s.key || 0)) }; },
+  },
+  {
+    // Headphone correction (v3.59.0): a pair of headphones' measured curve
+    // turned into filters (OPRA), so they sound as a neutral pair would. Not
+    // heard: the visualiser shows the music, not the headphones. Peaks are
+    // the same filter in both players; a shelf is FFmpeg's with its Q in
+    // mpv and the same cookbook filter as an IIR filter in the engine.
+    id: 'hp',
+    on: s => !!s.hp,
+    mpv: s => [...(s.hp.gain ? [`volume=${s.hp.gain}dB`] : []), ...s.hp.bands.filter(b => b[2]).map(([t, f, g, q]) => `${t === 'peak' ? 'equalizer' : t}=f=${f}:width_type=q:width=${q}:g=${g}`)],
+    web: ctx => {
+      const input = ctx.createGain(), output = ctx.createGain(); let key = '', nodes = [];
+      return {
+        input, output,
+        set: s => {
+          const k = JSON.stringify(s.hp); if (!s.hp || k === key) return; key = k;
+          try { input.disconnect(); } catch (_) {} for (const n of nodes) { try { n.disconnect(); } catch (_) {} }
+          nodes = s.hp.bands.filter(b => b[2]).map(([t, f, g, q]) => {
+            if (t === 'peak') { const b = ctx.createBiquadFilter(); b.type = 'peaking'; b.frequency.value = f; b.Q.value = q; b.gain.value = g; return b; }
+            const c = rbj(t, f, g, q, ctx.sampleRate);
+            return ctx.createIIRFilter(c.slice(0, 3), c.slice(3));
+          });
+          const gain = ctx.createGain(); gain.gain.value = Math.pow(10, (s.hp.gain || 0) / 20); nodes.unshift(gain);
+          let at = input; for (const n of nodes) { at.connect(n); at = n; } at.connect(output);
+        },
+      };
+    },
+  },
+  {
+    // Crossfeed (v3.59.0), for headphones: the difference between the ears
+    // lowered below about 1 kHz, so the lows reach both, as from speakers.
+    // FFmpeg's crossfeed, and its sum written out for the engine: the middle
+    // as it is, the sides through the same low shelf, the ears made again.
+    id: 'crossfeed',
+    on: s => s.crossfeed,
+    mpv: () => [`crossfeed=strength=${CROSSFEED.strength}:range=${CROSSFEED.range}:slope=${CROSSFEED.slope}:level_in=${CROSSFEED.in}:level_out=1`],
+    web: ctx => {
+      const input = stereo(ctx), split = ctx.createChannelSplitter(2), merge = ctx.createChannelMerger(2);
+      input.connect(split);
+      const mid = ctx.createGain(), side = ctx.createGain(); mid.gain.value = 0.5 * CROSSFEED.in; side.gain.value = 0.5 * CROSSFEED.in;
+      const neg = ctx.createGain(); neg.gain.value = -1;
+      split.connect(mid, 0); split.connect(mid, 1); split.connect(side, 0); split.connect(neg, 1); neg.connect(side);
+      const c = crossfeedCoefs(ctx.sampleRate), shelf = ctx.createIIRFilter(c.slice(0, 3), c.slice(3));
+      side.connect(shelf);
+      const sideNeg = ctx.createGain(); sideNeg.gain.value = -1; shelf.connect(sideNeg);
+      mid.connect(merge, 0, 0); shelf.connect(merge, 0, 0);
+      mid.connect(merge, 0, 1); sideNeg.connect(merge, 0, 1);
+      return { input, output: merge };
+    },
   },
   {
     // Clear voice (v3.49.0), for films: mpv's dialoguenhance finds what is

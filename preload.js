@@ -100,6 +100,10 @@ contextBridge.exposeInMainWorld('api',{
     lyricsSaved: ()=>inv('lyrics:saved'),                            // v3.50.0: saved lyrics
     lyricsClearSaved: ()=>inv('lyrics:clearSaved'),
     lyricsSaveLrc: (file,text,opts)=>inv('lyrics:saveLrc',file,text,opts?{replace:!!opts.replace}:undefined),
+    // v3.59.0: headphone correction, from OPRA's database (main/opra.js)
+    opraSearch: q=>inv('opra:search',String(q||'')),
+    opraEq: id=>inv('opra:eq',String(id||'')),
+    opraStatus: ()=>inv('opra:status'),
     ytdlp: ()=>inv('lyrics:ytdlp'),
   },
   // A dropped file's place on disk (v3.39.0). File.path is gone from Electron
