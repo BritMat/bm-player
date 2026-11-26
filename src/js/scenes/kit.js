@@ -13,6 +13,7 @@
  *   count(n, q)          how many of something at quality q, at least one
  *   TIER                 quality tiers as a multiplier (perf.js's names)
  *   canvas(w, h)         an off-screen canvas, never 0 pixels wide
+ *   free(...canvases)    their pixels given back at once (v3.59.0)
  *   glow(r, rgb, core)   a soft round glow, drawn once as a sprite
  *   glint(r, rgb)        a four-pointed glint with a soft centre
  *   noise(x)             smooth noise along a line, 0 to 1
@@ -46,6 +47,13 @@ export function canvas (w, h = w) {
   c.width = Math.max(1, Math.ceil(w)); c.height = Math.max(1, Math.ceil(h));
   return c;
 }
+
+/**
+ * Canvases given back at once (v3.59.0): a full-screen layer holds 8 to 18 MB
+ * until the page next collects its garbage, and a scene drawn again for a new
+ * size, or chosen again, made the next layers wait behind them.
+ */
+export function free (...cs) { for (const c of cs) if (c && c.width) { c.width = 0; c.height = 0; } }
 
 /** A soft round glow: full colour at the centre fading to nothing. */
 export function glow (r, rgb, core = 0) {

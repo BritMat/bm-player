@@ -21,7 +21,7 @@
  * after the window stops changing size. The leaves, plants and butterflies
  * follow the quality tier. Ported from the demo shown with the roadmap.
  */
-import { TAU, rnd, clamp, canvas, seeded, TIER, scaleFor } from './kit.js';
+import { TAU, rnd, clamp, canvas, free, seeded, TIER, scaleFor } from './kit.js';
 
 export const TAPS = [['grow', 'Grow a flower'], ['gust', 'Gust']];
 const angDiff = (a, b) => { let d = (b - a) % TAU; if (d > Math.PI) d -= TAU; if (d < -Math.PI) d += TAU; return d; };
@@ -109,7 +109,7 @@ export default {
 
     // ── the ground, the path and the birdbath, made once per size ──
     function buildGround () {
-      groundL = canvas(W * DPR, H * DPR); const g = groundL.getContext('2d'); g.scale(DPR, DPR);
+      free(groundL); groundL = canvas(W * DPR, H * DPR); const g = groundL.getContext('2d'); g.scale(DPR, DPR);
       const r = seeded(3);
       g.fillStyle = '#4a3622'; g.fillRect(0, 0, W, H);   // dark, crumbly soil and mulch
       for (let i = 0; i < W * H / 60 * q; i++) {
@@ -160,7 +160,7 @@ export default {
       g.strokeStyle = 'rgba(60,50,40,0.35)'; g.lineWidth = 3 * S; g.beginPath(); g.arc(bath.x, bath.y, bath.r * 0.8, 0, TAU); g.stroke();
       // the warm afternoon light and the edges darkened, baked in
       const lg = g.createRadialGradient(W * 0.2, H * 0.1, 0, W * 0.3, H * 0.2, Math.hypot(W, H)); lg.addColorStop(0, 'rgba(255,230,170,0.16)'); lg.addColorStop(1, 'rgba(255,200,120,0)');
-      vign = canvas(W * DPR, H * DPR); const v = vign.getContext('2d'); v.scale(DPR, DPR);
+      free(vign); vign = canvas(W * DPR, H * DPR); const v = vign.getContext('2d'); v.scale(DPR, DPR);
       v.globalCompositeOperation = 'lighter'; v.fillStyle = lg; v.fillRect(0, 0, W, H); v.globalCompositeOperation = 'source-over';
       const vg = v.createRadialGradient(W / 2, H / 2, Math.min(W, H) * 0.35, W / 2, H / 2, Math.hypot(W, H) * 0.62); vg.addColorStop(0, 'rgba(0,0,0,0)'); vg.addColorStop(1, 'rgba(20,10,0,0.45)'); v.fillStyle = vg; v.fillRect(0, 0, W, H);
       // dappled light: soft patches of leaf shade that drift
@@ -410,7 +410,7 @@ export default {
         if (key === 'tap' && TAPS.some(([k]) => k === value)) opts.tap = value;
         if (key === 'breeze') opts.breeze = !!value;
       },
-      stop () { clearTimeout(rebuildT); clearTimeout(pointer.outT); groundL = dapple = dapPat = vign = null; plants = []; fliers = []; },
+      stop () { clearTimeout(rebuildT); clearTimeout(pointer.outT); free(groundL, vign, dapple); groundL = dapple = dapPat = vign = null; plants = []; fliers = []; },
     };
   },
 };

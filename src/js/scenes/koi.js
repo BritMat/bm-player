@@ -21,7 +21,7 @@
  * window stops changing size. The fish and the shimmer follow the quality
  * tier. Ported from the demo shown with the roadmap.
  */
-import { TAU, rnd, clamp, canvas, seeded, TIER, scaleFor } from './kit.js';
+import { TAU, rnd, clamp, canvas, free, seeded, TIER, scaleFor } from './kit.js';
 
 export const TAPS = [['touch', 'Touch the water'], ['feed', 'Feed']];
 const angDiff = (a, b) => { let d = (b - a) % TAU; if (d > Math.PI) d -= TAU; if (d < -Math.PI) d += TAU; return d; };
@@ -91,6 +91,7 @@ export default {
 
     function layer () { const c = canvas(W * DPR, H * DPR), g = c.getContext('2d'); g.setTransform(DPR, 0, 0, DPR, 0, 0); return [c, g]; }
     function buildLayers () {
+      free(bgLayer, branchLayer, vignette);
       const r0 = seeded(5);
       let [c, g] = layer(); bgLayer = c;
       const r = Math.hypot(W, H) * 0.62;
@@ -104,24 +105,27 @@ export default {
         sg.addColorStop(0, 'rgba(70,120,130,0.10)'); sg.addColorStop(1, 'rgba(70,120,130,0)');
         g.fillStyle = sg; g.beginPath(); g.ellipse(x, y, rr, rr * (0.6 + r0() * 0.3), r0() * TAU, 0, TAU); g.fill();
       }
-      // reflections of a tree on the water, from the upper right
-      [c, g] = layer(); branchLayer = c;
-      g.lineCap = 'round';
+      // reflections of a tree on the water, from the upper right. The
+      // branches are drawn sharp on a layer of their own and blurred once
+      // on the way in: a blur on each of some two thousand strokes held the
+      // first frame up for seconds at full screen.
+      const [tc, tg] = layer();
+      tg.lineCap = 'round';
       const branch = (x, y, a, len, w, depth) => {
         if (depth <= 0 || len < 6) return;
         const x2 = x + Math.cos(a) * len, y2 = y + Math.sin(a) * len;
         const mx = (x + x2) / 2 + Math.cos(a + Math.PI / 2) * len * (r0() * 0.24 - 0.12), my = (y + y2) / 2 + Math.sin(a + Math.PI / 2) * len * (r0() * 0.24 - 0.12);
-        g.strokeStyle = 'rgba(214,160,78,' + (0.18 + depth * 0.05) + ')'; g.lineWidth = w;
-        g.beginPath(); g.moveTo(x, y); g.quadraticCurveTo(mx, my, x2, y2); g.stroke();
+        tg.strokeStyle = 'rgba(214,160,78,' + (0.18 + depth * 0.05) + ')'; tg.lineWidth = w;
+        tg.beginPath(); tg.moveTo(x, y); tg.quadraticCurveTo(mx, my, x2, y2); tg.stroke();
         const n = depth > 5 ? 2 : (r0() < 0.6 ? 2 : 3);
         for (let k = 0; k < n; k++) branch(x2, y2, a + (r0() * 1.5 - 0.75), len * (0.62 + r0() * 0.2), Math.max(0.6, w * 0.68), depth - 1);
       };
       const base = Math.max(W, H);
-      g.filter = 'blur(' + 1.1 * S + 'px)';
       branch(W + 20, -20, Math.PI * 0.72, base * 0.16, 7 * S, low ? 7 : 8);
       branch(W + 30, H * 0.22, Math.PI * 0.95, base * 0.13, 5.5 * S, low ? 6 : 7);
       branch(W * 0.86, -30, Math.PI * 0.6, base * 0.12, 5 * S, low ? 6 : 7);
-      g.filter = 'none';
+      [c, g] = layer(); branchLayer = c;
+      g.filter = 'blur(' + 1.1 * S + 'px)'; g.drawImage(tc, 0, 0, W, H); g.filter = 'none'; free(tc);
       // the dark rim of the pond
       [c, g] = layer(); vignette = c;
       const vg = g.createRadialGradient(W / 2, H / 2, Math.min(W, H) * 0.35, W / 2, H / 2, Math.hypot(W, H) * 0.6);
@@ -455,7 +459,7 @@ export default {
         if (key === 'petals') opts.petals = !!value;
         if (key === 'dance') opts.dance = !!value;
       },
-      stop () { clearTimeout(rebuildT); fish = []; pads = []; petals = []; ripples = []; pellets = []; bgLayer = branchLayer = vignette = null; },
+      stop () { clearTimeout(rebuildT); free(bgLayer, branchLayer, vignette); fish = []; pads = []; petals = []; ripples = []; pellets = []; bgLayer = branchLayer = vignette = null; },
     };
   },
 };

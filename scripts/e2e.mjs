@@ -761,6 +761,8 @@ if (PART === 'a') {
           while (!run.cost().frames && performance.now() - t0 < 5000) await new Promise(z => setTimeout(z, 5));
           const first = run.cost(), t1 = performance.now();
           await new Promise(z => setTimeout(z, 600));
+          // the page itself can be busy for a moment (seen once with the garden, which runs at 30 a second on its own): a second look before it counts as stopped
+          if (run.cost().frames === first.frames) await new Promise(z => setTimeout(z, 600));
           const c2 = run.cost(), secs = (performance.now() - t1) / 1000, n = c2.frames - first.frames;
           const cost = { frames: n, msPerFrame: n ? (c2.frames * c2.msPerFrame - first.frames * first.msPerFrame) / n : 0, errors: c2.errors };
           // something drawn: a pixel lit somewhere along the middle row
@@ -824,12 +826,15 @@ if (PART === 'a') {
         for (let k = 0; k < 6; k++) { ears.forEach((a, i) => { a.getFloatTimeDomainData(buf); let s = 0; for (const v of buf) s += v * v; sum[i] += Math.sqrt(s / buf.length); }); await new Promise(z => setTimeout(z, 40)); }
         return sum.map(x => +(x / 6).toFixed(4));
       };
-      const off = { eq: new Array(10).fill(0), channels: 'stereo', night: false, boost: 1, mode: 'off', voice: false, preamp: 0 };
+      // v3.59.0: the app's hi-fi settings go to the engine too (No clipping is on at first), so all off says them
+      const off = { eq: new Array(10).fill(0), channels: 'stereo', night: false, boost: 1, mode: 'off', voice: false, preamp: 0, key: 0, voicefx: 'off', hp: null, crossfeed: false, headroom: false };
       const out = {};
       eng.setVolume(100); eng.setMuted(false);
       eng.setSound(off); out.off = await level();
       for (const ch of ['swap', 'left', 'right', 'mono']) { eng.setSound({ ...off, channels: ch }); out[ch] = await level(); }
       eng.setSound({ ...off, eq: [0, 0, 0, 12, 12, 0, 0, 0, 0, 0] }); out.eq = await level();
+      // No clipping lowers the whole by what the bands lift, so the tone the bands lift is no louder than it was
+      eng.setSound({ ...off, eq: [0, 0, 0, 12, 12, 0, 0, 0, 0, 0], headroom: true }); out.headroom = await level();
       eng.setSound({ ...off, boost: 2 }); out.boost = await level();
       eng.setSound({ ...off, night: true }); out.night = await level();
       eng.setSound(off); await new Promise(z => setTimeout(z, 300)); out.again = await level(); out.live = eng.chain.live.join(',');
@@ -866,6 +871,7 @@ if (PART === 'a') {
     if (!quiet(r.right[0]) || !quiet(r.right[1])) throw new Error('right only (silent here) was not silent: ' + JSON.stringify(r.right));
     if (!near(r.mono[0], L / 2) || !near(r.mono[1], L / 2)) throw new Error('mono is not half in each ear: ' + JSON.stringify(r.mono));
     if (!(r.eq[0] > L * 2.5)) throw new Error('the equalizer at +12 around the tone did not lift it: ' + JSON.stringify(r.eq));
+    if (!(r.headroom[0] <= L * 1.12 && r.headroom[0] > L * 0.4)) throw new Error('with No clipping the lifted tone is not back near where it was: ' + JSON.stringify({ off: r.off, headroom: r.headroom }));
     // A 200% boost doubles the sound. Until v3.49.0 it was a little over
     // double, and night mode lifted a quiet tone some 9 dB more than mpv's:
     // a Web Audio compressor adds a make-up gain of its own, which mpv's do
@@ -879,7 +885,7 @@ if (PART === 'a') {
     if (r.worklet !== true) throw new Error('the key\'s pitch shifter did not load: ' + r.worklet);
     const want = 330 * Math.pow(2, 7 / 12);
     if (Math.abs(r.key.hz - want) > 12 || Math.abs(r.key.pace - 1) > 0.1) throw new Error(`seven semitones up: ${r.key.hz} Hz (not about ${Math.round(want)}), at ${r.key.pace} times the speed`);
-    console.log(`      (left ear: off ${L}, equalizer ${r.eq[0]}, boost ${r.boost[0]}, night ${r.night[0]}, all off again ${r.again[0]}; Nightcore ran at ${nc.pace} times; the key +7 put 330 Hz at ${r.key.hz})`);
+    console.log(`      (left ear: off ${L}, equalizer ${r.eq[0]} or ${r.headroom[0]} with No clipping, boost ${r.boost[0]}, night ${r.night[0]}, all off again ${r.again[0]}; Nightcore ran at ${nc.pace} times; the key +7 put 330 Hz at ${r.key.hz})`);
   });
 }
 
@@ -2153,7 +2159,11 @@ if (PART === 'd') {
       f = await openGame('bricks');
       await f.locator('#c').click(); await page.waitForTimeout(500);
       const b = await f.evaluate(() => ({ state, y: ball.y, vy: ball.vy })); if (b.state !== 'play' || !(b.vy < 0) || !(b.y < 400)) throw new Error('Bricks: ' + JSON.stringify(b));
-      await page.keyboard.down('ArrowLeft'); await page.waitForTimeout(300); await page.keyboard.up('ArrowLeft');
+      // as with Trail, the key reaches the frame once it has the keyboard: held again if the first went nowhere (seen once)
+      for (let i = 0; i < 4 && !((await f.evaluate(() => bat.x)) < 320); i++) {
+        if (i) await f.evaluate(() => window.focus());
+        await page.keyboard.down('ArrowLeft'); await page.waitForTimeout(300); await page.keyboard.up('ArrowLeft');
+      }
       if (!((await f.evaluate(() => bat.x)) < 320)) throw new Error('the bat did not move');
       await page.click('#btn-games-close');
 
